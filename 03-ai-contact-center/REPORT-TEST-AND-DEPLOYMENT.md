@@ -275,7 +275,8 @@ AI spend of the backend verification on real models: **≈ US$2.9** (cap US$3); 
 
 ### 14.4 Live (deployed) results
 
-Deployed with a code-only redeploy (`az acr build` + `az containerapp update`; no infrastructure change; `SEED_ON_START=1` ran the idempotent data upgrades on the live Cosmos DB in ≈ 90 s, nothing wiped). Final build `20261118-131258`, revision `ca-concierge-imsov4laqyzgs--0000006`.
+Deployed with a code-only redeploy (`az acr build` + `az containerapp update`; no infrastructure change; `SEED_ON_START=1` ran the idempotent data upgrades on the live Cosmos DB in ≈ 90 s, nothing wiped). The results below were measured on build `20261118-131258` (revision `ca-concierge-imsov4laqyzgs--0000006`).
+The app was then redeployed from the committed tree — image tag `git-3b33cbe`, build `20261118-140709`, revision `ca-concierge-imsov4laqyzgs--0000008`; the code is identical (only documentation, tests and screenshots changed in between) — and the smoke test was **31 / 31** again (AI spend US$0.149 + US$0.296).
 Final live run: `app/.venv/bin/python scripts/smoke_test.py --base-url <live> --expect-mode azure --lang all` → **31 / 31 PASS** (`app/evidence/smoke-live-all-pl.txt`, `.json`).
 
 | Step | Local hybrid | Live (Cosmos DB, final deployed build) |

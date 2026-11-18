@@ -220,7 +220,7 @@ python ../scripts/sync_business_case.py                                         
 
 ## 12. Polish localization (pl)
 
-**Status.** **Deployed to Azure and verified live** (code-only redeploy by `az acr build` + `az containerapp update`, revision `ca-studio-web--0000003`; no infrastructure change; the idempotent seed `2026.11.3` upserted the Polish content into the live Cosmos DB without touching existing data).
+**Status.** **Deployed to Azure and verified live** (code-only redeploy by `az acr build` + `az containerapp update`; no infrastructure change; the idempotent seed `2026.11.3` upserted the Polish content into the live Cosmos DB without touching existing data). The first live run was on revision `ca-studio-web--0000003`; after the fix of §12.8 the app was redeployed from the committed tree — image tag `git-3b33cbe`, revision `ca-studio-web--0000005` — and the smoke test was **44/44** again (AI spend US$0.32).
 Before the deployment the work was verified locally in two ways: *offline stubs* (every code path, deterministic) and the **real Azure AI models** on *hybrid backends* — real Azure OpenAI, Content Safety, AI Speech and image generation,
 but an in-memory repository and local-directory blobs, so nothing touched the live Cosmos DB / Blob storage while the English app was being served from it. The live daily AI cap was raised for the verification and restored to **$5** (per-campaign cap $2).
 

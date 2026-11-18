@@ -21,6 +21,16 @@ SAFE_AREAS = {
 }
 
 
+class ClipSpec(BaseModel):
+    """How a generated clip plays inside its scene (the compositor retimes 24 fps clips to the 25 fps master)."""
+
+    fps: int = Field(default=24, ge=1, le=60)
+    frames: int = Field(ge=2, le=1000)
+    offset: float = Field(default=0.0, ge=0.0)  # clip time (s) shown when the dissolve into this scene begins
+    speed: float = Field(default=1.0, ge=0.25, le=2.0)  # 1.0 = real time, below 1 = slow motion
+    hold_tail: bool = False  # when the clip ends before the scene does: hold the last frame and keep pushing in gently
+
+
 class SceneSpec(BaseModel):
     id: str
     shot_id: str | None = None
@@ -31,6 +41,33 @@ class SceneSpec(BaseModel):
     role: str = "hook"
     super_text: str | None = None
     beat_id: str | None = None
+    clip_asset_id: str | None = None  # cinematic quality: the AI-generated clip that plays in this scene (library asset)
+    clip: ClipSpec | None = None
+
+
+class MotionShot(BaseModel):
+    """The recipe of one generated clip: with the same keyframe, size, seed and settings it reproduces (or re-finds in the cache) the same clip."""
+
+    scene_id: str
+    shot_id: str | None = None
+    prompt: str
+    negative: str = ""
+    seed: int
+
+
+class MotionSpec(BaseModel):
+    """RenderSpec.motion: the generative-video recipe of a cinematic spot (reused by re-renders, formats and localized versions)."""
+
+    mode: str = ""
+    model: str
+    revision: str = ""
+    license: str = ""
+    steps: int = 20
+    guidance: float = 4.0
+    fps: int = 24
+    high: bool = False
+    seed_base: int = 0
+    shots: list[MotionShot] = Field(default_factory=list)
 
 
 class VoLine(BaseModel):
@@ -112,6 +149,8 @@ class RenderSpec(BaseModel):
     seed: int = 7
     grade_strength: float = 0.0
     lineage: Lineage = Field(default_factory=Lineage)
+    quality: Literal["preview", "cinematic"] = "preview"  # preview = keyframes with camera moves; cinematic = AI-generated clips as scenes
+    motion: MotionSpec | None = None
 
     @property
     def size(self) -> tuple[int, int]:

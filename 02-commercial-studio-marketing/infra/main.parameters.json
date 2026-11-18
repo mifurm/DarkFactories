@@ -7,7 +7,10 @@
     "resourceGroupName": { "value": "${AZURE_RESOURCE_GROUP=rg-swarmai-studio}" },
     "principalId": { "value": "${AZURE_PRINCIPAL_ID}" },
     "webAppExists": { "value": "${SERVICE_WEB_RESOURCE_EXISTS=false}" },
-    "dailyAiBudgetUsd": { "value": "${DAILY_AI_BUDGET_USD=5}" },
-    "campaignAiBudgetUsd": { "value": "${CAMPAIGN_AI_BUDGET_USD=2}" }
+    "dailyAiBudgetUsd": { "value": "${DAILY_AI_BUDGET_USD=15}" },
+    "campaignAiBudgetUsd": { "value": "${CAMPAIGN_AI_BUDGET_USD=5}" },
+    "enableMotion": { "value": "${ENABLE_MOTION=true}" },
+    "motionImage": { "value": "${SERVICE_MOTION_IMAGE_NAME=}" },
+    "motionAppExists": { "value": "${SERVICE_MOTION_RESOURCE_EXISTS=false}" }
   }
 }

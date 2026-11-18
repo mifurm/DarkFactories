@@ -159,6 +159,9 @@ async def stream_job(request: Request, job_id: str) -> StreamingResponse:
         async for ev in s.jobs.stream(job_id):
             if await request.is_disconnected():
                 return
+            if ev["event"] == "ping":  # an SSE comment: keeps the connection open through proxies, invisible to EventSource listeners
+                yield ": keep-alive\n\n"
+                continue
             yield f"event: {ev['event']}\ndata: {json.dumps(ev['data'], default=str)}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})

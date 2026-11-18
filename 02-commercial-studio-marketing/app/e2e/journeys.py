@@ -371,7 +371,7 @@ def main() -> int:
     def feature_map(p: Page) -> None:
         run.go(p, "/features")
         expect(p.get_by_role("heading", name="Feature map")).to_be_visible()
-        assert p.locator("text=CS-24").count() >= 1 and p.locator("text=implemented").count() >= 24
+        assert p.locator("text=CS-25").count() >= 1 and p.locator("text=implemented").count() >= 25
         run.shot(p, "25-feature-map")
 
     def api_docs(p: Page) -> None:

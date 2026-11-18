@@ -24,6 +24,11 @@ param cpu string
 param memory string
 param maxReplicas int
 
+@description('Cinematic motion: add the serverless A100 workload profile and point Studio at the motion queue/blobs.')
+param enableMotion bool = false
+param motionQueueUrl string = ''
+param motionPricePerGpuSecond string = '0.00108'
+
 var appName = 'ca-studio-web'
 var placeholderImage = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
@@ -34,9 +39,11 @@ resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
   properties: {
     // Keyless log routing (diagnostic settings) instead of a Log Analytics shared key.
     appLogsConfiguration: { destination: 'azure-monitor' }
-    workloadProfiles: [
-      { name: 'Consumption', workloadProfileType: 'Consumption' }
-    ]
+    // Serverless GPU (scale-to-zero, per-second billing) hosts the open video model: Azure OpenAI Sora 2 is retired.
+    workloadProfiles: concat(
+      [{ name: 'Consumption', workloadProfileType: 'Consumption' }],
+      enableMotion ? [{ name: 'gpu-a100', workloadProfileType: 'Consumption-GPU-NC24-A100' }] : []
+    )
   }
 }
 
@@ -81,6 +88,19 @@ var baseEnv = [
 
 var authEnv = enableEntraAuth ? [{ name: 'OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID', value: identityClientId }] : []
 
+var motionEnv = enableMotion
+  ? [
+      { name: 'MOTION_MODE', value: 'azure' }
+      { name: 'MOTION_QUEUE_URL', value: motionQueueUrl }
+      { name: 'MOTION_QUEUE_NAME', value: 'motion-jobs' }
+      { name: 'MOTION_BLOB_ACCOUNT_URL', value: blobAccountUrl }
+      { name: 'MOTION_IN_CONTAINER', value: 'motion-in' }
+      { name: 'MOTION_OUT_CONTAINER', value: 'motion-out' }
+      { name: 'MOTION_MODEL', value: 'wan2.2-ti2v-5b' }
+      { name: 'MOTION_PRICE_PER_GPU_SECOND', value: motionPricePerGpuSecond }
+    ]
+  : []
+
 var probes = isPlaceholder ? [] : [
   { type: 'Startup', httpGet: { path: '/healthz', port: 8000 }, periodSeconds: 3, failureThreshold: 60 }
   { type: 'Liveness', httpGet: { path: '/healthz', port: 8000 }, periodSeconds: 20, failureThreshold: 3 }
@@ -117,7 +137,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'web'
           image: effectiveImage
           resources: { cpu: json(cpu), memory: memory }
-          env: concat(baseEnv, modelEnv, authEnv)
+          env: concat(baseEnv, modelEnv, authEnv, motionEnv)
           probes: probes
         }
       ]
@@ -157,6 +177,7 @@ resource auth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = if (enableE
 }
 
 output name string = app.name
+output environmentId string = env.id
 output uri string = 'https://${app.properties.configuration.ingress.fqdn}'
 output acrName string = acrName
 output image string = effectiveImage

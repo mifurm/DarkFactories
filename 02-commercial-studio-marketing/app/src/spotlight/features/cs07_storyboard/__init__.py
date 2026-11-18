@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -17,6 +18,7 @@ from ...deps import mutate_limit, spend_limit
 from ...errors import AppError, NotFound, ValidationFailed
 from ...i18n import t
 from ...i18n.directive import lang_directive
+from ...motion.prompts import camera_phrase, default_motion
 from ...registry import Feature
 from ...roles import Actor, require
 from ...seed.data import PALETTE_PL
@@ -29,6 +31,65 @@ FRAMING = {"hook": "wide establishing shot", "product": "medium close-up", "proo
 FRAMING_PL = {"hook": "plan ogólny wprowadzający", "product": "plan półzbliżony", "proof": "makro z płytką głębią ostrości", "cta": "plan średni", "brand": "centralne ujęcie produktu, spokojna wolna przestrzeń"}
 PALETTE_NAMES_PL = {name.lower(): pl_name.lower() for name, (pl_name, _role) in PALETTE_PL.items()}  # the colour names used in the Polish Brand Book
 FOCAL = {"hook": (0.5, 0.58), "product": (0.45, 0.52), "proof": (0.5, 0.55), "cta": (0.55, 0.55), "brand": (0.5, 0.58)}
+MAX_MOTION_CHARS = 280
+DIPTYCH_GUARD = "Depict ONE single frame — the opening moment of the shot. Never a collage, split screen, diptych, panels, sequence or text."
+
+# Offline storyboard: (opening frame, what moves — English, what moves — Polish) per role, and per subject for the longer scripts. The camera move is not part of
+# the motion text: it is added from the shot's ``movement`` (see ``spotlight.motion.prompts``).
+_ROLE_SHOTS: dict[str, tuple[str, str, str]] = {
+    "hook": (
+        "Pre-dawn kitchen in soft blue-grey light; a ceramic mug stands on the counter beside the kraft Dawn Roast bag.",
+        "A hand enters the frame and lifts the mug while the window light slowly warms from blue-grey to amber; a thin curl of steam rises.",
+        "Dłoń wchodzi w kadr i unosi kubek, a światło w oknie powoli ciepleje z niebiesko-szarego do bursztynowego; unosi się cienka smużka pary.",
+    ),
+    "product": (
+        "Close-up of the kraft Dawn Roast bag with the amber sun mark, in soft backlight on a kitchen counter.",
+        "A hand unrolls the top of the bag; steam and a faint haze of aroma drift upward through the backlight.",
+        "Dłoń rozwija górę torby; para i delikatna mgiełka aromatu unoszą się w kontrświetle.",
+    ),
+    "proof": (
+        "A ceramic cup on a wooden counter, golden light across its rim.",
+        "Coffee pours slowly into the cup, ripples spread across the surface and steam curls up through a sunbeam.",
+        "Kawa powoli wlewa się do filiżanki, po powierzchni rozchodzą się fale, a para wije się w smudze słońca.",
+    ),
+    "cta": (
+        "A person at a kitchen table holds a warm mug in soft morning light, calm expression.",
+        "They lift the mug and take a slow sip; their shoulders relax and the light shifts gently across their face.",
+        "Unoszą kubek i biorą powolny łyk; barki się rozluźniają, a światło łagodnie przesuwa się po twarzy.",
+    ),
+    "brand": (
+        "Cup and kraft bag on a sunlit windowsill, the amber sun mark glowing.",
+        "Steam rises softly from the cup while the sunlight glows a little warmer; the scene stays calm and nearly still.",
+        "Z filiżanki łagodnie unosi się para, a światło słońca robi się odrobinę cieplejsze; scena pozostaje spokojna, prawie nieruchoma.",
+    ),
+}
+_SUBJECT_SHOTS: list[tuple[str, tuple[str, str, str]]] = [
+    (r"\bbaker\b", ("A dark street at 4:45 a.m. with one lit bakery window and a baker behind the counter.", "The baker ties her apron and turns toward the oven; warm window light flickers softly on the pavement.", "Piekarka zawiązuje fartuch i odwraca się w stronę pieca; ciepłe światło z okna migocze łagodnie na chodniku.")),
+    (r"\bnurse\b", ("A nurse sits on a stoop with both hands around a warm cup, the street behind her still quiet.", "She breathes out and lifts the cup; steam drifts past her face while the street slowly wakes behind her.", "Wydycha powietrze i unosi filiżankę; para przesuwa się obok jej twarzy, a za nią powoli budzi się ulica.")),
+    (r"\b(?:dad|commuter)\b", ("A commuting dad stands on a porch with a mug in early light.", "He takes a slow sip and glances back toward the door; the morning light warms his face.", "Bierze powolny łyk i spogląda w stronę drzwi; poranne światło ogrzewa jego twarz.")),
+    (r"\b(?:beans?|roaster)\b", ("Coffee beans in the roaster window, still green with a hint of gold.", "The beans tumble slowly in the drum, turning from green to gold; warm light pulses on the glass.", "Ziarna powoli przesypują się w bębnie, zmieniając barwę z zielonej na złotą; ciepłe światło pulsuje na szybie.")),
+    (r"\bshelf\b", ("A shelf of kraft Dawn Roast bags in a neighbourhood store, soft shop light.", "A hand takes one bag from the shelf; light glints softly on the kraft paper.", "Dłoń zdejmuje jedną torbę z półki; światło delikatnie połyskuje na papierze kraft.")),
+    (r"\b(?:city|streetlights?)\b", ("A city before sunrise: streetlights, a parked delivery van and a single lit window.", "The streetlights glow steadily as the sky brightens at the horizon; a delivery van pulls slowly away.", "Latarnie świecą równo, a niebo na horyzoncie rozjaśnia się; furgonetka dostawcza powoli odjeżdża.")),
+    (r"\bnotebook\b", ("A table with a notebook and a cup, a patch of sunlight on the wood.", "The sunlight slowly crosses the table; a hand closes the notebook and lifts the cup.", "Światło słoneczne powoli wędruje po stole; dłoń zamyka notes i unosi filiżankę.")),
+    (r"\bpour-over\b", ("A pour-over dripper above a glass server, steam backlit.", "Hot water blooms the grounds, which swell and release steam in the backlight.", "Gorąca woda sprawia, że zmielona kawa „rozkwita”, a z niej unosi się para w kontrświetle.")),
+]
+
+
+def stub_shot_plan(role: str, visual_en: str) -> tuple[str, str, str]:
+    """(opening frame, motion in English, motion in Polish) for an offline shot: by subject when the scene names one, else by beat role."""
+    low = visual_en.lower()
+    for pattern, plan in _SUBJECT_SHOTS:
+        if re.search(pattern, low):
+            return plan
+    return _ROLE_SHOTS.get(role, _ROLE_SHOTS["proof"])
+
+
+def trim_motion(text: str, limit: int = MAX_MOTION_CHARS) -> str:
+    """One clean motion sentence of at most ``limit`` characters (cut at a word boundary)."""
+    t_ = re.sub(r"\s+", " ", text or "").strip()
+    if len(t_) <= limit:
+        return t_
+    return t_[:limit].rsplit(" ", 1)[0].rstrip(",;: ")
 
 
 class StyleBible(BaseModel):
@@ -49,11 +110,14 @@ class ShotOut(BaseModel):
     focal_x: float
     focal_y: float
     super_text: str
+    opening_en: str  # ONE single frame: the first instant of the shot (never a sequence, transition or split screen); English — it feeds the image model and is the first frame of the AI clip
+    motion_en: str  # what MOVES during the shot (subject action, camera move, steam / light / dust), <= 280 characters, English, concrete and physically plausible, one action per shot
 
 
 class ShotOutL10n(ShotOut):
     description_en: str  # the same shot in English: the (English-prompted) image model never sees the campaign language
     framing_en: str
+    motion: str  # the same motion in the campaign language (shown to people; the video model reads motion_en)
 
 
 class StoryboardOut(BaseModel):
@@ -93,9 +157,10 @@ def _stub_storyboard(ctx: dict[str, Any]) -> dict[str, Any]:
     for i, b in enumerate(ctx.get("beats", []), start=1):
         role = b.get("role", "proof")
         fx, fy = FOCAL.get(role, (0.5, 0.55))
-        shot = {"beat_index": i, "description": b["visual"], "framing": FRAMING.get(role, "medium shot"), "movement": MOVES.get(role, "zoom_in"), "image_prompt": b.get("visual_en") or b["visual"], "focal_x": fx, "focal_y": fy, "super_text": b.get("super_text") or ""}
+        opening_en, motion_en, motion_pl = stub_shot_plan(role, b.get("visual_en") or b["visual"])
+        shot = {"beat_index": i, "description": b["visual"], "framing": FRAMING.get(role, "medium shot"), "movement": MOVES.get(role, "zoom_in"), "image_prompt": b.get("visual_en") or b["visual"], "focal_x": fx, "focal_y": fy, "super_text": b.get("super_text") or "", "opening_en": opening_en, "motion_en": motion_en}
         if pl:
-            shot.update(framing=FRAMING_PL.get(role, "plan średni"), description_en=b.get("visual_en") or b["visual"], framing_en=FRAMING.get(role, "medium shot"))
+            shot.update(framing=FRAMING_PL.get(role, "plan średni"), description_en=b.get("visual_en") or b["visual"], framing_en=FRAMING.get(role, "medium shot"), motion=motion_pl)
         shots.append(shot)
     if pl:
         return {"style_bible": _bible_pl(ctx.get("palette_names_pl") or pal), "style_bible_en": bible, "shots": shots}
@@ -105,14 +170,16 @@ def _stub_storyboard(ctx: dict[str, Any]) -> dict[str, Any]:
 def compose_image_prompt(shot: dict[str, Any], bible: dict[str, Any], palette_hex: list[str]) -> str:
     """Consistency by construction: every frame carries the same style bible, product/character descriptions and palette.
 
-    The image model is prompted in English: for non-English campaigns the shot's ``description_en`` / ``framing_en`` and the English bible are used."""
+    The image model is prompted in English: for non-English campaigns the shot's ``opening_en`` / ``framing_en`` and the English bible are used. The keyframe is the OPENING
+    frame of an AI clip, so it is ONE single frame (storyboards written before ``opening_en`` existed fall back to the full English description)."""
     return (
-        f"{shot.get('description_en') or shot['description']} Framing: {shot.get('framing_en') or shot['framing']}. "
+        f"{shot.get('opening_en') or shot.get('description_en') or shot['description']} Framing: {shot.get('framing_en') or shot['framing']}. "
         f"Lighting: {bible['lighting']} Look: {bible['look']} Lens: {bible['lens']} "
         f"Product (when visible): {bible['product_description']} Person (when visible): {bible['character_description']} "
         f"{bible['palette_notes']} Brand colours as hex: {', '.join(palette_hex)}. "
         "Photographic, cinematic 3:2 composition with calm negative space in the lower third for captions. "
-        "No text, no logos, no letters, no captions, no watermark, no UI."
+        "No text, no logos, no letters, no captions, no watermark, no UI. "
+        f"{DIPTYCH_GUARD}"
     )
 
 
@@ -146,11 +213,13 @@ async def generate_shots(request: Request, campaign_id: str, body: GenIn | None 
         out = await s.llm.complete(
             task="storyboard.shots",
             system=CREW_PREAMBLE + " You are the Art Director. Produce a style bible (look, lighting, lens, product and character descriptions that stay IDENTICAL across all frames, palette notes) and exactly one shot per script beat, in order. Each shot has a concrete description, framing, camera movement (zoom_in|zoom_out|pan_left|pan_right|pan_up|pan_down|parallax), an image prompt for a text-free photographic keyframe, and a focal point (0..1) where the subject sits so reframing to 9:16/1:1 keeps it in view."
-            + (lang_directive(lang) + " Write the style_bible and every shot's description and framing in the output language; ALSO fill style_bible_en, description_en and framing_en with the same content in English and write image_prompt in English — they feed an English-prompted image model." if lang != "en" else ""),
+            " Every shot becomes a short AI-generated video clip whose FIRST frame is the approved keyframe, so also write for each shot: opening_en = ONE single frame, the first instant of the shot as a still photograph (what is in the frame at second zero: subject, setting, light; NEVER a sequence, a transition, a split screen, a collage, panels, 'then…' or 'the frame tightens'); "
+            "motion_en = what MOVES during the shot (the subject's action, the camera move, ambient steam / light / dust), at most 280 characters, English, concrete, physically plausible, ONE action per shot, no cuts and no text."
+            + (lang_directive(lang) + " Write the style_bible and every shot's description, framing and motion in the output language; ALSO fill style_bible_en, description_en and framing_en with the same content in English and write image_prompt, opening_en and motion_en in English — they feed English-prompted image and video models." if lang != "en" else ""),
             user=f"Brand palette: {names}\nBrand look: warm sunrise light, real textures, product = kraft bag with amber sun mark.\nScript ({script['duration_s']}s) beats:\n" + "\n".join(f"{i + 1}. [{b['role']} {b['t_start']}-{b['t_end']}s] visual: {b['visual']}{' (EN: ' + b['visual_en'] + ')' if b.get('visual_en') else ''} | super: {b.get('super_text') or '-'}" for i, b in enumerate(beats)),
             schema=StoryboardOut if lang == "en" else StoryboardOutL10n,
             context={"beats": beats, "palette_names": names, "palette_names_pl": pl_names, "lang": lang},
-            max_tokens=3500 if lang == "en" else 5000,
+            max_tokens=4200 if lang == "en" else 6000,
             effort="low",
         )
         bible = out.style_bible.model_dump()
@@ -177,6 +246,9 @@ async def generate_shots(request: Request, campaign_id: str, body: GenIn | None 
             if lang != "en":  # display text in the campaign language, the image model reads the English twins
                 sh["description_en"] = (getattr(raw, "description_en", None) if raw else None) or b.get("visual_en") or b["visual"]
                 sh["framing_en"] = (getattr(raw, "framing_en", None) if raw else None) or FRAMING.get(role, "medium shot")
+            sh["opening_en"] = re.sub(r"\s+", " ", (getattr(raw, "opening_en", None) if raw else None) or sh.get("description_en") or sh["description"]).strip()  # ONE frame; older / failed outputs fall back to the description
+            motion_en = trim_motion((getattr(raw, "motion_en", None) if raw else None) or default_motion(role))
+            sh["motion"] = {"prompt_en": motion_en, "prompt": trim_motion((getattr(raw, "motion", None) if raw and lang != "en" else None) or motion_en), "camera": camera_phrase(sh["movement"])}
             sh["image_prompt"] = compose_image_prompt(sh, bible_en or bible, palette)
             shots.append(sh)
         title = t("artifact.title.storyboard", lang, d=script["duration_s"])
@@ -283,6 +355,7 @@ class ShotPatch(BaseModel):
     focal: list[float] | None = Field(default=None, min_length=2, max_length=2)
     super_text: str | None = Field(default=None, max_length=80)
     prompt_tweak: str | None = Field(default=None, max_length=300)
+    motion: str | None = Field(default=None, max_length=300)  # what moves during the shot (the AI-video prompt); editing it never invalidates the keyframe
 
 
 @router.patch("/{sb_id}/shots/{shot_id}", dependencies=[Depends(mutate_limit)])
@@ -298,8 +371,18 @@ async def patch_shot(request: Request, campaign_id: str, sb_id: str, shot_id: st
         sh["description"] = body.description
         if "description_en" in sh:
             sh["description_en"] = body.description  # a hand-edited line is the best English-prompt we have for the model
+        if "opening_en" in sh:
+            sh["opening_en"] = body.description  # the keyframe is drawn from the opening frame: an edited description has to reach it
     if body.movement:
         sh["movement"] = body.movement
+        if isinstance(sh.get("motion"), dict):
+            sh["motion"]["camera"] = camera_phrase(body.movement)
+        sh["motion_stale"] = True  # the camera phrase is part of the clip's prompt
+    if body.motion is not None:
+        m = sh["motion"] if isinstance(sh.get("motion"), dict) else sh.setdefault("motion", {})
+        m["prompt"] = m["prompt_en"] = trim_motion(body.motion, 300)  # a hand-edited line is the best English prompt we have for the video model
+        m["camera"] = m.get("camera") or camera_phrase(sh.get("movement"))
+        sh["motion_stale"] = True  # the clip has to be generated again; the keyframe stays valid
     if body.focal:
         sh["focal"] = [min(1, max(0, v)) for v in body.focal]
     if body.super_text is not None:

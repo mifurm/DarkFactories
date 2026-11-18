@@ -17,11 +17,14 @@ from typing import Any
 
 from ..errors import AppError, NotFound
 from ..i18n import DEFAULT, current_locale, t
-from ..util import new_id, now_iso
+from ..util import new_id, now, now_iso, parse_iso
 from .ai.base import reset_ctx, set_ctx
 
 log = logging.getLogger("spotlight.jobs")
 TERMINAL = {"succeeded", "failed", "cancelled"}
+HEARTBEAT_S = 15.0  # a live job rewrites its heartbeat this often: a long cinematic render (~25 min) must not look dead to the other replicas
+STALE_AFTER_S = 120.0  # a job of another replica without a heartbeat for this long is orphaned (that replica was scaled in or restarted)
+LANES = {"motion": 1}  # jobs that wait on the GPU worker run in their own lane: a 25-minute render does not use up the general slots
 
 
 def _jsonable(params: dict[str, Any] | None) -> dict[str, Any]:
@@ -93,32 +96,69 @@ JobFn = Callable[[JobContext], Awaitable[dict[str, Any] | None]]
 
 
 class JobRunner:
-    def __init__(self, repo: Any, *, max_concurrent: int = 2, instance_id: str = "local", on_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None) -> None:
+    def __init__(
+        self, repo: Any, *, max_concurrent: int = 2, instance_id: str = "local", on_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+        heartbeat_s: float = HEARTBEAT_S, stale_after_s: float = STALE_AFTER_S, lanes: dict[str, int] | None = None,
+    ) -> None:
         self.repo = repo
         self.instance_id = instance_id
+        self.heartbeat_s = heartbeat_s
+        self.stale_after_s = stale_after_s
         self._sem = asyncio.Semaphore(max_concurrent)
+        self._lanes = {name: asyncio.Semaphore(n) for name, n in {**LANES, **(lanes or {})}.items()}
         self._live: dict[str, dict[str, Any]] = {}
         self._tasks: dict[str, asyncio.Task] = {}
+        self._sweeper: asyncio.Task | None = None
         self.on_event = on_event
 
     async def _persist(self, doc: dict[str, Any]) -> None:
         self._live[doc["id"]] = doc
         await self.repo.upsert("jobs", dict(doc))
 
+    def _alive(self, d: dict[str, Any]) -> bool:
+        """Did the replica that owns this job write a heartbeat / progress recently?"""
+        ts = parse_iso(d.get("heartbeat_at") or d.get("updated_at") or d.get("created_at"))
+        return ts is not None and (now() - ts).total_seconds() < self.stale_after_s
+
     async def reconcile_startup(self) -> int:
-        """Jobs left 'running' by a previous process can never finish — mark them as interrupted."""
+        """Jobs left 'running' by a previous process can never finish — mark them as interrupted.
+
+        A job that another replica is still working on (recent heartbeat) is left alone: a second replica starting up must not fail a long render of the first."""
         n = 0
         for st in ("queued", "running"):
             for d in await self.repo.query("jobs", {"status": st}):
-                if d.get("owner") != self.instance_id or d["id"] not in self._tasks:
-                    d.update(status="failed", error="interrupted by restart/scale-in", finished_at=now_iso())
-                    _set_message(d, "job.state.interrupted")
-                    await self.repo.upsert("jobs", d)
-                    n += 1
+                mine = d.get("owner") == self.instance_id
+                if (mine and d["id"] in self._tasks) or (not mine and self._alive(d)):
+                    continue
+                d.update(status="failed", error="interrupted by restart/scale-in", finished_at=now_iso())
+                _set_message(d, "job.state.interrupted")
+                await self.repo.upsert("jobs", d)
+                n += 1
         return n
 
-    async def submit(self, kind: str, fn: JobFn, *, campaign_id: str | None = None, title: str = "", feature: str | None = None, meta: dict[str, Any] | None = None, title_key: str | None = None, title_params: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Queue a job. ``title_key`` (+ ``title_params``) names a ``job.title.*`` catalog entry so the title is shown in the viewer's language."""
+    def start_sweeper(self, interval_s: float | None = None) -> None:
+        """Periodically fail the jobs of replicas that disappeared (no heartbeat for ``stale_after_s``), so a restarted app never leaves a spinner behind."""
+        if self._sweeper is None or self._sweeper.done():
+            self._sweeper = asyncio.create_task(self._sweep_loop(interval_s or max(5.0, self.stale_after_s / 2)))
+
+    async def _sweep_loop(self, interval_s: float) -> None:
+        while True:
+            await asyncio.sleep(interval_s)
+            with contextlib.suppress(Exception):
+                await self.reconcile_startup()
+
+    async def _beat(self, doc: dict[str, Any]) -> None:
+        while True:
+            await asyncio.sleep(self.heartbeat_s)
+            if doc.get("status") in TERMINAL:
+                return
+            doc["heartbeat_at"] = now_iso()
+            with contextlib.suppress(Exception):
+                await self._persist(doc)
+
+    async def submit(self, kind: str, fn: JobFn, *, campaign_id: str | None = None, title: str = "", feature: str | None = None, meta: dict[str, Any] | None = None, title_key: str | None = None, title_params: dict[str, Any] | None = None, lane: str | None = None) -> dict[str, Any]:
+        """Queue a job. ``title_key`` (+ ``title_params``) names a ``job.title.*`` catalog entry so the title is shown in the viewer's language.
+        ``lane`` puts the job in a dedicated concurrency lane (``motion``: waits on the GPU worker) instead of the general slots."""
         doc: dict[str, Any] = {
             "id": new_id("job"),
             "pk": campaign_id or "global",
@@ -137,6 +177,8 @@ class JobRunner:
             "meta": meta or {},
             "created_at": now_iso(),
         }
+        if lane:
+            doc["lane"] = lane
         if title_key:
             params = _jsonable(title_params)
             doc.update(title=t(title_key, DEFAULT, **params), title_key=title_key, title_params=params)
@@ -147,8 +189,9 @@ class JobRunner:
 
     async def _run(self, doc: dict[str, Any], fn: JobFn, feature: str | None) -> None:
         ctx = JobContext(self, doc)
+        beat = asyncio.create_task(self._beat(doc))
         try:
-            async with self._sem:
+            async with self._lanes.get(doc.get("lane") or "", self._sem):
                 tok = set_ctx(campaign_id=doc.get("campaign_id"), feature=feature or doc["kind"], ref=doc["id"])
                 try:
                     doc.update(status="running", started_at=now_iso())
@@ -163,6 +206,7 @@ class JobRunner:
             doc.update(status="cancelled", finished_at=now_iso())
             _set_message(doc, "job.state.cancelled")
         except asyncio.CancelledError:
+            beat.cancel()
             doc.update(status="cancelled", finished_at=now_iso())
             _set_message(doc, "job.state.cancelled")
             await self._persist(doc)
@@ -175,6 +219,7 @@ class JobRunner:
             log.exception("job %s failed", doc["id"])
             doc.update(status="failed", error=f"{type(exc).__name__}: {exc}"[:500], error_code="internal_error", finished_at=now_iso())
             _set_message(doc, "job.state.failed")
+        beat.cancel()
         await self._persist(doc)
         if self.on_event:
             with contextlib.suppress(Exception):
@@ -213,8 +258,10 @@ class JobRunner:
             await asyncio.wait_for(asyncio.shield(t), timeout)
         return await self.require(job_id)
 
-    async def stream(self, job_id: str, poll: float = 0.6) -> AsyncIterator[dict[str, Any]]:
+    async def stream(self, job_id: str, poll: float = 0.6, keepalive_s: float = 15.0) -> AsyncIterator[dict[str, Any]]:
+        """Progress events as they change, plus a ``ping`` every ``keepalive_s`` of silence (a cold GPU start can be quiet for minutes; an idle SSE connection would be cut by proxies)."""
         last = ""
+        last_emit = time.monotonic()
         while True:
             j = await self.get(job_id)
             if j is None:
@@ -223,13 +270,19 @@ class JobRunner:
             snap = f"{j['status']}|{j.get('progress')}|{j.get('message')}|{len(j.get('steps', []))}"
             if snap != last:
                 last = snap
+                last_emit = time.monotonic()
                 yield {"event": "progress", "data": _public(j)}
+            elif time.monotonic() - last_emit >= keepalive_s:
+                last_emit = time.monotonic()
+                yield {"event": "ping", "data": {}}
             if j["status"] in TERMINAL:
                 yield {"event": "done", "data": _public(j)}
                 return
             await asyncio.sleep(poll)
 
     async def shutdown(self) -> None:
+        if self._sweeper is not None:
+            self._sweeper.cancel()
         for task in list(self._tasks.values()):
             task.cancel()
         for task in list(self._tasks.values()):

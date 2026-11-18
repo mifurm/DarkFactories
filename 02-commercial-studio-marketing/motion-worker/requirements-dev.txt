@@ -1,0 +1,9 @@
+# Test / lint tooling (CPU only). Install in the venv:  python -m pip install -r requirements.txt -r requirements-dev.txt
+# (numpy and pillow come from the base image in production but are needed here, and torch/diffusers are NOT needed).
+-r requirements.txt
+numpy>=1.26
+pillow>=10.4
+pytest>=8.0
+pytest-cov>=5.0
+jsonschema>=4.21
+ruff>=0.6

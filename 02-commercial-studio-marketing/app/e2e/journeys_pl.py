@@ -937,16 +937,16 @@ def main() -> int:
         def feature_map() -> None:
             run.go(page, "/features")
             expect(page.get_by_test_id("feature-map")).to_be_visible(timeout=30000)
-            assert page.locator("text=CS-24").count() >= 1 and page.locator("text=wdrożono").count() >= 24, "feature statuses must be Polish"
+            assert page.locator("text=CS-25").count() >= 1 and page.locator("text=wdrożono").count() >= 25, "feature statuses must be Polish"
             # diacritic-insensitive filter, ł included: "wspolpraca" finds "Współpraca, role i integracje" (CS-22), "zespol" finds "Zespół"
             flt = page.get_by_test_id("feature-filter")
             ids = lambda: page.locator("[data-testid=feature-map]").get_by_text(re.compile(r"^CS-\d\d$")).count()  # noqa: E731
-            assert ids() == 24, f"24 feature ids expected, saw {ids()}"
+            assert ids() == 25, f"25 feature ids expected, saw {ids()}"
             flt.fill("wspolpraca")
             expect(page.get_by_test_id("feature-map")).to_contain_text("Współpraca")
-            assert 1 <= ids() < 24, f"the filter must narrow the list (saw {ids()} features)"
+            assert 1 <= ids() < 25, f"the filter must narrow the list (saw {ids()} features)"
             flt.fill("")
-            assert ids() == 24
+            assert ids() == 25
             run.check(page, "/features", allow=[r"^/api/"])
             run.shot(page, "25-feature-map")
 

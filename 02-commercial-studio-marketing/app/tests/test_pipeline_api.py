@@ -52,7 +52,7 @@ def test_platform_endpoints_and_feature_registry(client: TestClient):
     meta = client.get("/api/meta").json()
     assert meta["mode"] == "offline" and meta["synthetic_data"] is True and "models" in meta
     feats = client.get("/api/features").json()
-    assert len(feats) == 24
+    assert len(feats) == 25
     implemented = {f["id"] for f in feats if f["status"] == "implemented"}
     assert implemented == {f["id"] for f in feats}, f"not implemented: {sorted({f['id'] for f in feats} - implemented)}"
     assert client.get("/api/usage").json()["budget"]["guard_active"] is True

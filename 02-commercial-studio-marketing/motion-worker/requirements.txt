@@ -1,0 +1,9 @@
+# Runtime dependencies added ON TOP of the base image (mcr.microsoft.com/k8se/gpu-quickstart: python 3.12,
+# torch 2.8.0+cu126, diffusers 0.40.0, transformers, accelerate, huggingface_hub, numpy, pillow).
+# Pinned exactly: the image must be reproducible. numpy/pillow are deliberately absent (the base provides them).
+azure-identity==1.27.0
+azure-storage-blob==12.31.1
+azure-storage-queue==12.18.1
+ftfy==6.3.1
+imageio==2.38.1
+imageio-ffmpeg==0.8.1

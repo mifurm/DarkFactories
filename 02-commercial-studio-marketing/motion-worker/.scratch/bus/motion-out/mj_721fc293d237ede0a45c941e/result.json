@@ -1,0 +1,1 @@
+{"v":1,"job_id":"mj_721fc293d237ede0a45c941e","state":"succeeded","clip":"clip.mp4","width":512,"height":288,"fps":24,"num_frames":25,"seed":42,"model":"wan2.2-ti2v-5b","model_revision":"fake","gpu_seconds":0.7,"timings":{"queue_wait_s":0.1,"generate_s":0.5,"encode_s":0.1},"error":null}

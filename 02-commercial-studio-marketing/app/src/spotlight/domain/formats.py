@@ -20,6 +20,8 @@ def reframe(spec: RenderSpec, aspect: str) -> RenderSpec:
     new = spec.model_copy(deep=True)
     new.id = new_id("spec")
     new.aspect = aspect  # type: ignore[assignment]
+    for sc in new.scenes:  # generated clips are native to one aspect: a reframed version gets its own (generated from the crop of the same keyframe, cached per aspect)
+        sc.clip_asset_id, sc.clip = None, None
     new.lineage = Lineage(kind="format", parent_id=spec.id, notes=[f"reframed {spec.aspect} → {aspect} with per-scene focal points"], note_keys=[{"key": "format.note.reframed", "params": {"src": spec.aspect, "dst": aspect}}])
     return new
 

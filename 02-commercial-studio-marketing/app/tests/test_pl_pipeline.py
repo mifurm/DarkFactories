@@ -232,7 +232,7 @@ def test_storyboard_is_polish_for_people_and_english_for_the_image_model(run):
     for sh in sb["shots"]:
         assert sh["framing"] in {"plan ogólny wprowadzający", "plan półzbliżony", "makro z płytką głębią ostrości", "plan średni", "centralne ujęcie produktu, spokojna wolna przestrzeń"}
         assert sh["description_en"] and not _has_polish_letters(sh["description_en"]) and sh["description"] != sh["description_en"]
-        assert not _has_polish_letters(sh["image_prompt"]) and "No text" in sh["image_prompt"] and sh["description_en"] in sh["image_prompt"]
+        assert not _has_polish_letters(sh["image_prompt"]) and "No text" in sh["image_prompt"] and sh["opening_en"] in sh["image_prompt"]  # the keyframe is drawn from the single opening frame (the full description may describe a sequence)
     assert sb["shots"][0]["super_text"] == "Wolniejszy start." and sum(1 for s in sb["shots"] if s["image_status"] == "ready") >= 3
 
 

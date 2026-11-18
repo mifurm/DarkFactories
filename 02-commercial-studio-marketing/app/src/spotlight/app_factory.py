@@ -84,6 +84,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
         svc = services or await build_services(settings)
         app.state.services = svc
         interrupted = await svc.jobs.reconcile_startup()
+        svc.jobs.start_sweeper()  # jobs of replicas that went away (no heartbeat) are failed within a couple of minutes, never left spinning
         if settings.seed_on_start:
             from .seed import ensure_seeded
 

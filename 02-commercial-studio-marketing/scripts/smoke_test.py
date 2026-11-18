@@ -447,12 +447,12 @@ def run(base: str, expect_mode: str | None, langs: list[str], timeout: float, ke
     def features() -> str:
         f = s.call("GET", "/api/features").json()
         impl = [x for x in f if x["status"] == "implemented"]
-        assert len(f) == 24 and len(impl) == 24, f"{len(impl)}/{len(f)}"
+        assert len(f) == 25 and len(impl) == 25, f"{len(impl)}/{len(f)}"
         spa = s.call("GET", "/features")
         assert spa.status_code == 200 and "<div id=\"root\">" in spa.text
-        return "24/24 implemented; SPA served"
+        return "25/25 implemented; SPA served"
 
-    s.step("feature registry (24/24) + SPA + Feature Map route", features)
+    s.step("feature registry (25/25) + SPA + Feature Map route", features)
 
     def budget_guard() -> str:
         m = s.call("GET", "/api/meta").json()

@@ -43,6 +43,7 @@ CATALOG: list[tuple[str, str, str, str, str, str]] = [
     ("CS-22", "Collaboration, roles & integrations", "E", "P1", "/team", "/api/team"),
     ("CS-23", "ROI & ACR calculator", "E", "P0", "/roi", "/api/roi"),
     ("CS-24", "Observability, security & IaC", "E", "P0", "/ops", "/api/ops"),
+    ("CS-25", "Cinematic motion (generative video)", "B", "P0", "/campaigns/:id/video", "/api/motion"),
 ]
 
 

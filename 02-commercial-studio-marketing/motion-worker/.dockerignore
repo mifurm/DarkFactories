@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+.scratch
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+**/__pycache__
+**/*.pyc
+*.egg-info
+build
+dist
+tests
+requirements-dev.txt

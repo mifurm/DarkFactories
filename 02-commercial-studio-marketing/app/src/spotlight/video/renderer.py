@@ -19,9 +19,10 @@ from PIL import Image, ImageChops, ImageFilter
 
 from . import media, overlays
 from .music import generate_track
-from .spec import Cue, RenderSpec, to_srt
+from .spec import ClipSpec, Cue, RenderSpec, to_srt
 
 TD = 0.42  # cross-dissolve length (seconds), centred on scene boundaries
+GRAIN_SIGMA = 1.6  # film grain of cinematic renders (8-bit levels)
 ProgressFn = Callable[[float, str], None]
 
 
@@ -103,6 +104,91 @@ class SceneRenderer:
         return self._crop(self.img, z, cx, cy)
 
 
+class ClipSceneRenderer:
+    """Plays an AI-generated clip as a scene.
+
+    The clip is decoded ONCE by ffmpeg to raw RGB at the target size (Lanczos; cover-cropped around the scene's focal point when the clip's aspect differs) into a
+    temp file that is memory-mapped, so ``frame_at`` is a random-access lookup. Playback is retimed to the 25 fps master by nearest frame (24 -> 25 fps), at the
+    clip's ``speed`` (slow motion); the clip starts half a dissolve early so its motion is already running when the dissolve into the scene begins. When the clip
+    ends before the scene does, the last frame is held (with a continuing gentle push when ``hold_tail``). If the clip cannot be decoded the scene falls back to the
+    Ken-Burns still, so a bad clip never fails the render.
+    """
+
+    PUSH_PER_S = 0.025  # continued push-in while the last frame is held
+    PUSH_MAX = 1.08
+
+    def __init__(self, clip_path: Path, clip: ClipSpec, w: int, h: int, focal: tuple[float, float], work_dir: Path, fallback: Callable[[], SceneRenderer] | None = None) -> None:
+        self.clip_path, self.clip, self.w, self.h, self.focal = clip_path, clip, w, h, focal
+        self.work_dir = work_dir
+        self._fallback_factory = fallback
+        self._fallback: SceneRenderer | None = None
+        self._mm: np.ndarray | None = None
+        self._raw: Path | None = None
+        self._n = 0
+        self.failed = False
+
+    def _open(self) -> None:
+        self.work_dir.mkdir(parents=True, exist_ok=True)
+        fx, fy = _clamp(self.focal[0], 0.0, 1.0), _clamp(self.focal[1], 0.0, 1.0)
+        raw = self.work_dir / f"{self.clip_path.stem}.rgb"
+        vf = f"scale={self.w}:{self.h}:force_original_aspect_ratio=increase:flags=lanczos,crop={self.w}:{self.h}:(iw-{self.w})*{fx:.4f}:(ih-{self.h})*{fy:.4f}"
+        media.run([media.FFMPEG, "-y", "-v", "error", "-nostats", "-i", str(self.clip_path), "-an", "-vf", vf, "-pix_fmt", "rgb24", "-f", "rawvideo", str(raw)], timeout=180)
+        frame_bytes = self.w * self.h * 3
+        n = raw.stat().st_size // frame_bytes
+        if n < 1:
+            raise media.MediaError(f"clip {self.clip_path.name} has no decodable frames")
+        self._raw, self._n = raw, n
+        self._mm = np.memmap(raw, dtype=np.uint8, mode="r", shape=(n, self.h, self.w, 3))
+
+    def _still(self, local_t: float, duration: float) -> Image.Image:
+        if self._fallback is None:
+            if self._fallback_factory is None:
+                raise media.MediaError(f"clip {self.clip_path.name} cannot be played and the scene has no keyframe to fall back on")
+            self._fallback = self._fallback_factory()
+        return self._fallback.frame(_clamp(local_t / duration, 0.0, 1.0))
+
+    def frame_at(self, local_t: float, duration: float) -> Image.Image:
+        """The picture at ``local_t`` seconds after the scene's start (negative during the dissolve in, up to half a dissolve past its end during the dissolve out)."""
+        if self.failed:
+            return self._still(local_t, duration)
+        if self._mm is None:
+            try:
+                self._open()
+            except media.MediaError:
+                self.failed = True
+                return self._still(local_t, duration)
+        assert self._mm is not None
+        c = self.clip
+        clip_t = c.offset + (local_t + TD / 2) * c.speed
+        idx = max(0, round(clip_t * c.fps))
+        last = self._n - 1
+        if idx <= last:
+            return Image.fromarray(np.asarray(self._mm[idx]))
+        img = Image.fromarray(np.asarray(self._mm[last]))
+        if not c.hold_tail:
+            return img
+        over = max(0.0, clip_t - last / c.fps) / max(c.speed, 1e-6)  # timeline seconds since the clip ran out
+        z = min(self.PUSH_MAX, 1.0 + self.PUSH_PER_S * over)
+        return img.resize((self.w, self.h), Image.BICUBIC, box=cover_box(self.w, self.h, self.w, self.h, z, self.focal[0], self.focal[1]))
+
+    def close(self) -> None:
+        """Release the memory map and delete the decoded frames (a scene is finished once its dissolve out is over)."""
+        if self._mm is not None:
+            mm = getattr(self._mm, "_mmap", None)
+            self._mm = None
+            if mm is not None:
+                mm.close()
+        if self._raw is not None:
+            self._raw.unlink(missing_ok=True)
+            self._raw = None
+
+
+def _grain(arr: np.ndarray, seed: int, frame_no: int, sigma: float = GRAIN_SIGMA) -> np.ndarray:
+    """Subtle luma film grain (sigma ~1.6/255), seeded per frame so renders are reproducible and the grain never freezes."""
+    noise = np.random.default_rng([seed, frame_no]).standard_normal((arr.shape[0], arr.shape[1], 1), dtype=np.float32)
+    return np.clip(arr.astype(np.int16) + np.rint(noise * sigma).astype(np.int16), 0, 255).astype(np.uint8)
+
+
 def _blit(frame: np.ndarray, ov: np.ndarray, x: int, y: int, opacity: float = 1.0) -> None:
     h, w = frame.shape[:2]
     oh, ow = ov.shape[:2]
@@ -143,6 +229,7 @@ def render(
     out_dir: Path,
     progress: ProgressFn | None = None,
     timeout: float = 420.0,
+    clips: dict[str, Path] | None = None,
 ) -> dict[str, Any]:
     t_start = time.monotonic()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -153,10 +240,18 @@ def render(
     missing = [s.asset_id for s in spec.scenes if not s.asset_id or s.asset_id not in scene_images]
     if missing:
         raise media.MediaError(f"missing keyframe images for scenes: {missing}")
-    renderers: list[SceneRenderer] = []
+    cinematic = spec.quality == "cinematic"
+    clip_files = clips or {}
+
+    def still_renderer(s: Any) -> SceneRenderer:
+        return SceneRenderer(Image.open(io.BytesIO(scene_images[s.asset_id or ""])).convert("RGB"), s.motion, s.focal, W, H)
+
+    renderers: list[SceneRenderer | ClipSceneRenderer] = []
     for s in spec.scenes:
-        im = Image.open(io.BytesIO(scene_images[s.asset_id or ""])).convert("RGB")
-        renderers.append(SceneRenderer(im, s.motion, s.focal, W, H))
+        if s.clip is not None and s.id in clip_files:  # an AI clip plays here; the keyframe's Ken-Burns move is the fallback if the clip cannot be decoded
+            renderers.append(ClipSceneRenderer(Path(clip_files[s.id]), s.clip, W, H, s.focal, out_dir / "_clips", fallback=lambda s=s: still_renderer(s)))
+        else:
+            renderers.append(still_renderer(s))
     starts = spec.scene_starts()
     t_scenes = sum(s.duration for s in spec.scenes)
     duration = spec.duration
@@ -190,8 +285,11 @@ def render(
         return idx
 
     def scene_img(i: int, t: float) -> Image.Image:
-        p = (t - starts[i]) / spec.scenes[i].duration
-        fr = renderers[i].frame(p)
+        r = renderers[i]
+        if isinstance(r, ClipSceneRenderer):
+            fr = r.frame_at(t - starts[i], spec.scenes[i].duration)
+        else:
+            fr = r.frame((t - starts[i]) / spec.scenes[i].duration)
         fr = ImageChops.multiply(fr, vign)
         if spec.grade_strength > 0:
             fr = Image.blend(fr, ImageChops.multiply(fr, warm), min(0.6, spec.grade_strength))
@@ -201,7 +299,8 @@ def render(
         if t >= t_scenes and endcard_img is not None:
             if t < t_scenes + TD / 2:
                 a = _ease((t - (t_scenes - TD / 2)) / TD)
-                return Image.blend(scene_img(len(spec.scenes) - 1, min(t, t_scenes - 1e-3)), endcard_img, a)
+                last_t = t if isinstance(renderers[-1], ClipSceneRenderer) else min(t, t_scenes - 1e-3)  # a clip keeps moving through the dissolve; a still holds its last position
+                return Image.blend(scene_img(len(spec.scenes) - 1, last_t), endcard_img, a)
             return endcard_img
         i = scene_at(t)
         base = scene_img(i, t)
@@ -232,6 +331,13 @@ def render(
             frame_img = compose(min(t, duration - 1e-3))
             arr = np.array(frame_img, dtype=np.uint8)
             in_scenes = t < t_scenes
+            if cinematic:  # subtle animated film grain on the picture only (before the overlays), fading out into the end card
+                fade = 1.0 if (endcard_img is None or t <= t_scenes - TD / 2) else max(0.0, 1.0 - (t - (t_scenes - TD / 2)) / TD)
+                if fade > 0.05:
+                    arr = _grain(arr, spec.seed, n, GRAIN_SIGMA * fade)
+            for k, r in enumerate(renderers):  # a clip scene is finished once its dissolve out is over: free its decoded frames
+                if isinstance(r, ClipSceneRenderer) and t > starts[k] + spec.scenes[k].duration + TD:
+                    r.close()
             i = scene_at(t) if in_scenes else len(spec.scenes) - 1
             sc = spec.scenes[i]
             if in_scenes:
@@ -275,6 +381,9 @@ def render(
     finally:
         if proc.poll() is None:
             proc.kill()
+        for r in renderers:
+            if isinstance(r, ClipSceneRenderer):
+                r.close()
     notify(0.97, "Verifying output (ffprobe, loudness)")
     out_mp4 = out_dir / "video.mp4"
     info = media.probe(out_mp4)

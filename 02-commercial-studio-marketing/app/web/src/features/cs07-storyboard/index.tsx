@@ -1,23 +1,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, ImagePlus, Lock } from "lucide-react";
 import { api } from "../../api";
 import type { FeatureDef, WorkspaceTabProps } from "../../registry";
 import { Badge, Button, Card, Empty, Field, Select, Skeleton } from "../../components/ui";
 import { GuardianBadge, Img, Tag, useJobStarter } from "../../components/common";
 import { msg, useI18n } from "../../i18n";
+import { MotionPromptEditor } from "../../motion/MotionPromptEditor";
+import { warmUpMotionQuietly } from "../../motion/queries";
 
 function StoryboardTab({ campaign, reload }: WorkspaceTabProps) {
   const { t, tEnum, tOpen, fmt } = useI18n();
+  const qc = useQueryClient();
   const id = campaign.campaign.id;
   const q = useQuery({ queryKey: ["storyboard", id], queryFn: () => api.get(`/api/campaigns/${id}/storyboard`) });
   const [quality, setQuality] = useState("low");
   const [model, setModel] = useState("image");
   const [anchor, setAnchor] = useState(false);
-  const job = useJobStarter(() => {
+  const job = useJobStarter((j) => {
     q.refetch();
     reload();
+    // keyframes are done: start the GPU in the background (best effort, silent) so it is warm by the time the user renders a Cinematic spot
+    if (j?.kind === "storyboard.frames" && j?.status === "succeeded") void warmUpMotionQuietly(qc);
   });
   const sb = q.data?.latest;
   const ready = sb?.shots.filter((s: any) => s.image_status === "ready").length ?? 0;
@@ -84,6 +89,15 @@ function StoryboardTab({ campaign, reload }: WorkspaceTabProps) {
                     {s.image_status === "failed" && <Badge tone="bad">{tEnum("status", "failed")}</Badge>}
                     {s.cost_usd != null && <span>{fmt.usd(s.cost_usd, 3)}</span>}
                   </div>
+                  <MotionPromptEditor
+                    campaignId={id}
+                    storyboardId={sb.id}
+                    shot={s}
+                    onSaved={() => {
+                      q.refetch();
+                      reload();
+                    }}
+                  />
                 </div>
               </Card>
             ))}

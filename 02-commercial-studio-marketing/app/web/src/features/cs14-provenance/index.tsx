@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileCheck2, ShieldCheck, ShieldX, Stamp } from "lucide-react";
 import { api, withLang } from "../../api";
@@ -154,7 +154,10 @@ function ProvenanceTab({ campaign }: WorkspaceTabProps) {
                   ),
                 ],
                 [t("Models"), (a.models ?? []).map((x: any) => x.deployment).join(", ") || "—"],
-                [t("Ingredients"), t("{n} hashed (keyframes, voice-over)", { n: (a.ingredients ?? []).length })],
+                [t("Ingredients"), a.generative_video ? t("{n} hashed (keyframes, AI clips, voice-over)", { n: (a.ingredients ?? []).length }) : t("{n} hashed (keyframes, voice-over)", { n: (a.ingredients ?? []).length })],
+                ...(a.generative_video
+                  ? ([[t("Generative video"), t("{model} · licence {license} · {shots}/{total} shots with AI motion", { model: a.generative_video.model ?? "—", license: a.generative_video.license || "—", shots: (a.generative_video.shots ?? []).length, total: a.generative_video.shots_total ?? (a.generative_video.shots ?? []).length })]] as [string, ReactNode][])
+                  : []),
                 [t("Actions"), t("{n} (created, placed, loudness, music)", { n: (a.actions ?? []).length })],
                 [t("Approvals recorded"), `${(a.approvals ?? []).length}`],
                 [t("Rights linked"), (a.rights ?? []).map((r: any) => r.title).join(", ") || "—"],

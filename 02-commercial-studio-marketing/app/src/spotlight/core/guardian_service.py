@@ -165,7 +165,9 @@ def subject_from_spot(campaign: dict[str, Any], art: dict[str, Any], spec: Rende
     s.talent = [TalentUse(name=t["name"], usage=t.get("usage", "voice"), ai_synthesis=bool(t.get("ai_synthesis"))) for t in art.get("talent", [])]
     s.has_video = True
     s.captions_present = bool(spec.captions) and spec.captions_burned
-    s.disclosure = Disclosure(ai_generated=True, label_present=bool(spec.disclosure_badge), label_text=spec.disclosure_badge)
+    motion = (art.get("render") or {}).get("motion") or {}
+    generated = bool(motion.get("shots_generated"))  # at least one shot of the finished video is AI-generated footage (not only a still with a camera move)
+    s.disclosure = Disclosure(ai_generated=True, label_present=bool(spec.disclosure_badge), label_text=spec.disclosure_badge, generative_video=generated, video_model=(motion.get("model") or None) if generated else None)
     return s
 
 

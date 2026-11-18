@@ -49,7 +49,7 @@ async def overview(request: Request) -> dict[str, Any]:
         "campaigns": per_campaign,
         "kpi": cost_per_approved_asset(total_spend, total_approved),
         "alerts": [a for a in list(s.notifier.recent) if a["event"] == "budget.alert"][:10],
-        "pricing": {"as_of": PRICES_AS_OF, "note": t("cost.pricing_note"), "agency_baseline_per_asset_usd": AGENCY_BASELINE_PER_ASSET_USD, "llm_per_mtok": {k: {"input": v[0], "cached": v[1], "output": v[2]} for k, v in LLM_PER_MTOK.items()}, "tts_per_mchar": TTS_PER_MCHAR, "image_per_image": {f"{m}/{q}/{c}": p for (m, q, c), p in IMAGE_PER_IMAGE.items()}},
+        "pricing": {"as_of": PRICES_AS_OF, "note": t("cost.pricing_note"), "agency_baseline_per_asset_usd": AGENCY_BASELINE_PER_ASSET_USD, "llm_per_mtok": {k: {"input": v[0], "cached": v[1], "output": v[2]} for k, v in LLM_PER_MTOK.items()}, "tts_per_mchar": TTS_PER_MCHAR, "image_per_image": {f"{m}/{q}/{c}": p for (m, q, c), p in IMAGE_PER_IMAGE.items()}, "motion_per_gpu_second": s.settings.motion_price_per_gpu_second},
         "guard": {"active": True, "refusals": s.guard.refusals, "fails_closed": True, "hard_max_daily_usd": HARD_MAX_DAILY},
         "simulated_prices": s.meter.simulated,
     }

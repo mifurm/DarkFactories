@@ -4,6 +4,9 @@ param token string
 param appPrincipalId string
 param userPrincipalId string
 
+@description('Principal of the GPU motion worker identity (queue consumer + blob read/write on the motion containers). Empty = no motion resources.')
+param motionPrincipalId string = ''
+
 // Logical collections used by the app (keep in sync with spotlight.core.repo.COLLECTIONS — unit-tested).
 var collections = [
   'brands'
@@ -32,6 +35,9 @@ var collections = [
 
 var cosmosDataContributor = '00000000-0000-0000-0000-000000000002'
 var blobDataContributor = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+var queueDataContributor = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+var motionContainers = ['motion-in', 'motion-out', 'motion-models']
+var enableMotion = !empty(motionPrincipalId)
 
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
   name: 'cosmos-studio-${token}'
@@ -146,7 +152,90 @@ resource userBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if 
   }
 }
 
+// ---- Cinematic motion transport (queue + blobs). Keyless: Entra roles only; the GPU worker has no ingress. ----
+resource queueService 'Microsoft.Storage/storageAccounts/queueServices@2023-05-01' = if (enableMotion) {
+  parent: storage
+  name: 'default'
+}
+
+resource motionQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2023-05-01' = if (enableMotion) {
+  parent: queueService
+  name: 'motion-jobs'
+}
+
+resource motionBlobContainers 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = [
+  for c in motionContainers: if (enableMotion) {
+    parent: blobService
+    name: c
+    properties: { publicAccess: 'None' }
+  }
+]
+
+// Studio enqueues jobs and reads queue depth; the worker consumes (and KEDA reads the length with the worker identity).
+resource appQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMotion) {
+  name: guid(storage.id, appPrincipalId, queueDataContributor)
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueDataContributor)
+    principalId: appPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource motionQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMotion) {
+  name: guid(storage.id, motionPrincipalId, queueDataContributor)
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueDataContributor)
+    principalId: motionPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource userQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMotion && !empty(userPrincipalId)) {
+  name: guid(storage.id, userPrincipalId, queueDataContributor)
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueDataContributor)
+    principalId: userPrincipalId
+    principalType: 'User'
+  }
+}
+
+resource motionBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMotion) {
+  name: guid(storage.id, motionPrincipalId, blobDataContributor)
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', blobDataContributor)
+    principalId: motionPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Transport blobs are throw-away (Studio keeps every finished clip as a library asset): delete them after 3 days.
+resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = if (enableMotion) {
+  parent: storage
+  name: 'default'
+  properties: {
+    policy: {
+      rules: [
+        {
+          name: 'motion-transport-ttl'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            filters: { blobTypes: ['blockBlob'], prefixMatch: ['motion-in/', 'motion-out/'] }
+            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: 3 } } }
+          }
+        }
+      ]
+    }
+  }
+}
+
 output cosmosEndpoint string = cosmos.properties.documentEndpoint
 output cosmosDatabase string = db.name
 output blobAccountUrl string = storage.properties.primaryEndpoints.blob
+output queueAccountUrl string = storage.properties.primaryEndpoints.queue
+output storageAccountName string = storage.name
 output blobContainer string = assetsContainer.name

@@ -8,7 +8,7 @@ import type { FeatureDef } from "../../registry";
 import { Badge, Button, Card, Input, Meter, PageHeader, Skeleton, Stat, StatusBadge, Table, useToast } from "../../components/ui";
 import { msg, useI18n } from "../../i18n";
 
-const KIND_COLOR: Record<string, string> = { llm: "#2b1a12", image: "#d9822b", tts: "#b5452b", embedding: "#5c7a5e", safety: "#7a8fa6", render: "#a9895f" };
+const KIND_COLOR: Record<string, string> = { llm: "#2b1a12", image: "#d9822b", tts: "#b5452b", embedding: "#5c7a5e", safety: "#7a8fa6", render: "#a9895f", motion: "#7a5c8a" };
 // English constant the API returns verbatim; tKnown() translates it in a non-English UI when the server did not localize it.
 const KNOWN_SERVER_TEXT = [msg("Estimated list prices (USD, pay-as-you-go, no discounts). Token prices: Azure Retail Prices API; per-image / per-character prices: public price lists. Validate against your Azure invoice.")];
 

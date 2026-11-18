@@ -36,6 +36,24 @@ def music_spec(entry: RightsEntry | None, fallback_title: str = "", mood: str = 
     return MusicSpec(rights_id=None, title=fallback_title or "Temp bed (unlicensed reference)", mood=mood if mood in moods else "warm", bpm=bpm, key=key, seed=seed)
 
 
+def scenes_from_storyboard(script: dict[str, Any], storyboard: dict[str, Any], lang: str = "en", *, strict: bool = True) -> list[SceneSpec]:
+    """One scene per script beat except the last (that one is the end card), each playing its storyboard keyframe.
+
+    ``strict`` (the render) refuses a beat whose keyframe is missing; the cost estimate passes ``strict=False`` and gets a placeholder asset id for a shot that has no keyframe yet."""
+    shots = {s["beat_id"]: s for s in storyboard["shots"]}
+    scenes: list[SceneSpec] = []
+    for b in script["beats"][:-1]:
+        sh = shots.get(b["id"])
+        if strict:
+            if not sh or not sh.get("asset_id"):
+                raise SpotBuildError(f"keyframe for beat {b['id']} is missing — generate the storyboard frames first", "err.inputs_missing.keyframe", {"beat": b["id"]})
+        elif not sh:
+            continue
+        asset_id = sh.get("asset_id") or f"pending-{sh['id']}"
+        scenes.append(SceneSpec(id=f"sc-{b['id']}", shot_id=sh["id"], asset_id=asset_id, duration=max(0.8, round(b["t_end"] - b["t_start"], 2)), motion=sh.get("movement", "zoom_in"), focal=tuple(sh.get("focal", [0.5, 0.55])), role=b.get("role", "proof"), super_text=typeset_for(sh.get("super_text") or b.get("super_text") or "", lang) or None, beat_id=b["id"]))  # type: ignore[arg-type]
+    return scenes
+
+
 def build_master_spec(
     *,
     spec_id: str,
@@ -51,17 +69,12 @@ def build_master_spec(
     loudness_lufs: float = -16.0,
     grade_strength: float = 0.0,
     title: str | None = None,
+    quality: str = "preview",
 ) -> RenderSpec:
     beats = script["beats"]
     if len(beats) < 2:
         raise SpotBuildError("script needs at least 2 beats (scene + brand beat)", "err.inputs_missing.few_beats")
-    shots = {s["beat_id"]: s for s in storyboard["shots"]}
-    scenes: list[SceneSpec] = []
-    for b in beats[:-1]:
-        sh = shots.get(b["id"])
-        if not sh or not sh.get("asset_id"):
-            raise SpotBuildError(f"keyframe for beat {b['id']} is missing — generate the storyboard frames first", "err.inputs_missing.keyframe", {"beat": b["id"]})
-        scenes.append(SceneSpec(id=f"sc-{b['id']}", shot_id=sh["id"], asset_id=sh["asset_id"], duration=max(0.8, round(b["t_end"] - b["t_start"], 2)), motion=sh.get("movement", "zoom_in"), focal=tuple(sh.get("focal", [0.5, 0.55])), role=b.get("role", "proof"), super_text=typeset_for(sh.get("super_text") or b.get("super_text") or "", lang) or None, beat_id=b["id"]))  # type: ignore[arg-type]
+    scenes = scenes_from_storyboard(script, storyboard, lang)
     last = beats[-1]
     kit = localized_kit(kit, lang)  # tagline / voice in the spot's language
     palette = [p["hex"] for p in kit.get("palette", [])] or BrandStyle().palette
@@ -74,9 +87,9 @@ def build_master_spec(
     endcard = EndCardSpec(duration=max(2.0, min(3.2, round(last["t_end"] - last["t_start"], 2))), headline=typeset_for(tagline, lang), cta=typeset_for(cta, lang), url=url, legal=legal, bg=palette[0], fg=palette[2] if len(palette) > 2 else "#F6EBDD", accent=palette[1] if len(palette) > 1 else "#F2A03D")
     vo = [VoLine(id=ln["id"], text=ln["text"], start=ln["start"], duration=ln["duration"], asset_id=ln.get("asset_id"), speed=ln.get("speed", 1.0), beat_id=ln.get("beat_id")) for ln in voice["lines"]]
     labels = required_labels(campaign.get("markets", []), campaign.get("channels", []), True, lang)
-    badge = BADGE_TEXT.get(lang, BADGE_TEXT["en"]) if (labels["burn_in_required"] or labels["burn_in_advised"]) else None
+    badge = BADGE_TEXT.get(lang, BADGE_TEXT["en"]) if (labels["burn_in_required"] or labels["burn_in_advised"] or quality == "cinematic") else None  # real generative video always carries the AI badge
     return RenderSpec(
         id=spec_id, campaign_id=campaign["id"], title=title or script.get("title", "Spot"), lang=lang, aspect=aspect,  # type: ignore[arg-type]
         scenes=scenes, vo=vo, captions=make_captions(vo, lang=lang), legal_supers=legal, music=music, endcard=endcard, brand=brand,
-        disclosure_badge=badge, loudness_lufs=loudness_lufs, grade_strength=grade_strength, seed=7,
+        disclosure_badge=badge, loudness_lufs=loudness_lufs, grade_strength=grade_strength, seed=7, quality=quality,  # type: ignore[arg-type]
     )

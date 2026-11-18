@@ -137,8 +137,8 @@ export const messages: Record<string, string> = {
 
   // CS-08 Video
   "Director · spot compositor": "Reżyser · montaż spotu",
-  "Ken-Burns/parallax motion on the keyframes, dissolves, voice-over, burned-in captions + SRT, music bed, logo, AI-disclosure badge and brand end card — rendered by ffmpeg behind a pluggable VideoProvider.":
-    "Ruch w stylu Kena Burnsa i paralaksa na klatkach kluczowych, przenikania, lektor, napisy wtopione w obraz + SRT, podkład muzyczny, logo, oznaczenie użycia AI i plansza końcowa marki — renderowane przez ffmpeg za wymiennym interfejsem VideoProvider.",
+  "Two render qualities: Preview moves the keyframes with Ken-Burns/parallax camera moves; Cinematic turns each keyframe into an AI-generated clip with real motion. Either way: dissolves, voice-over, burned-in captions + SRT, music bed, logo, AI-disclosure badge and brand end card — assembled by ffmpeg behind a pluggable VideoProvider.":
+    "Dwa tryby renderu: podgląd porusza klatki kluczowe ruchem kamery w stylu Kena Burnsa i paralaksą; tryb filmowy zamienia każdą klatkę kluczową w klip wygenerowany przez AI z prawdziwym ruchem. W obu trybach: przenikania, lektor, napisy wtopione w obraz + SRT, podkład muzyczny, logo, oznaczenie użycia AI i plansza końcowa marki — składane przez ffmpeg za wymiennym interfejsem VideoProvider.",
   Aspect: "Proporcje",
   aspect: "proporcje",
   "Loudness target": "Docelowa głośność",
@@ -148,8 +148,7 @@ export const messages: Record<string, string> = {
   "−23 LUFS (EBU R128 broadcast)": "−23\u00A0LUFS (EBU R128, telewizja)",
   "Render spot": "Renderuj spot",
   "Re-render with Guardian fixes": "Renderuj ponownie z poprawkami Strażnika",
-  "Provider: {kind} · {codec} · generative video models plug in via VideoProvider (Sora-2 is deprecated in swedencentral).":
-    "Dostawca: {kind} · {codec} · generatywne modele wideo podłącza się przez VideoProvider (Sora-2 jest wycofany w regionie swedencentral).",
+  "Provider: {kind} · {codec}": "Dostawca: {kind} · {codec}",
   "No spot rendered yet": "Spot nie został jeszcze wyrenderowany",
   "You need a script, storyboard keyframes and a voice-over first.": "Najpierw potrzebne są: scenariusz, klatki kluczowe storyboardu i lektor.",
   "{aspect} · {n}s": "{aspect} · {n}\u00A0s",

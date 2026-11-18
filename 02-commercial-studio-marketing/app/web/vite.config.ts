@@ -19,5 +19,5 @@ export default defineConfig({
   server: { port: PORT, strictPort: true, proxy },
   preview: { proxy },
   build: { outDir: "dist", sourcemap: false, chunkSizeWarningLimit: 1200 },
-  test: { include: ["src/**/*.test.ts"], environment: "node" },
+  test: { include: ["src/**/*.test.{ts,tsx}"], environment: "node" },
 });

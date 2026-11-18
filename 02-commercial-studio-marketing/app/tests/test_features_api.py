@@ -1,4 +1,4 @@
-"""API-level behavioural tests for every Release-1 feature (offline stubs, real routers): CS-01 … CS-24."""
+"""API-level behavioural tests for every Release-1 feature (offline stubs, real routers): CS-01 … CS-25."""
 
 from __future__ import annotations
 
@@ -371,7 +371,7 @@ def test_cs24_observability_endpoints_report_health_dependencies_budget_and_rout
     assert st["mode"] == "offline" and st["budget"]["daily_cap_usd"] > 0 and st["backends"]["repository"] == "memory"
     assert api.get("/api/ops/metrics").json()["routes"]
     feats = api.get("/api/features").json()
-    assert len(feats) == 24 and all(f["status"] == "implemented" for f in feats) and {f["id"] for f in feats} == {f"CS-{i:02d}" for i in range(1, 25)}
+    assert len(feats) == 25 and all(f["status"] == "implemented" for f in feats) and {f["id"] for f in feats} == {f"CS-{i:02d}" for i in range(1, 26)}
     meta = api.get("/api/meta").json()
     assert meta["mode"] == "offline" and api.get("/api/usage").json()["budget"]["guard_active"]
     me = api.get("/api/me", headers=H("legal", "pat")).json()

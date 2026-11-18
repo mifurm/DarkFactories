@@ -44,6 +44,16 @@ SAFETY_PER_1K_IMAGE = 1.50
 # Azure Container Apps consumption (active): ~US$0.000024 / vCPU-second (+ memory); used for render seconds.
 RENDER_PER_VCPU_SECOND = 0.000024 + 0.0000030 * 2  # 1 vCPU + 2 GiB
 
+# Cinematic motion: self-hosted open image-to-video model (Wan 2.2 TI2V-5B, Apache-2.0) on Azure Container Apps serverless GPU (NC24-A100, swedencentral).
+# Azure Retail Prices (retrieved 2026-11-18): A100 US$0.000688/s + vCPU US$0.000024/s + GiB US$0.000003/s; the worker runs with 8 vCPU / 64 GiB
+# => 0.000688 + 8 * 0.000024 + 64 * 0.000003 = US$0.001072/s, rounded up to the figure below (the app setting MOTION_PRICE_PER_GPU_SECOND overrides it).
+MOTION_USD_PER_GPU_SECOND = 0.00108
+# GPU seconds per generated frame, calibrated on the real A100 (1024x576, 20 steps: 73 frames = 55 s, 109 frames = 88 s; 12 steps: 73 frames = 38 s).
+# A fixed part (text/VAE/encode) plus a part per denoising step; larger frames scale with their pixel count (1280x704: measured 92 s for 73 frames at 20 steps).
+MOTION_SECONDS_PER_FRAME_FIXED = 0.10
+MOTION_SECONDS_PER_FRAME_PER_STEP = 0.035
+MOTION_REFERENCE_PIXELS = 1024 * 576
+
 PREMIUM_IMAGE_QUALITIES = {"high"}
 PREMIUM_LLM_ROLES = {"reasoning"}
 
@@ -83,6 +93,17 @@ def safety_cost(kind: str, n: int = 1) -> float:
 
 def render_cost(cpu_seconds: float) -> float:
     return cpu_seconds * RENDER_PER_VCPU_SECOND
+
+
+def motion_cost(gpu_seconds: float, price_per_second: float = MOTION_USD_PER_GPU_SECOND) -> float:
+    """USD for ``gpu_seconds`` of the serverless A100 worker."""
+    return max(0.0, gpu_seconds) * price_per_second
+
+
+def motion_estimate(frames: int, width: int, height: int, steps: int = 20) -> float:
+    """Expected GPU seconds to generate one clip (a calibrated estimate, not a measurement): 1024x576 at 20 steps = 0.80 s per frame, 12 steps = 0.52 s per frame."""
+    per_frame = MOTION_SECONDS_PER_FRAME_FIXED + MOTION_SECONDS_PER_FRAME_PER_STEP * steps
+    return frames * per_frame * (width * height) / MOTION_REFERENCE_PIXELS
 
 
 def estimate_tokens(text: str) -> int:

@@ -23,15 +23,18 @@ async def submit_job(
     wait: bool = False,
     timeout: float = 170.0,  # noqa: ASYNC109 - upper bound for wait=true (scripts/tests); jobs themselves are not cancelled
     title_params: dict[str, Any] | None = None,
+    lane: str | None = None,
 ) -> dict[str, Any]:
     """Run long work as a persisted job. ``wait=true`` blocks until it finishes (scripts/tests); the UI streams progress.
 
-    ``title`` is a ``job.title.*`` catalog key (rendered in the viewer's language, with ``title_params``) or, for ad-hoc jobs, plain text."""
+    ``title`` is a ``job.title.*`` catalog key (rendered in the viewer's language, with ``title_params``) or, for ad-hoc jobs, plain text.
+    The job itself has no time limit (a cinematic render takes ~25 minutes while the GPU worker wakes up); only the ``wait=true`` caller stops waiting after ``timeout``.
+    ``lane="motion"`` runs it in the GPU lane, so it does not occupy the general job slots."""
     s = svc(request)
     if has(title, DEFAULT):
-        job = await s.jobs.submit(kind, fn, campaign_id=campaign_id, feature=feature, title_key=title, title_params=title_params)
+        job = await s.jobs.submit(kind, fn, campaign_id=campaign_id, feature=feature, title_key=title, title_params=title_params, lane=lane)
     else:
-        job = await s.jobs.submit(kind, fn, campaign_id=campaign_id, title=title, feature=feature)
+        job = await s.jobs.submit(kind, fn, campaign_id=campaign_id, title=title, feature=feature, lane=lane)
     if not wait:
         return render_job(job)
     try:

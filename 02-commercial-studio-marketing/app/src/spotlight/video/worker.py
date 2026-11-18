@@ -2,7 +2,8 @@
 
     python -m spotlight.video.worker <job_dir>
 
-<job_dir>/job.json = {"spec": {...}, "assets": {asset_id: relpath}, "vo": {vo_id: relpath}, "timeout": 420}
+<job_dir>/job.json = {"spec": {...}, "assets": {asset_id: relpath}, "vo": {vo_id: relpath}, "timeout": 420, "clips": {scene_id: relpath}}
+(``clips`` only for cinematic renders: the generated clip that plays in each scene).
 Progress is reported as ``PROGRESS <0..1> <message>`` lines; the final line is ``RESULT <json>``.
 """
 
@@ -23,12 +24,13 @@ def main(job_dir: str) -> int:
     spec = RenderSpec.model_validate(job["spec"])
     images = {k: (root / v).read_bytes() for k, v in job["assets"].items()}
     vo = {k: (root / v).read_bytes() for k, v in job["vo"].items()}
+    clips = {k: root / v for k, v in (job.get("clips") or {}).items()}
 
     def progress(p: float, msg: str) -> None:
         print(f"PROGRESS {p:.4f} {msg}", flush=True)
 
     try:
-        result = render(spec, images, vo, root / "out", progress, float(job.get("timeout", 420)))
+        result = render(spec, images, vo, root / "out", progress, float(job.get("timeout", 420)), clips or None)
     except Exception as exc:
         print(f"ERROR {type(exc).__name__}: {exc}", flush=True)
         traceback.print_exc(file=sys.stderr)

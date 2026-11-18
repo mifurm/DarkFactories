@@ -68,12 +68,32 @@ async def get_signer(svc: Any) -> LocalSigner:
     return svc.extras["signer"]
 
 
+async def _generative_video(st: Studio, motion: dict[str, Any], actions: list[dict[str, Any]], ingredients: list[dict[str, Any]], models: list[dict[str, Any]], when: str) -> dict[str, Any]:
+    """The ``generative_video`` assertion of a cinematic spot: which model made the footage, where it ran, and per shot the seed + prompt hash + clip (hash-checked ingredient)."""
+    shots: list[dict[str, Any]] = []
+    for x in motion.get("shots", []):
+        if x.get("status") not in {"generated", "cached"} or not x.get("asset_id"):
+            continue
+        a = await st.asset(x["asset_id"])
+        ingredients.append({"asset_id": a["id"], "sha256": a["sha256"], "relationship": "componentOf", "role": "motion-clip", "model": motion.get("model")})
+        shots.append({"shot_id": x["shot_id"], "scene_id": x.get("scene_id"), "seed": x["seed"], "prompt_sha256": x["prompt_sha256"], "width": x.get("width"), "height": x.get("height"), "frames": x.get("frames"),
+                      "gpu_seconds": (a.get("meta") or {}).get("gpu_seconds"), "cached": x.get("status") == "cached", "asset_id": a["id"], "clip_sha256": a["sha256"]})
+    actions.append({"action": "c2pa.created", "digitalSourceType": DST_ALGORITHMIC, "softwareAgent": motion.get("model"), "when": when, "parameters": {"kind": "image-to-video", "model_revision": motion.get("revision"), "shots": len(shots)}})
+    models.append({"role": "video", "deployment": motion.get("model")})
+    return {
+        "model": motion.get("model"), "model_revision": motion.get("revision"), "license": motion.get("license"), "mode": motion.get("mode"), "host": motion.get("host"),
+        "steps": motion.get("steps"), "guidance": motion.get("guidance"), "shots_total": motion.get("shots_total"), "shots": shots, "gpu_seconds": motion.get("gpu_seconds"),
+        "fallback_shots": [{"shot_id": f.get("shot_id"), "reason": f.get("reason")} for f in motion.get("shots_fallback", [])],
+    }
+
+
 async def build_manifest(svc: Any, asset: dict[str, Any], campaign: dict[str, Any] | None, spot: dict[str, Any] | None = None, parent_hash: str | None = None) -> dict[str, Any]:
     st = Studio(svc)
     actions: list[dict[str, Any]] = []
     ingredients: list[dict[str, Any]] = []
     models: list[dict[str, Any]] = []
     rights: list[dict[str, Any]] = []
+    generative_video: dict[str, Any] | None = None
     meta = asset.get("meta", {})
     ai_generated = bool(asset.get("ai_generated"))
     if asset["kind"] == "image" and meta.get("prompt"):
@@ -94,6 +114,9 @@ async def build_manifest(svc: Any, asset: dict[str, Any], campaign: dict[str, An
                 a = await st.asset(shot["asset_id"])
                 ingredients.append({"asset_id": a["id"], "sha256": a["sha256"], "relationship": "componentOf", "role": "keyframe", "model": shot.get("image_model")})
                 models.append({"role": "image", "deployment": shot.get("image_model")})
+        motion = (spot.get("render") or {}).get("motion")
+        if motion and motion.get("shots_generated"):
+            generative_video = await _generative_video(st, motion, actions, ingredients, models, asset["created_at"])
         for ln in spot["spec"].get("vo", []):
             if ln.get("asset_id"):
                 a = await st.asset(ln["asset_id"])
@@ -131,6 +154,7 @@ async def build_manifest(svc: Any, asset: dict[str, Any], campaign: dict[str, An
             "approvals": approvals,
             "guardian": {k: reports[0].get(k) for k in ("id", "verdict", "score", "rules_version")} if reports else None,
             "models": [dict(t) for t in {tuple(sorted(m.items())) for m in models if m.get("deployment")}],
+            **({"generative_video": generative_video} if generative_video else {}),
         },
         "audit_anchor": {"chain": chain, "seq": head["seq"] if head else 0, "hash": head["hash"] if head else None},
         "prev_manifest_hash": parent_hash,
@@ -229,6 +253,9 @@ def human_summary(doc: dict[str, Any], locale: str | None = None) -> dict[str, A
         lines.append(tr("prov.sum.ai.no", loc))
     models = sorted({str(x.get("deployment")) for x in a.get("models", []) if x.get("deployment")})
     lines.append(tr("prov.sum.models", loc, models=", ".join(models)) if models else tr("prov.sum.models.none", loc))
+    gv = a.get("generative_video")
+    if gv:
+        lines.append(tr("prov.sum.motion.stub" if gv.get("mode") == "stub" else "prov.sum.motion", loc, model=gv.get("model") or "?", license=gv.get("license") or "—", shots=len(gv.get("shots", [])), total=gv.get("shots_total") or len(gv.get("shots", []))))
     if a.get("ingredients"):
         lines.append(tr("prov.sum.ingredients", loc, count=len(a["ingredients"])))
     rights = a.get("rights") or []

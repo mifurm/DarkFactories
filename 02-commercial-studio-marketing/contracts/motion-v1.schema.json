@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:swarmai:spotlight:motion:v1",
+  "title": "Spotlight cinematic-motion wire contract v1",
+  "description": "Authoritative schema of every JSON document exchanged between the Studio (producer) and the GPU motion worker (consumer) through one Azure Storage queue and blob containers (or the local-dir twin). Documents the worker WRITES (status, result, ready) are strict (additionalProperties: false); documents the worker READS (queue message, request) tolerate unknown fields. Consumers of any document MUST ignore unknown fields. Rules that JSON Schema cannot express: width*height <= 1280*704 pixels; see README.md. Validate one document with e.g. {\"$ref\": \"urn:swarmai:spotlight:motion:v1#/$defs/request\"}.",
+  "x-contract": {
+    "version": 1,
+    "queue": "motion-jobs",
+    "containers": {
+      "in": "motion-in",
+      "out": "motion-out",
+      "models": "motion-models"
+    },
+    "blobs": {
+      "request": "motion-in/<job_id>/request.json",
+      "image": "motion-in/<job_id>/<request.image>",
+      "status": "motion-out/<job_id>/status.json",
+      "result": "motion-out/<job_id>/result.json",
+      "clip": "motion-out/<job_id>/clip.mp4",
+      "ready": "motion-out/_worker/ready.json"
+    }
+  },
+  "$defs": {
+    "jobId": {
+      "description": "Deterministic: 'mj_' + sha256(canonical inputs)[:24] (see README 'Deterministic job id').",
+      "type": "string",
+      "pattern": "^mj_[0-9a-f]{24}$"
+    },
+    "warmupId": {
+      "description": "'mw_' + uuid4 (hex, dashes optional).",
+      "type": "string",
+      "pattern": "^mw_[0-9a-f]{8}(-?[0-9a-f]{4}){3}-?[0-9a-f]{12}$"
+    },
+    "timestamp": {
+      "description": "UTC, ISO-8601, 'Z' suffix.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "queueMessage": {
+      "description": "Queue message text (UTF-8 JSON). type=generate points at motion-in/<job_id>/request.json; type=warmup only wakes the worker.",
+      "x-queue": "motion-jobs",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["v", "type", "job_id"],
+          "properties": {
+            "v": { "const": 1 },
+            "type": { "const": "generate" },
+            "job_id": { "$ref": "#/$defs/jobId" }
+          },
+          "examples": [
+            { "v": 1, "type": "generate", "job_id": "mj_0123456789abcdef01234567" }
+          ]
+        },
+        {
+          "type": "object",
+          "required": ["v", "type", "job_id"],
+          "properties": {
+            "v": { "const": 1 },
+            "type": { "const": "warmup" },
+            "job_id": { "$ref": "#/$defs/warmupId" }
+          },
+          "examples": [
+            { "v": 1, "type": "warmup", "job_id": "mw_4a0a1c3e5f6d4b7a8c9d0e1f2a3b4c5d" }
+          ]
+        }
+      ]
+    },
+    "request": {
+      "description": "motion-in/<job_id>/request.json. The worker centre-crops the image to the width:height aspect and resizes it (LANCZOS) before conditioning. model_revision / image_sha256 are optional; when present the worker verifies image_sha256 against the uploaded bytes.",
+      "x-blob": "motion-in/<job_id>/request.json",
+      "type": "object",
+      "required": ["v", "job_id", "model", "prompt", "width", "height", "num_frames", "fps", "steps", "guidance_scale", "seed", "image"],
+      "properties": {
+        "v": { "const": 1 },
+        "job_id": { "$ref": "#/$defs/jobId" },
+        "model": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+        "model_revision": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "negative_prompt": { "type": "string", "maxLength": 4000 },
+        "width": { "type": "integer", "minimum": 256, "maximum": 1280, "multipleOf": 32 },
+        "height": { "type": "integer", "minimum": 256, "maximum": 1280, "multipleOf": 32 },
+        "num_frames": {
+          "description": "4n+1 frames, 25..121.",
+          "type": "integer",
+          "enum": [25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121]
+        },
+        "fps": { "const": 24 },
+        "steps": { "type": "integer", "minimum": 8, "maximum": 40 },
+        "guidance_scale": { "type": "number", "minimum": 1, "maximum": 8 },
+        "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "image": {
+          "description": "Blob name inside the job prefix: motion-in/<job_id>/<image>. No slashes.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]{0,100}\\.(jpg|jpeg|png|webp)$"
+        },
+        "image_sha256": { "$ref": "#/$defs/sha256" },
+        "campaign_id": { "type": "string", "maxLength": 128 },
+        "shot_id": { "type": "string", "maxLength": 128 },
+        "created_at": { "$ref": "#/$defs/timestamp" }
+      },
+      "examples": [
+        {
+          "v": 1,
+          "job_id": "mj_0123456789abcdef01234567",
+          "model": "wan2.2-ti2v-5b",
+          "prompt": "A hand gently lifts the speckled ceramic mug; steam rises; slow cinematic push-in.",
+          "negative_prompt": "blurry, distorted, text, watermark",
+          "width": 1024,
+          "height": 576,
+          "num_frames": 93,
+          "fps": 24,
+          "steps": 20,
+          "guidance_scale": 4.0,
+          "seed": 123456,
+          "image": "image.jpg",
+          "campaign_id": "cmp_demo",
+          "shot_id": "s1",
+          "created_at": "2026-11-18T18:00:00Z"
+        }
+      ]
+    },
+    "status": {
+      "description": "motion-out/<job_id>/status.json. Overwritten by the worker at least every 3 s while the job runs; progress is monotonic. The terminal marker is result.json, not this document.",
+      "x-blob": "motion-out/<job_id>/status.json",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "job_id", "state", "progress", "step", "steps", "message", "replica", "updated_at"],
+      "properties": {
+        "v": { "const": 1 },
+        "job_id": { "$ref": "#/$defs/jobId" },
+        "state": { "enum": ["queued", "running", "succeeded", "failed"] },
+        "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+        "step": { "type": "integer", "minimum": 0 },
+        "steps": { "type": "integer", "minimum": 0 },
+        "message": { "type": "string", "maxLength": 200 },
+        "replica": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "updated_at": { "$ref": "#/$defs/timestamp" }
+      },
+      "examples": [
+        {
+          "v": 1,
+          "job_id": "mj_0123456789abcdef01234567",
+          "state": "running",
+          "progress": 0.42,
+          "step": 9,
+          "steps": 20,
+          "message": "denoising",
+          "replica": "ca-studio-motion--0000001-abcde",
+          "updated_at": "2026-11-18T18:00:30Z"
+        }
+      ]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "enum": ["oom", "bad_request", "timeout", "internal"] },
+        "message": { "type": "string", "maxLength": 500 },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "timings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queue_wait_s", "generate_s", "encode_s"],
+      "properties": {
+        "queue_wait_s": { "type": "number", "minimum": 0 },
+        "generate_s": { "type": "number", "minimum": 0 },
+        "encode_s": { "type": "number", "minimum": 0 }
+      }
+    },
+    "resultSucceeded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "job_id", "state", "clip", "width", "height", "fps", "num_frames", "seed", "model", "model_revision", "gpu_seconds", "timings", "error"],
+      "properties": {
+        "v": { "const": 1 },
+        "job_id": { "$ref": "#/$defs/jobId" },
+        "state": { "const": "succeeded" },
+        "clip": { "type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,100}\\.mp4$" },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "fps": { "type": "integer", "minimum": 1 },
+        "num_frames": { "type": "integer", "minimum": 1 },
+        "seed": { "type": "integer", "minimum": 0 },
+        "model": { "type": "string", "minLength": 1 },
+        "model_revision": { "type": "string", "minLength": 1 },
+        "gpu_seconds": { "type": "number", "minimum": 0 },
+        "timings": { "$ref": "#/$defs/timings" },
+        "error": { "type": "null" }
+      }
+    },
+    "resultFailed": {
+      "description": "Echo fields are null when the request could not be read or validated.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "job_id", "state", "clip", "width", "height", "fps", "num_frames", "seed", "model", "model_revision", "gpu_seconds", "timings", "error"],
+      "properties": {
+        "v": { "const": 1 },
+        "job_id": { "$ref": "#/$defs/jobId" },
+        "state": { "const": "failed" },
+        "clip": { "type": "null" },
+        "width": { "type": ["integer", "null"], "minimum": 1 },
+        "height": { "type": ["integer", "null"], "minimum": 1 },
+        "fps": { "type": ["integer", "null"], "minimum": 1 },
+        "num_frames": { "type": ["integer", "null"], "minimum": 1 },
+        "seed": { "type": ["integer", "null"], "minimum": 0 },
+        "model": { "type": "string", "minLength": 1 },
+        "model_revision": { "type": "string", "minLength": 1 },
+        "gpu_seconds": { "type": "number", "minimum": 0 },
+        "timings": { "$ref": "#/$defs/timings" },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "result": {
+      "description": "motion-out/<job_id>/result.json, written LAST: its presence means the job is terminal. gpu_seconds = wall seconds the worker spent on the job (request/image fetch, generation, encode, clip upload; excludes queue wait); it is the basis of Studio cost metering and is also reported for failed jobs.",
+      "x-blob": "motion-out/<job_id>/result.json",
+      "oneOf": [
+        { "$ref": "#/$defs/resultSucceeded" },
+        { "$ref": "#/$defs/resultFailed" }
+      ],
+      "examples": [
+        {
+          "v": 1,
+          "job_id": "mj_0123456789abcdef01234567",
+          "state": "succeeded",
+          "clip": "clip.mp4",
+          "width": 1024,
+          "height": 576,
+          "fps": 24,
+          "num_frames": 93,
+          "seed": 123456,
+          "model": "wan2.2-ti2v-5b",
+          "model_revision": "b8fff7315c768468a5333511427288870b2e9635",
+          "gpu_seconds": 74.2,
+          "timings": { "queue_wait_s": 3.1, "generate_s": 70.5, "encode_s": 2.4 },
+          "error": null
+        },
+        {
+          "v": 1,
+          "job_id": "mj_0123456789abcdef01234567",
+          "state": "failed",
+          "clip": null,
+          "width": 1024,
+          "height": 576,
+          "fps": 24,
+          "num_frames": 93,
+          "seed": 123456,
+          "model": "wan2.2-ti2v-5b",
+          "model_revision": "b8fff7315c768468a5333511427288870b2e9635",
+          "gpu_seconds": 41.8,
+          "timings": { "queue_wait_s": 3.1, "generate_s": 0.0, "encode_s": 0.0 },
+          "error": { "code": "oom", "message": "out of memory while generating the clip (reduce resolution or frame count)", "retryable": false }
+        }
+      ]
+    },
+    "ready": {
+      "description": "motion-out/_worker/ready.json. Written when start-up completes and refreshed every 60 s while the worker is alive (also while it is busy); deleted on graceful shutdown. Studio: ready if updated_at is < 150 s old and state=ready; warming if state=loading or a warmup/generate message is pending; otherwise cold.",
+      "x-blob": "motion-out/_worker/ready.json",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "state", "replica", "model", "model_revision", "vram_gib", "started_at", "updated_at"],
+      "properties": {
+        "v": { "const": 1 },
+        "state": { "enum": ["ready", "loading"] },
+        "replica": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "model": { "type": "string", "minLength": 1 },
+        "model_revision": { "type": "string", "minLength": 1 },
+        "vram_gib": { "type": "number", "minimum": 0 },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "updated_at": { "$ref": "#/$defs/timestamp" }
+      },
+      "examples": [
+        {
+          "v": 1,
+          "state": "ready",
+          "replica": "ca-studio-motion--0000001-abcde",
+          "model": "wan2.2-ti2v-5b",
+          "model_revision": "b8fff7315c768468a5333511427288870b2e9635",
+          "vram_gib": 22.6,
+          "started_at": "2026-11-18T17:55:00Z",
+          "updated_at": "2026-11-18T18:00:30Z"
+        }
+      ]
+    }
+  }
+}

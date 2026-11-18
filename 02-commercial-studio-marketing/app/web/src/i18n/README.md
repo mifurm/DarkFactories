@@ -30,7 +30,7 @@ fmt.number / fixed / usd / currency / percent / pct / date / time / dateTime / r
 | `search.ts` | `foldText` — accent folding that also maps ł/Ł, ø, đ, ß … (NFKD does not decompose them) |
 | `index.tsx` | React glue: `useI18n`, `setLang`, `initLang`, `useOnLangChange`, `useLocalizedDefault`, `msg()` |
 | `en.ts` | ID-keyed English tables the UI owns (statuses, roles, gates …) |
-| `pl.ts`, `pl/*.ts` | the Polish dictionary: `messages-*.ts` (by area), `plurals.ts`, `enums.ts`, `features.ts`, `roi.ts` |
+| `pl.ts`, `pl/*.ts` | the Polish dictionary: `messages-*.ts` (by area), `plurals.ts`, `enums.ts`, `features.ts`, `roi.ts`, `backend.ts` (values only a real backend returns), `motion.ts` (cinematic motion: messages + plurals + enums) |
 | `extract.ts` | TypeScript-AST extraction of every `t()/tx()/msg()/tn()/tEnum()` literal (test only) |
 | `GLOSSARY.md` | terminology |
 
@@ -39,6 +39,7 @@ fmt.number / fixed / usd / currency / percent / pct / date / time / dateTime / r
 * `i18n.test.ts` — every literal has a Polish entry and no Polish entry is unused; `{placeholders}` match; no Polish text equals the English source unless it is on the explicit `SAME_IN_POLISH` list (names, cognates, loan words);
   all four Polish plural forms; enum tables complete in both languages; every ROI model key has a Polish label.
 * `format.test.ts` — plural categories (1 / 2–4 / 5–21 / 22–24 / 1,5), number / currency / percent / date / time / relative formats, collation (ą ć ę ł ń ó ś ź ż), ł-safe search, language resolution, `tKnown`, `tEnum`, `tOpen`.
+* `motion-pl.test.ts` — typography of the cinematic-motion strings (ellipsis, quotes, no-break unit spaces, punctuation and case parity with the source, rich-message tags, plural forms). The motion components themselves are tested in `src/motion/*.test.ts(x)`: pure helpers + mocked `fetch`, and the components rendered with `react-dom/server` in node (no DOM library) in English and Polish, asserting roles/labels, the states (unavailable / cold / warming / ready / budget refusal) and that no key is reported missing.
 * Browser: `app/e2e/journeys_pl.py` (Polish journeys + per-page quality gate), `app/e2e/journeys.py` (English, unchanged).
 
 ## Adding a language (e.g. German)

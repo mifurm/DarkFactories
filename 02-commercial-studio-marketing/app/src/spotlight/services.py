@@ -39,6 +39,7 @@ class Services:
     limiter: RateLimiter
     notifier: Notifier
     credential: Any = None
+    motion: Any = None  # the cinematic-motion backend (spotlight.motion.MotionClient)
     started_at: float = field(default_factory=time.time)
     route_stats: dict[str, dict[str, float]] = field(default_factory=dict)
     ready_cache: dict[str, Any] = field(default_factory=dict)
@@ -48,7 +49,9 @@ class Services:
         await self.jobs.shutdown()
         with contextlib.suppress(Exception):
             await self.notifier.close()
-        for obj in (self.repo, self.blobs):
+        for obj in (self.repo, self.blobs, self.motion):
+            if obj is None:
+                continue
             with contextlib.suppress(Exception):
                 await obj.close()
         for obj in (self.llm, self.image, self.speech, self.embeddings, self.safety):
@@ -78,7 +81,7 @@ async def build_services(settings: Settings) -> Services:
     ai_backend = _resolve(settings.ai_backend, azure, "azure", "stub")
 
     credential = None
-    if "azure" in (blob_backend, ai_backend) or repo_backend == "cosmos":
+    if "azure" in (blob_backend, ai_backend) or repo_backend == "cosmos" or settings.motion_effective_mode == "azure":
         from .core.ai.azure import make_credential
 
         credential = make_credential(settings.azure_client_id)
@@ -119,6 +122,9 @@ async def build_services(settings: Settings) -> Services:
 
     jobs = JobRunner(repo, max_concurrent=settings.max_concurrent_jobs, instance_id=settings.instance_id, on_event=notifier.emit)
     notifier.attach()
+    from .motion import build_client
+
+    motion = build_client(settings, credential)
     return Services(
         settings=settings,
         repo=repo,
@@ -137,4 +143,5 @@ async def build_services(settings: Settings) -> Services:
         limiter=RateLimiter(settings.rate_limit_enabled),
         notifier=notifier,
         credential=credential,
+        motion=motion,
     )

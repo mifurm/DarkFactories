@@ -278,7 +278,7 @@ def test_validation_errors_are_localized_but_keep_the_code_and_locations(client)
 
 def test_features_registry_stays_english_the_ui_translates_by_id(client):
     feats = client.get("/api/features", headers={"X-UI-Lang": "pl"}).json()
-    assert len(feats) == 24 and feats[0]["id"] == "CS-01" and feats[0]["name"] == "Brand Kit & Brand Brain"
+    assert len(feats) == 25 and feats[0]["id"] == "CS-01" and feats[0]["name"] == "Brand Kit & Brand Brain"
 
 
 def test_me_localizes_role_labels_and_keeps_role_ids(client):

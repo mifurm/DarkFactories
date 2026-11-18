@@ -1,0 +1,66 @@
+{
+  "description": "Golden vectors for the deterministic motion job id (contracts/README.md, 'Deterministic job id'). Every implementation (worker: motion_worker/contract.py, Studio: spotlight/motion) must reproduce each job_id from its inputs, and each canonical string from the rules. image_sha256 = lowercase hex SHA-256 of the exact bytes of the uploaded image blob; here the 'image' is the ASCII text in image_bytes_ascii.",
+  "algorithm": "job_id = 'mj_' + sha256(utf8(canonical))[:24 hex chars]; canonical = '|'.join([model, revision, esc(prompt), esc(negative_prompt), str(width), str(height), str(num_frames), str(fps), str(steps), format(guidance_scale, '.6g'), str(seed), image_sha256]); esc(s) = s.replace('\\\\', '\\\\\\\\').replace('|', '\\\\|')",
+  "vectors": [
+    {
+      "name": "plain",
+      "inputs": {
+        "model": "wan2.2-ti2v-5b",
+        "revision": "b8fff7315c768468a5333511427288870b2e9635",
+        "prompt": "A hand gently lifts the speckled ceramic mug; steam rises; slow cinematic push-in.",
+        "negative_prompt": "blurry, distorted, text, watermark",
+        "width": 1024,
+        "height": 576,
+        "num_frames": 93,
+        "fps": 24,
+        "steps": 20,
+        "guidance_scale": 4.0,
+        "seed": 123456,
+        "image_bytes_ascii": "spotlight-motion-golden-image-1",
+        "image_sha256": "830e4d0a125dc83c76a53baf8f2c6c1408e90145151e3b1636f73116c44545aa"
+      },
+      "canonical": "wan2.2-ti2v-5b|b8fff7315c768468a5333511427288870b2e9635|A hand gently lifts the speckled ceramic mug; steam rises; slow cinematic push-in.|blurry, distorted, text, watermark|1024|576|93|24|20|4|123456|830e4d0a125dc83c76a53baf8f2c6c1408e90145151e3b1636f73116c44545aa",
+      "job_id": "mj_380b932f37f39c944afce70d"
+    },
+    {
+      "name": "escaping-unicode",
+      "inputs": {
+        "model": "wan2.2-ti2v-5b",
+        "revision": "b8fff7315c768468a5333511427288870b2e9635",
+        "prompt": "Dłoń unosi kubek | para wznosi się\\ powoli — zbliżenie 🎬",
+        "negative_prompt": "",
+        "width": 768,
+        "height": 768,
+        "num_frames": 25,
+        "fps": 24,
+        "steps": 12,
+        "guidance_scale": 3.5,
+        "seed": 4294967295,
+        "image_bytes_ascii": "spotlight-motion-golden-image-2",
+        "image_sha256": "e946bc689b60488d3709a245c74edbe947b738631710723062041beb8e401ec8"
+      },
+      "canonical": "wan2.2-ti2v-5b|b8fff7315c768468a5333511427288870b2e9635|Dłoń unosi kubek \\| para wznosi się\\\\ powoli — zbliżenie 🎬||768|768|25|24|12|3.5|4294967295|e946bc689b60488d3709a245c74edbe947b738631710723062041beb8e401ec8",
+      "job_id": "mj_7312d03e1865eeb0c0d6cfc6"
+    },
+    {
+      "name": "guidance-rounding",
+      "inputs": {
+        "model": "wan2.2-ti2v-5b",
+        "revision": "b8fff7315c768468a5333511427288870b2e9635",
+        "prompt": "Slow truck left across the counter.",
+        "negative_prompt": "a|b",
+        "width": 576,
+        "height": 1024,
+        "num_frames": 121,
+        "fps": 24,
+        "steps": 40,
+        "guidance_scale": 7.123456789,
+        "seed": 0,
+        "image_bytes_ascii": "spotlight-motion-golden-image-3",
+        "image_sha256": "3501e4bdb6ff91eb3777744c93a2b68ce91ad0f3431fafbfa4aa624afcf1d409"
+      },
+      "canonical": "wan2.2-ti2v-5b|b8fff7315c768468a5333511427288870b2e9635|Slow truck left across the counter.|a\\|b|576|1024|121|24|40|7.12346|0|3501e4bdb6ff91eb3777744c93a2b68ce91ad0f3431fafbfa4aa624afcf1d409",
+      "job_id": "mj_04cc9e66b42e6b872d7ceb09"
+    }
+  ]
+}

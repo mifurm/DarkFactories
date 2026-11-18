@@ -1,0 +1,14 @@
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+tests
+web/node_modules
+web/dist
+src/nightshift/static
+.pip-install.log
+*.log

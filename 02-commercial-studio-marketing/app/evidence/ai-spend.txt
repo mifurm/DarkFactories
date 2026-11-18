@@ -1,0 +1,14 @@
+AI spend incurred in the Azure environment (metered at list-price estimates; Azure OpenAI / Content Safety / Speech calls)
+
+Snapshot 1 — at delivery (before the independent review):
+events: 794
+  2026-11-17: $0.8031
+  TOTAL: $0.8031
+by service: {'embedding': '$0.0002 (158 calls)', 'image': '$0.2600 (20 calls)', 'llm': '$0.1200 (64 calls)', 'render': '$0.0139 (31 calls)', 'safety': '$0.3292 (419 calls)', 'tts': '$0.0798 (102 calls)'}
+
+Snapshot 2 — cumulative after the reviewer's live smoke run (≈ $0.157) and the follow-up E2E runs (read from the Cosmos usage ledger):
+events: 981
+  2026-11-17: $0.9608 (932 events)
+  2026-11-18: $0.0278 (49 events)
+  TOTAL: $0.9885
+by service: {'embedding': '$0.0002 (182 calls)', 'image': '$0.3120 (24 calls)', 'llm': '$0.1464 (83 calls)', 'render': '$0.0182 (38 calls)', 'safety': '$0.4117 (525 calls)', 'tts': '$0.1000 (129 calls)'}

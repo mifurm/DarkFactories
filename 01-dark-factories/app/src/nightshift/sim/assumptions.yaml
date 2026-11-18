@@ -1,0 +1,240 @@
+# Nightshift simulation assumptions (synthetic; Contoso Precision Components is fictional).
+# Every number here is an ASSUMPTION of the simulator - shown in the UI and used by the A/B replay.
+# Validate with customer data before using results outside the demo.
+version: 1
+currency: EUR
+
+time:
+  start: "2026-11-17T22:00"     # plant-local clock at sim t=0 (night shift starts)
+  agent_interval_min: 5         # swarm cycle
+  approval_latency_min: 20      # A/B replay: how long a human takes to approve items that need approval
+
+calendar:
+  planned_windows: ["05:30-06:30", "13:30-14:30", "21:30-22:30"]   # shift changeover windows used for planned maintenance
+  shifts: {night: "22:00-06:00", day: "06:00-14:00", late: "14:00-22:00"}
+
+energy:
+  tariff_eur_per_kwh: {offpeak: 0.085, shoulder: 0.140, peak: 0.230}
+  tariff_hours: {offpeak: "22:00-06:00", peak: "17:00-21:00"}      # everything else is shoulder
+  demand_charge_eur_per_kw_day: 0.45
+  carbon_g_per_kwh: {base: 380, evening_amp: 120, solar_dip: 90}
+  shift_efficiency: 0.92        # round-trip efficiency of shiftable buffers (air receiver, chilled-water tank)
+
+costs:
+  machine_hour_eur: {MACH: 60, MOLD: 45, ASM: 35, TEST: 30, PACK: 20}
+  tardiness_eur_per_hour: {1: 180, 2: 90, 3: 40}      # by order priority
+  escape_eur_per_unit: 250                            # defective unit shipped to a customer (warranty, sorting, reputation)
+  repair_eur: {unplanned: 2600, planned: 420}         # parts + labour per corrective / planned maintenance
+  expedite_premium: 0.35                              # share of order value added when expediting material
+  alt_source_premium: 0.20
+
+materials:
+  BAR-AL:   {unit: kg, stage: MACH, on_hand: 520, min: 330, max: 700, lead_h: 10, price_eur: 4.2}
+  BAR-ST:   {unit: kg, stage: MACH, on_hand: 380, min: 230, max: 500, lead_h: 10, price_eur: 2.6}
+  RESIN-PA: {unit: kg, stage: MOLD, on_hand: 26,  min: 16,  max: 40,  lead_h: 8,  price_eur: 3.1}
+  KIT-ASM:  {unit: kit, stage: ASM, on_hand: 1600, min: 1100, max: 2100, lead_h: 12, price_eur: 1.4}
+  PKG-BOX:  {unit: box, stage: PACK, on_hand: 1600, min: 1100, max: 2100, lead_h: 12, price_eur: 0.6}
+spares:
+  SP-BEARING: {on_hand: 2, min: 1, lead_h: 72, price_eur: 380, fits: [CNC, PRESS]}
+  SP-INSERT:  {on_hand: 8, min: 3, lead_h: 24, price_eur: 45, fits: [CNC]}
+  SP-HEATER:  {on_hand: 2, min: 1, lead_h: 96, price_eur: 210, fits: [PRESS]}
+
+products:
+  HSG-100: {name: Aluminium housing, family: A, route: [MACH, ASM, TEST, PACK], margin_eur: 42, weight: 0.24, qty: [80, 120, 160, 200],
+            cycle_min: {MACH: 3.0, ASM: 1.2, TEST: 0.8, PACK: 0.3}, bom: {BAR-AL: 0.8, KIT-ASM: 1, PKG-BOX: 1}}
+  SHF-200: {name: Drive shaft, family: B, route: [MACH, ASM, TEST, PACK], margin_eur: 58, weight: 0.18, qty: [60, 100, 140, 180],
+            cycle_min: {MACH: 4.2, ASM: 1.0, TEST: 0.9, PACK: 0.3}, bom: {BAR-ST: 1.4, KIT-ASM: 1, PKG-BOX: 1}}
+  CON-300: {name: Connector body, family: C, route: [MOLD, ASM, TEST, PACK], margin_eur: 19, weight: 0.24, qty: [120, 180, 240, 300],
+            cycle_min: {MOLD: 2.2, ASM: 1.4, TEST: 0.7, PACK: 0.3}, bom: {RESIN-PA: 0.05, KIT-ASM: 1, PKG-BOX: 1}}
+  CAP-400: {name: Sensor cap, family: D, route: [MOLD, ASM, TEST, PACK], margin_eur: 12, weight: 0.20, qty: [160, 240, 320, 400],
+            cycle_min: {MOLD: 1.6, ASM: 0.9, TEST: 0.6, PACK: 0.3}, bom: {RESIN-PA: 0.03, KIT-ASM: 1, PKG-BOX: 1}}
+  ACT-500: {name: Actuator assembly, family: E, route: [MACH, MOLD, ASM, TEST, PACK], margin_eur: 96, weight: 0.14, qty: [40, 60, 80, 100],
+            cycle_min: {MACH: 3.4, MOLD: 2.0, ASM: 2.0, TEST: 1.2, PACK: 0.4}, bom: {BAR-AL: 0.6, RESIN-PA: 0.04, KIT-ASM: 1, PKG-BOX: 1}}
+orders:
+  lead_slack: [1.8, 2.8]        # due date = release + base + slack x work content
+  base_lead_h: 4
+  priority_mix: {1: 0.15, 2: 0.65, 3: 0.20}
+  deferrable_share: 0.12        # stock-replenishment orders the energy agent may defer to cheap hours
+  initial_orders: 8
+  transfer_batch: 40            # units that must exist upstream before a downstream op may start
+  buffer_cap_units: 100         # max WIP between two ops before the upstream machine is BLOCKED
+
+asset_types:
+  CNC:
+    stage: MACH
+    power_kw: {RUN: 18.0, IDLE: 4.5, SETUP: 6.0, DOWN: 0.8, MAINT: 1.5, BLOCKED: 5.0, STARVED: 5.0}
+    setup_min: 15
+    mttr_min: 180
+    degr_per_run_h: 0.0021
+    shock_per_run_h: 0.0006
+    fail_threshold: 0.12
+    pm_duration_min: 45
+    tool_life_units: 2400
+    tool_change_min: 15
+    qchar: {metric: dim_mm, nominal: 25.000, sigma: 0.004}
+    sensors: [vibration_rms, bearing_temp_c, spindle_load_pct, current_a, power_kw, dim_mm]
+    loss_eur_per_min: 10.0
+    util: COMP
+  PRESS:
+    stage: MOLD
+    power_kw: {RUN: 32.0, IDLE: 8.0, SETUP: 10.0, DOWN: 1.2, MAINT: 2.0, BLOCKED: 9.0, STARVED: 9.0}
+    setup_min: 25
+    mttr_min: 240
+    degr_per_run_h: 0.0024
+    shock_per_run_h: 0.0007
+    fail_threshold: 0.12
+    pm_duration_min: 60
+    tool_life_units: 9000
+    tool_change_min: 30
+    qchar: {metric: part_weight_g, nominal: 18.40, sigma: 0.06}
+    sensors: [vibration_rms, melt_temp_c, hydraulic_pressure_bar, current_a, power_kw, part_weight_g]
+    loss_eur_per_min: 7.0
+    util: CHILL
+  ASM:
+    stage: ASM
+    power_kw: {RUN: 5.5, IDLE: 1.2, SETUP: 1.8, DOWN: 0.4, MAINT: 0.8, BLOCKED: 1.6, STARVED: 1.6}
+    setup_min: 4
+    mttr_min: 90
+    degr_per_run_h: 0.0014
+    shock_per_run_h: 0.0005
+    fail_threshold: 0.12
+    pm_duration_min: 30
+    tool_life_units: 20000
+    tool_change_min: 10
+    qchar: {metric: torque_nm, nominal: 2.50, sigma: 0.05}
+    sensors: [vibration_rms, current_a, power_kw, torque_nm]
+    loss_eur_per_min: 14.0
+    util: COMP
+  TEST:
+    stage: TEST
+    power_kw: {RUN: 3.5, IDLE: 0.9, SETUP: 1.2, DOWN: 0.3, MAINT: 0.6, BLOCKED: 1.1, STARVED: 1.1}
+    setup_min: 2
+    mttr_min: 60
+    degr_per_run_h: 0.0010
+    shock_per_run_h: 0.0004
+    fail_threshold: 0.12
+    pm_duration_min: 30
+    tool_life_units: 50000
+    tool_change_min: 5
+    sensors: [current_a, power_kw]
+    loss_eur_per_min: 9.0
+    util: COMP
+  PACK:
+    stage: PACK
+    power_kw: {RUN: 4.0, IDLE: 1.0, SETUP: 1.4, DOWN: 0.3, MAINT: 0.6, BLOCKED: 1.2, STARVED: 1.2}
+    setup_min: 1
+    mttr_min: 45
+    degr_per_run_h: 0.0009
+    shock_per_run_h: 0.0004
+    fail_threshold: 0.12
+    pm_duration_min: 20
+    tool_life_units: 50000
+    tool_change_min: 5
+    sensors: [current_a, power_kw]
+    loss_eur_per_min: 12.0
+    util: COMP
+  COMP:
+    stage: null
+    power_kw: {RUN: 28.0, IDLE: 10.0, SETUP: 10.0, DOWN: 0.5, MAINT: 1.0, BLOCKED: 10.0, STARVED: 10.0}
+    mttr_min: 120
+    degr_per_run_h: 0.0010
+    shock_per_run_h: 0.0003
+    fail_threshold: 0.12
+    pm_duration_min: 60
+    util_base_kw: 9.0
+    util_per_running_kw: 1.9
+    buffer: {capacity_kwh: 30.0, discharge_kw: 16.0, charge_kw: 20.0}
+    sensors: [pressure_bar, current_a, power_kw, temperature_c, vibration_rms]
+    loss_eur_per_min: 25.0
+  CHILL:
+    stage: null
+    power_kw: {RUN: 28.0, IDLE: 8.0, SETUP: 8.0, DOWN: 0.5, MAINT: 1.0, BLOCKED: 8.0, STARVED: 8.0}
+    mttr_min: 150
+    degr_per_run_h: 0.0012
+    shock_per_run_h: 0.0003
+    fail_threshold: 0.12
+    pm_duration_min: 60
+    util_base_kw: 7.0
+    util_per_running_kw: 6.5
+    buffer: {capacity_kwh: 120.0, discharge_kw: 22.0, charge_kw: 28.0}   # chilled-water thermal storage tank
+    sensors: [supply_temp_c, current_a, power_kw, vibration_rms]
+    loss_eur_per_min: 15.0
+  AMR:
+    stage: null
+    power_kw: {RUN: 1.8, IDLE: 0.3, SETUP: 0.3, DOWN: 0.1, MAINT: 3.5, BLOCKED: 0.3, STARVED: 0.3}
+    mttr_min: 30
+    degr_per_run_h: 0.0008
+    shock_per_run_h: 0.0004
+    fail_threshold: 0.12
+    pm_duration_min: 20
+    delivery_min: 10
+    kit_minutes_per_delivery: 90
+    sensors: [battery_pct, power_kw]
+    loss_eur_per_min: 3.0
+  WH:
+    stage: null
+    power_kw: {RUN: 6.0, IDLE: 6.0, SETUP: 6.0, DOWN: 1.0, MAINT: 2.0, BLOCKED: 6.0, STARVED: 6.0}
+    mttr_min: 60
+    degr_per_run_h: 0.0
+    shock_per_run_h: 0.0
+    fail_threshold: 0.05
+    pm_duration_min: 30
+    sensors: [power_kw]
+    loss_eur_per_min: 20.0
+
+feeding:
+  kit_capacity_min: 120
+  kit_request_below_min: 30
+
+faults:                         # defaults applied by the fault-injection console
+  bearing_wear:    {ttf_h: 14.0, noise: 0.08}
+  tool_wear:       {accel: 45.0}
+  thermal_drift:   {magnitude_sigma: 3.6, ramp_h: 2.5}
+  quality_drift:   {magnitude_sigma: 3.2, ramp_min: 60, duration_h: 3.0}
+  jam:             {duration_min: 90, recoverable: true, remote_clear_min: 12}
+  supplier_delay:  {delay_h: 12.0}
+  rush_order:      {qty: 80, due_in_h: 9.0, priority: 1}
+  power_price_spike: {multiplier: 2.8, duration_h: 3.0}
+  human_intrusion: {duration_min: 12}
+
+safety:
+  restart_delay_min_baseline: 25    # manual reset after a hard-wired stop
+  restart_delay_min_swarm: 3        # verified remote restart
+  slow_speed_pct: 40
+  forbidden: {speed_pct: [40, 110], offset_sigma: [-2.0, 2.0], melt_temp_c: [180, 265]}
+  protected_assets: [COMP-01, WH-01]
+
+plants:
+  KAT-1:
+    name: Contoso Precision Components - KAT-1
+    site: kat-1
+    location: Katowice, PL (fictional)
+    profile: Precision machining & moulding hub
+    counts: {CNC: 5, PRESS: 3, ASM: 3, TEST: 2, PACK: 1, COMP: 1, CHILL: 1, AMR: 3, WH: 1}
+    order_rate_per_h: 0.42
+    mix: {HSG-100: 0.28, SHF-200: 0.24, CON-300: 0.20, CAP-400: 0.14, ACT-500: 0.14}
+    energy_price_factor: 1.0
+    carbon_factor: 1.0
+    failure_factor: 1.0
+  GDN-2:
+    name: Contoso Moulded Systems - GDN-2
+    site: gdn-2
+    location: Gdansk, PL (fictional)
+    profile: Injection-moulding heavy
+    counts: {CNC: 2, PRESS: 6, ASM: 3, TEST: 2, PACK: 1, COMP: 1, CHILL: 1, AMR: 2, WH: 1}
+    order_rate_per_h: 0.30
+    mix: {HSG-100: 0.06, SHF-200: 0.04, CON-300: 0.42, CAP-400: 0.40, ACT-500: 0.08}
+    energy_price_factor: 1.15
+    carbon_factor: 1.25
+    failure_factor: 1.25
+  MTY-3:
+    name: Contoso Assembly & Test - MTY-3
+    site: mty-3
+    location: Monterrey, MX (fictional)
+    profile: Assembly & test heavy
+    counts: {CNC: 3, PRESS: 2, ASM: 5, TEST: 4, PACK: 2, COMP: 1, CHILL: 1, AMR: 2, WH: 1}
+    order_rate_per_h: 0.40
+    mix: {HSG-100: 0.22, SHF-200: 0.18, CON-300: 0.18, CAP-400: 0.14, ACT-500: 0.28}
+    energy_price_factor: 0.80
+    carbon_factor: 1.40
+    failure_factor: 0.85

@@ -1,0 +1,77 @@
+{
+  "_comment": "Azure Retail Prices API queries behind the unit prices in ../assumptions.json. Run: python fetch_prices.py snapshot --queries queries.json --out prices-snapshot.json. Each query must resolve to exactly one meter row (list price, USD, pay-as-you-go).",
+  "queries": [
+    {"id": "gpt54_mini_input_per_1m", "family": "ai_foundry", "serviceName": "Foundry Models", "region": "swedencentral", "select": {"skuName": "^5\\.4 mini Inp Gl$"}},
+    {"id": "gpt54_mini_cached_input_per_1m", "family": "ai_foundry", "serviceName": "Foundry Models", "region": "swedencentral", "select": {"skuName": "^5\\.4 mini cd Inp Gl$"}},
+    {"id": "gpt54_mini_output_per_1m", "family": "ai_foundry", "serviceName": "Foundry Models", "region": "swedencentral", "select": {"skuName": "^5\\.4 mini Opt Gl$"}},
+    {"id": "gpt54_input_per_1m", "family": "ai_foundry", "serviceName": "Foundry Models", "region": "swedencentral", "select": {"skuName": "^5\\.4 inp Gl$"}},
+    {"id": "gpt54_cached_input_per_1m", "family": "ai_foundry", "serviceName": "Foundry Models", "region": "swedencentral", "select": {"skuName": "^5\\.4 cd inp Gl$"}},
+    {"id": "gpt54_output_per_1m", "family": "ai_foundry", "serviceName": "Foundry Models", "region": "swedencentral", "select": {"skuName": "^5\\.4 opt Gl$"}},
+    {"id": "gpt54_nano_input_per_1m", "family": "ai_foundry", "serviceName": "Foundry Models", "region": "swedencentral", "select": {"skuName": "^5\\.4 nano Inp Gl$"}},
+    {"id": "gpt54_nano_cached_input_per_1m", "family": "ai_foundry", "serviceName": "Foundry Models", "region": "swedencentral", "select": {"skuName": "^5\\.4 nano cd Inp Gl$"}},
+    {"id": "gpt54_nano_output_per_1m", "family": "ai_foundry", "serviceName": "Foundry Models", "region": "swedencentral", "select": {"skuName": "^5\\.4 nano Opt Gl$"}},
+    {"id": "embedding_3_small_per_1k", "family": "ai_foundry", "serviceName": "Foundry Models", "region": "swedencentral", "select": {"skuName": "^text-embedding-3-small-glbl$"}},
+    {"id": "ai_search_s1_unit_hour", "family": "ai_foundry", "serviceName": "Azure Cognitive Search", "region": "swedencentral", "select": {"skuName": "^Standard S1$", "meterName": "^Standard S1 Unit$"}},
+    {"id": "ai_search_semantic_ranker_per_1k", "family": "ai_foundry", "serviceName": "Azure Cognitive Search", "region": "swedencentral", "select": {"skuName": "^Semantic Ranker$"}},
+
+    {"id": "vm_d4s_v5_hour", "family": "azure_ml", "serviceName": "Virtual Machines", "region": "swedencentral", "select": {"productName": "^Virtual Machines Dsv5 Series$", "skuName": "^Standard_D4s_v5$"}},
+    {"id": "vm_d16s_v5_hour", "family": "azure_ml", "serviceName": "Virtual Machines", "region": "swedencentral", "select": {"productName": "^Virtual Machines Dsv5 Series$", "skuName": "^Standard_D16s_v5$"}},
+    {"id": "vm_nc8as_t4_v3_hour", "family": "azure_ml", "serviceName": "Virtual Machines", "region": "swedencentral", "select": {"productName": "^Virtual Machines NCasT4 v3 Series$", "skuName": "^NC8as T4 v3$"}},
+
+    {"id": "fabric_cu_hour", "family": "fabric", "serviceName": "Microsoft Fabric", "region": "swedencentral", "select": {"productName": "^Fabric Capacity$", "meterName": "^Eventhouse Capacity Usage CU$"}},
+    {"id": "onelake_hot_gb_month", "family": "fabric", "serviceName": "Microsoft Fabric", "region": "swedencentral", "select": {"productName": "^OneLake$", "skuName": "^OneLake Storage Hot$"}},
+
+    {"id": "iot_ops_standard_node_hour", "family": "iot_edge", "serviceName": "Azure IoT Operations", "region": "Global", "select": {"meterName": "^Basic Node$"}},
+    {"id": "iot_ops_essentials_node_hour", "family": "iot_edge", "serviceName": "Azure IoT Operations", "region": "Global", "select": {"meterName": "^Essentials Azure IoT Operations Node$"}},
+    {"id": "device_registry_asset_hour", "family": "iot_edge", "serviceName": "Azure Device Registry", "region": "Global", "select": {"skuName": "^Asset$"}},
+    {"id": "device_registry_device_hour", "family": "iot_edge", "serviceName": "Azure Device Registry", "region": "Global", "select": {"skuName": "^Device Device$"}},
+
+    {"id": "eventhubs_standard_tu_hour", "family": "messaging", "serviceName": "Event Hubs", "region": "swedencentral", "select": {"meterName": "^Standard Throughput Unit$"}},
+    {"id": "eventhubs_standard_ingress_per_1m", "family": "messaging", "serviceName": "Event Hubs", "region": "swedencentral", "select": {"meterName": "^Standard Ingress Events$"}},
+    {"id": "servicebus_standard_base_hour", "family": "messaging", "serviceName": "Service Bus", "region": "swedencentral", "select": {"meterName": "^Standard Base Unit$"}},
+    {"id": "eventgrid_operations_per_1m", "family": "messaging", "serviceName": "Event Grid", "region": "swedencentral", "select": {"meterName": "^Standard Event Operations$"}, "tierMinimumUnits": 1.0},
+
+    {"id": "adt_operations_per_1k", "family": "digital_twins", "serviceName": "Digital Twins", "region": "westeurope", "select": {"meterName": "^Standard Operations$"}},
+    {"id": "adt_messages_per_1k", "family": "digital_twins", "serviceName": "Digital Twins", "region": "westeurope", "select": {"meterName": "^Standard Message$"}},
+    {"id": "adt_query_units_per_1k", "family": "digital_twins", "serviceName": "Digital Twins", "region": "westeurope", "select": {"meterName": "^Standard Query Units$"}},
+
+    {"id": "cosmos_autoscale_100ru_hour", "family": "cosmos", "serviceName": "Azure Cosmos DB", "region": "swedencentral", "select": {"productName": "^Azure Cosmos DB autoscale$", "skuName": "^AP1$", "meterName": "^AP1 100 RUs$"}},
+    {"id": "cosmos_storage_gb_month", "family": "cosmos", "serviceName": "Azure Cosmos DB", "region": "swedencentral", "select": {"productName": "^Azure Cosmos DB$", "skuName": "^RUs$", "meterName": "^Data Stored$"}},
+    {"id": "cosmos_continuous_backup_30d_gb_month", "family": "cosmos", "serviceName": "Azure Cosmos DB", "region": "swedencentral", "select": {"productName": "^Azure Cosmos DB - PITR$", "meterName": "^Cont 30D Bckp Continuous Backup$"}},
+
+    {"id": "adls_hot_zrs_gb_month", "family": "storage", "serviceName": "Storage", "region": "swedencentral", "select": {"productName": "^Azure Data Lake Storage Gen2 Hierarchical Namespace$", "skuName": "^Hot ZRS$", "meterName": "^Hot ZRS Data Stored$"}},
+    {"id": "adls_cool_zrs_gb_month", "family": "storage", "serviceName": "Storage", "region": "swedencentral", "select": {"productName": "^Azure Data Lake Storage Gen2 Hierarchical Namespace$", "skuName": "^Cool ZRS$", "meterName": "^Cool ZRS Data Stored$"}},
+
+    {"id": "aca_dedicated_vcpu_hour", "family": "compute", "serviceName": "Azure Container Apps", "region": "swedencentral", "select": {"skuName": "^Dedicated$", "meterName": "^Dedicated vCPU Usage$"}},
+    {"id": "aca_dedicated_memory_gib_hour", "family": "compute", "serviceName": "Azure Container Apps", "region": "swedencentral", "select": {"skuName": "^Dedicated$", "meterName": "^Dedicated Memory Usage$"}},
+    {"id": "aca_dedicated_plan_management_hour", "family": "compute", "serviceName": "Azure Container Apps", "region": "swedencentral", "select": {"skuName": "^Dedicated$", "meterName": "^Dedicated Plan Management$"}},
+    {"id": "aca_consumption_vcpu_second", "family": "compute", "serviceName": "Azure Container Apps", "region": "swedencentral", "select": {"meterName": "^Standard vCPU Active Usage$"}},
+    {"id": "aca_consumption_memory_gib_second", "family": "compute", "serviceName": "Azure Container Apps", "region": "swedencentral", "select": {"meterName": "^Standard Memory Active Usage$"}},
+    {"id": "acr_premium_registry_day", "family": "compute", "serviceName": "Container Registry", "region": "swedencentral", "select": {"meterName": "^Premium Registry Unit$"}},
+
+    {"id": "expressroute_200mbps_metered_circuit_month", "family": "networking", "serviceName": "ExpressRoute", "region": "Zone 1", "select": {"skuName": "^200 Mbps Metered Data$", "meterName": "^Standard Metered Data 200 Mbps Circuit$"}},
+    {"id": "expressroute_gateway_ergw1az_hour", "family": "networking", "serviceName": "ExpressRoute", "region": "swedencentral", "select": {"skuName": "^ErGw1AZ$"}},
+    {"id": "vpn_gateway_vpngw1az_hour", "family": "networking", "serviceName": "VPN Gateway", "region": "swedencentral", "select": {"skuName": "^VpnGw1AZ$", "meterName": "^VpnGw1AZ$"}},
+    {"id": "front_door_premium_base_month", "family": "networking", "serviceName": "Azure Front Door Service", "region": "Zone 1", "select": {"meterName": "^Premium Base Fees$"}},
+    {"id": "private_endpoint_hour", "family": "networking", "serviceName": "Virtual Network", "region": "Global", "select": {"meterName": "^Standard Private Endpoint$"}},
+    {"id": "private_link_data_processed_gb", "family": "networking", "serviceName": "Virtual Network", "region": "Global", "select": {"meterName": "^Standard Data Processed - Ingress$"}},
+    {"id": "inter_region_transfer_gb", "family": "networking", "serviceName": "Bandwidth", "region": "swedencentral", "select": {"meterName": "^Standard Inter-Region Data Transfer$"}},
+
+    {"id": "defender_containers_vcore_hour", "family": "security", "serviceName": "Microsoft Defender for Cloud", "region": "swedencentral", "select": {"productName": "^Microsoft Defender for Containers$", "skuName": "^Standard vCore$"}},
+    {"id": "defender_storage_account_hour", "family": "security", "serviceName": "Microsoft Defender for Cloud", "region": "swedencentral", "select": {"productName": "^Microsoft Defender for Storage$", "skuName": "^Standard$", "meterName": "^Standard Node$"}},
+    {"id": "defender_cosmos_100ru_hour", "family": "security", "serviceName": "Microsoft Defender for Cloud", "region": "swedencentral", "select": {"productName": "^Microsoft Defender for Azure Cosmos DB$", "skuName": "^Standard$"}},
+    {"id": "defender_resource_manager_hour", "family": "security", "serviceName": "Microsoft Defender for Cloud", "region": "swedencentral", "select": {"productName": "^Microsoft Defender for Resource Manager$", "skuName": "^Per node Std$"}},
+    {"id": "sentinel_payg_gb", "family": "security", "serviceName": "Sentinel", "region": "swedencentral", "select": {"meterName": "^Pay-as-you-go Analysis$"}},
+    {"id": "keyvault_operations_per_10k", "family": "security", "serviceName": "Key Vault", "region": "swedencentral", "select": {"productName": "^Key Vault$", "skuName": "^Standard$", "meterName": "^Operations$"}},
+
+    {"id": "loganalytics_ingestion_gb", "family": "monitoring", "serviceName": "Log Analytics", "region": "swedencentral", "select": {"skuName": "^Analytics Logs$", "meterName": "^Analytics Logs Data Ingestion$"}, "tierMinimumUnits": 5.0},
+    {"id": "loganalytics_retention_gb_month", "family": "monitoring", "serviceName": "Log Analytics", "region": "swedencentral", "select": {"skuName": "^Analytics Logs$", "meterName": "^Analytics Logs Data Retention$"}},
+
+    {"id": "vm_nc24ads_a100_v4_hour", "family": "azure_ml", "serviceName": "Virtual Machines", "region": "swedencentral", "select": {"productName": "^NCads A100 v4 Series Linux$", "skuName": "^Standard_NC24ads_A100_v4$"}},
+    {"id": "expressroute_1gbps_metered_circuit_month", "family": "networking", "serviceName": "ExpressRoute", "region": "Zone 1", "select": {"productName": "^ExpressRoute$", "skuName": "^1 Gbps Metered Data$", "meterName": "^Standard Metered Data 1 Gbps Circuit$"}},
+    {"id": "expressroute_metered_data_out_gb", "family": "networking", "serviceName": "ExpressRoute", "region": "Zone 1", "select": {"productName": "^ExpressRoute$", "skuName": "^1 Gbps Metered Data$", "meterName": "^Metered Data - Data Transfer Out$", "skuId": "/01V2$", "note": "two SKU rows (Standard/Premium add-on) share one meterId and price; one is pinned"}},
+    {"id": "azure_firewall_premium_deployment_hour", "family": "networking", "serviceName": "Azure Firewall", "region": "swedencentral", "select": {"skuName": "^Premium$", "meterName": "^Premium Deployment$"}},
+    {"id": "azure_firewall_premium_data_processed_gb", "family": "networking", "serviceName": "Azure Firewall", "region": "swedencentral", "select": {"skuName": "^Premium$", "meterName": "^Premium Data Processed$"}},
+    {"id": "defender_servers_p2_node_hour", "family": "security", "serviceName": "Microsoft Defender for Cloud", "region": "swedencentral", "select": {"productName": "^Microsoft Defender for Servers$", "skuName": "^Standard P2$", "meterName": "^Standard P2 Node$"}}
+  ]
+}

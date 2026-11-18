@@ -1,0 +1,56 @@
+[project]
+name = "nightshift"
+version = "1.0.0"
+description = "SwarmAI Dark Factory (Nightshift) - cognitive swarm layer for lights-out manufacturing (reference implementation)"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-q -p no:cacheprovider"
+markers = [
+    "slow: long-running behavioural tests (A/B replay, multi-hour sims)",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["nightshift"]
+branch = false
+omit = [
+    "src/nightshift/main.py",
+    "src/nightshift/core/obs.py",
+    "src/nightshift/features/df21_value/business_case/*",  # vendored from the docs agent; verified by the outputs.json parity test
+]
+
+[tool.coverage.report]
+show_missing = false
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "\\.\\.\\.$",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+src = ["src", "tests"]
+extend-exclude = [".venv", "web", "static", "src/nightshift/features/df21_value/business_case"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF100"]
+# E501: line length is handled by `ruff format`; remaining long lines are prose strings
+ignore = ["B008", "SIM108", "SIM105", "B905", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+files = ["src/nightshift/sim", "src/nightshift/core"]

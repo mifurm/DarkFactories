@@ -1,0 +1,86 @@
+# pytest (offline stubs, real ffmpeg) — 2026-11-17T23:29Z
+........................................................................ [ 74%]
+.........................                                                [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+______________ coverage: platform darwin, python 3.13.16-final-0 _______________
+Name                                                   Stmts   Miss  Cover
+--------------------------------------------------------------------------
+src/spotlight/api_core.py                                 83     16    81%
+src/spotlight/app_factory.py                             123     10    92%
+src/spotlight/config.py                                   75      4    95%
+src/spotlight/core/ai/cache.py                            39      3    92%
+src/spotlight/core/ai/meter.py                           134      7    95%
+src/spotlight/core/ai/pricing.py                          34      1    97%
+src/spotlight/core/ai/stubs.py                           243     11    95%
+src/spotlight/core/ai/voices.py                           24      9    62%
+src/spotlight/core/audit.py                               45      4    91%
+src/spotlight/core/guardian_service.py                   249     65    74%
+src/spotlight/core/jobs.py                               141     41    71%
+src/spotlight/core/notify.py                             111     17    85%
+src/spotlight/core/provenance.py                         164     15    91%
+src/spotlight/core/repo/__init__.py                      116      6    95%
+src/spotlight/core/studio.py                             176     23    87%
+src/spotlight/core/vector.py                              94     17    82%
+src/spotlight/domain/bandit.py                            61      1    98%
+src/spotlight/domain/brief.py                            116      1    99%
+src/spotlight/domain/colors.py                            82      3    96%
+src/spotlight/domain/formats.py                           69      3    96%
+src/spotlight/domain/guardian.py                         372     36    90%
+src/spotlight/domain/perfsim.py                          112      6    95%
+src/spotlight/domain/planner.py                           61      2    97%
+src/spotlight/domain/rights.py                           103      7    93%
+src/spotlight/domain/scorecard.py                         81      7    91%
+src/spotlight/domain/script.py                            91      8    91%
+src/spotlight/domain/spot_builder.py                      41      5    88%
+src/spotlight/domain/text.py                              43      3    93%
+src/spotlight/features/cs01_brand_brain/__init__.py      165     24    85%
+src/spotlight/features/cs02_claims/__init__.py            89      5    94%
+src/spotlight/features/cs03_rights/__init__.py            93      8    91%
+src/spotlight/features/cs04_brief/__init__.py            257     47    82%
+src/spotlight/features/cs05_strategy/__init__.py         112      3    97%
+src/spotlight/features/cs06_script/__init__.py           220     81    63%
+src/spotlight/features/cs07_storyboard/__init__.py       184     38    79%
+src/spotlight/features/cs08_spot/__init__.py             128     18    86%
+src/spotlight/features/cs09_voice/__init__.py            148     50    66%
+src/spotlight/features/cs10_localization/__init__.py     184     10    95%
+src/spotlight/features/cs11_formats/__init__.py          105      8    92%
+src/spotlight/features/cs12_guardian/__init__.py         138     48    65%
+src/spotlight/features/cs13_approvals/__init__.py        188     44    77%
+src/spotlight/features/cs14_provenance/__init__.py        96     34    65%
+src/spotlight/features/cs15_budget/__init__.py            69      6    91%
+src/spotlight/features/cs16_scorecard/__init__.py         87      2    98%
+src/spotlight/features/cs17_variants/__init__.py         193      1    99%
+src/spotlight/features/cs18_performance/__init__.py      121      5    96%
+src/spotlight/features/cs21_library/__init__.py          200     16    92%
+src/spotlight/features/cs22_collab/__init__.py           117      3    97%
+src/spotlight/features/cs23_roi/__init__.py               89      3    97%
+src/spotlight/features/jobs_util.py                       21      6    71%
+src/spotlight/roles.py                                    53      9    83%
+src/spotlight/security.py                                113      4    96%
+src/spotlight/seed/__init__.py                            60     20    67%
+src/spotlight/services.py                                 99     19    81%
+src/spotlight/util.py                                     48      6    88%
+src/spotlight/video/media.py                             100      8    92%
+src/spotlight/video/music.py                              73     10    86%
+src/spotlight/video/provider.py                           81     11    86%
+src/spotlight/video/renderer.py                          234     19    92%
+src/spotlight/video/worker.py                             23     23     0%
+--------------------------------------------------------------------------
+TOTAL                                                   7919    920    88%
+24 files skipped due to complete coverage.
+97 passed, 1 warning in 44.67s
+
+# ruff
+All checks passed!
+# mypy
+Success: no issues found in 38 source files
+# pip-audit
+No known vulnerabilities found
+Name             Skip Reason
+# npm audit (production deps)
+found 0 vulnerabilities
+# web build (tsc -b + vite build)
+✓ built in 2.93s

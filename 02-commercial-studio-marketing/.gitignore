@@ -1,0 +1,14 @@
+# local environments and caches (recreate with the commands in README.md)
+.azure/
+app/.venv/
+app/.tmp/
+app/.devlog/
+app/web/node_modules/
+app/web/dist/
+app/web/public/swagger/
+**/__pycache__/
+**/*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage

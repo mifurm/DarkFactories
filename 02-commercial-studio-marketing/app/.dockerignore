@@ -1,0 +1,17 @@
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+*.egg-info
+tests
+web/node_modules
+web/dist
+web/public/swagger
+data
+.env
+.azure
+build

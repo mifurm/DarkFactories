@@ -1,0 +1,59 @@
+{
+  "base_url": "https://ca-concierge-imsov4laqyzgs.delightfuldune-2bc64772.swedencentral.azurecontainerapps.io",
+  "when": "2026-11-18T01:13:30Z",
+  "meta": {
+    "build_id": "20261118-010642",
+    "mode": "azure",
+    "region": "swedencentral"
+  },
+  "read_api_ms": {
+    "n": 200,
+    "p50": 245.5,
+    "p95": 1117.8,
+    "max": 1304.6,
+    "mean": 406.3,
+    "errors": 0,
+    "rps": 14.1,
+    "concurrency": 6
+  },
+  "chat": {
+    "turn_ms": {
+      "n": 12,
+      "p50": 1632.5,
+      "p95": 1860.6,
+      "max": 2601.9,
+      "mean": 1650.7
+    },
+    "ttft_ms": {
+      "n": 12,
+      "p50": 1270.2,
+      "p95": 1640.5,
+      "max": 1969.8,
+      "mean": 1327.0
+    },
+    "completed": 12,
+    "sessions": 12,
+    "concurrency": 6
+  },
+  "voice": {
+    "first_audio_ms": {
+      "n": 3,
+      "p50": 1134.5,
+      "p95": 1818.7,
+      "max": 1818.7,
+      "mean": 1097.3
+    },
+    "total_ms": {
+      "n": 3,
+      "p50": 8627,
+      "p95": 9722,
+      "max": 9722,
+      "mean": 8529
+    },
+    "modes": [
+      "realtime"
+    ],
+    "turns": 3
+  },
+  "ai_spend_usd": 0.114
+}

@@ -1,0 +1,1476 @@
+{
+ "retrieved": "2026-11-17",
+ "api": "https://prices.azure.com/api/retail/prices",
+ "api_version": "2023-01-01-preview",
+ "note": "Exact Azure Retail Prices API rows behind every unit price in assumptions.json that has a ref (USD, list price).",
+ "rows": {
+  "rt_full_audio_in": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Audio inp DZ",
+    "meterName": "gpt-realtime-2.1 Audio inp DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 35.2,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "a181a584-4f1a-59a6-b88d-4acec9fa65a7",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Audio inp Gl",
+    "meterName": "gpt-realtime-2.1 Audio inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 32.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "35bb718f-d669-5d45-b9ff-98906c2e83d8",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_full_audio_cached": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Audio cd inp DZ",
+    "meterName": "gpt-realtime-2.1 Audio cd inp DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.44,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "a1491138-6e11-5cd0-8457-cb50ef91d777",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Audio cd inp Gl",
+    "meterName": "gpt-realtime-2.1 Audio cd inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.4,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "0c089b3e-0716-5791-b485-adf867901b21",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_full_audio_out": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Audio opt DZ",
+    "meterName": "gpt-realtime-2.1 Audio opt DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 70.4,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "71ade890-cd93-55d2-89b6-22641a275b12",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Audio opt Gl",
+    "meterName": "gpt-realtime-2.1 Audio opt Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 64.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "403493fa-6a2c-5c5e-ba9e-59eab5e6a686",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_full_text_in": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Text inp DZ",
+    "meterName": "gpt-realtime-2.1 Text inp DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 4.4,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "f89a89e0-bfcb-53f6-b389-a76ec3bb43e9",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Text inp Gl",
+    "meterName": "gpt-realtime-2.1 Text inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 4.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "4ff2ed39-449d-5f9f-bea1-2cfe69920fdc",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_full_text_cached": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Text cd inp DZ",
+    "meterName": "gpt-realtime-2.1 Text cd inp DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.44,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "8833a2ec-adc3-53c0-82fc-d3acea1c5419",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Text cd inp Gl",
+    "meterName": "gpt-realtime-2.1 Text cd inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.4,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "30ef174e-88dd-5ebe-8017-647356a7a21b",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_full_text_out": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Text opt DZ",
+    "meterName": "gpt-realtime-2.1 Text opt DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 26.4,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "009ecf88-a1a8-5aa6-a12e-16138988b484",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1 Text opt Gl",
+    "meterName": "gpt-realtime-2.1 Text opt Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 24.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "10ca10f7-a7eb-5c65-81e8-4271913b0d0d",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_mini_audio_in": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Audio inp DZ",
+    "meterName": "gpt-realtime-2.1-mini Audio inp DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 11.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "5fcc7643-d121-5324-8c7f-36854316a9b8",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Audio inp Gl",
+    "meterName": "gpt-realtime-2.1-mini Audio inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 10.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "5b5b959a-d91c-5743-b552-31ad73eedbc3",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_mini_audio_cached": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Audio cd inp DZ",
+    "meterName": "gpt-realtime-2.1-mini Audio cd inp DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.33,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "d1e60322-97b8-5689-bce7-ded0e29afc79",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Audio cd inp Gl",
+    "meterName": "gpt-realtime-2.1-mini Audio cd inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.3,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "ee9eb958-df0f-5218-9f3c-195fd56c2f45",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_mini_audio_out": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Audio opt DZ",
+    "meterName": "gpt-realtime-2.1-mini Audio opt DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 22.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "d9844d81-b1a4-5c71-b39d-29fd3744544d",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Audio opt Gl",
+    "meterName": "gpt-realtime-2.1-mini Audio opt Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 20.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "b6768cfd-7ecb-54d0-b280-b921ce21ffe2",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_mini_text_in": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Text inp DZ",
+    "meterName": "gpt-realtime-2.1-mini Text inp DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.66,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "a6e9731f-36dc-5a1c-9484-0ee59d90af9c",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Text inp Gl",
+    "meterName": "gpt-realtime-2.1-mini Text inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.6,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "4c7ab638-2de5-57f6-9df0-b04dd4f1dba5",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_mini_text_cached": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Text cd inp DZ",
+    "meterName": "gpt-realtime-2.1-mini Text cd inp DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.066,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "86f318f6-beb1-57d4-944c-09aed5efd0dc",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Text cd inp Gl",
+    "meterName": "gpt-realtime-2.1-mini Text cd inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.06,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "2ccb1b2d-7084-532f-942b-f063063ab1b5",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "rt_mini_text_out": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Text opt DZ",
+    "meterName": "gpt-realtime-2.1-mini Text opt DZ 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 2.64,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "8a1b4d16-6e9b-585f-9c7f-cdebfa7b8340",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI Media",
+    "skuName": "gpt-realtime-2.1-mini Text opt Gl",
+    "meterName": "gpt-realtime-2.1-mini Text opt Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 2.4,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-07-01T00:00:00Z",
+    "meterId": "36d1537b-9992-5342-8ce9-69c34072b014",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "chat_mini_in": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 mini Inp Dz",
+    "meterName": "5.4 mini Inp Dz 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.825,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "fc81bb98-83fa-569b-a361-70d5904b285d",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 mini Inp Gl",
+    "meterName": "5.4 mini Inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.75,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "5b48fee4-7a0f-5596-9df6-6f54c6c16080",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "chat_mini_cached": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 mini cd Inp Dz",
+    "meterName": "5.4 mini cd Inp Dz 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.0825,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "41b51273-5b41-5b0b-ba4b-3900379c9800",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 mini cd Inp Gl",
+    "meterName": "5.4 mini cd Inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.075,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "1fe2fb18-bc09-569d-bbb5-c4ad834c71b4",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "chat_mini_out": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 mini Opt Dz",
+    "meterName": "5.4 mini Opt Dz 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 4.95,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "3167a76c-f4a1-53f1-8784-362e76c0787e",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 mini Opt Gl",
+    "meterName": "5.4 mini Opt Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 4.5,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "48adaa34-4229-5aca-8a44-b2e3c3b91f64",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "chat_full_in": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 inp Dz",
+    "meterName": "5.4 inp Dz 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 2.75,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "c81a99da-5b5c-57ed-ab52-fe50ac6088e8",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 inp Gl",
+    "meterName": "5.4 inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 2.5,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "c3b9e15e-4c9f-5f2b-b972-eecc7572ee8d",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "chat_full_cached": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 cd inp Dz",
+    "meterName": "5.4 cd inp Dz 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.275,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "9e37e362-6256-5c8a-8a39-6418bf21d3e0",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 cd inp Gl",
+    "meterName": "5.4 cd inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.25,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "097c7417-0493-5d22-a763-07ed78c5e13e",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "chat_full_out": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 opt Dz",
+    "meterName": "5.4 opt Dz 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 16.5,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "a8bc357a-75ef-57e3-9971-82e406734824",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 opt Gl",
+    "meterName": "5.4 opt Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 15.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "10c9526f-97e1-5dd1-90df-6abd49e2da4a",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "nano_in": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 nano Inp Dz",
+    "meterName": "5.4 nano Inp Dz 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.22,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "ff3a05c1-6f9c-5137-9ac1-7d40e36e8ead",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 nano Inp Gl",
+    "meterName": "5.4 nano Inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.2,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "346afa71-8264-555b-879f-559e30bbdb0d",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "nano_cached": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 nano cd Inp Dz",
+    "meterName": "5.4 nano cd Inp Dz 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.022,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "eed68355-e917-54df-99c5-0e08ca12758e",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 nano cd Inp Gl",
+    "meterName": "5.4 nano cd Inp Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.02,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "c1679785-ba4e-5f0b-a069-549814d78386",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "nano_out": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 nano Opt Dz",
+    "meterName": "5.4 nano Opt Dz 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 1.375,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "cc521587-ea7a-5efd-9611-841869c06e9d",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI GPT5",
+    "skuName": "5.4 nano Opt Gl",
+    "meterName": "5.4 nano Opt Gl 1M Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 1.25,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-03-01T00:00:00Z",
+    "meterId": "8aec0aed-c24a-5a6e-874c-4e169f666d97",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "embed_in": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI",
+    "skuName": "text-embedding-3-small-regional",
+    "meterName": "text-embedding-3-small-regional Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1K",
+    "retailPrice": 2.5e-05,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-09-01T00:00:00Z",
+    "meterId": "0c2c9b9a-9240-5efb-8c95-271343c64f69",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI",
+    "skuName": "text-embedding-3-small-glbl",
+    "meterName": "text-embedding-3-small-glbl Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1K",
+    "retailPrice": 2e-05,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2024-06-01T00:00:00Z",
+    "meterId": "c8ede1b2-4a94-50e6-ae8d-df629433ea15",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "transcribe_audio_in": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI",
+    "skuName": "gpt-4o-mini-transcribe-aud-inp-dz",
+    "meterName": "gpt-4o-mini-transcribe-aud-inp-dz Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1K",
+    "retailPrice": 0.0033,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-04-01T00:00:00Z",
+    "meterId": "afcaa99a-c94f-555a-9ba1-5c78a09bd0b4",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI",
+    "skuName": "gpt-4o-mini-transcribe-aud-inp-glbl",
+    "meterName": "gpt-4o-mini-transcribe-aud-inp-glbl Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1K",
+    "retailPrice": 0.003,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-04-01T00:00:00Z",
+    "meterId": "e8b60e49-b77d-5f6e-b339-cc45d9d6b383",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "transcribe_text_out": {
+   "datazone": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI",
+    "skuName": "gpt-4o-mini-transcribe-txt-out-dz",
+    "meterName": "gpt-4o-mini-transcribe-txt-out-dz Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1K",
+    "retailPrice": 0.0055,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-04-01T00:00:00Z",
+    "meterId": "2cce700c-ae9f-5bcb-b2fa-3656246d942c",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   },
+   "global": {
+    "serviceName": "Foundry Models",
+    "productName": "Azure OpenAI",
+    "skuName": "gpt-4o-mini-transcribe-txt-out-glbl",
+    "meterName": "gpt-4o-mini-transcribe-txt-out-glbl Tokens",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1K",
+    "retailPrice": 0.005,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-04-01T00:00:00Z",
+    "meterId": "dc6fc049-a6bc-5f5d-833e-fa24d90b6510",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "stt_hour": {
+   "value": {
+    "serviceName": "Foundry Tools",
+    "productName": "Azure Speech",
+    "skuName": "S1",
+    "meterName": "S1 Speech To Text",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Hour",
+    "retailPrice": 1.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-02-01T00:00:00Z",
+    "meterId": "3bd267f0-01d5-4348-ba67-70e2473f0c27",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "stt_enhanced_hour": {
+   "value": {
+    "serviceName": "Foundry Tools",
+    "productName": "Azure Speech",
+    "skuName": "S1",
+    "meterName": "S1 Speech to Text Enhanced Feature Audio",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Hour",
+    "retailPrice": 0.3,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-02-01T00:00:00Z",
+    "meterId": "4c8e8932-3657-5cd0-bdb9-dfeb3820d202",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "tts_per_1m_chars": {
+   "value": {
+    "serviceName": "Foundry Tools",
+    "productName": "Azure Speech",
+    "skuName": "S1",
+    "meterName": "S1 Neural Text To Speech Characters",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 15.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-02-01T00:00:00Z",
+    "meterId": "0f98e708-a16c-407b-8089-a0ed9e14ab49",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "language_text_records": {
+   "tiers": [
+    {
+     "serviceName": "Foundry Tools",
+     "productName": "Azure Language",
+     "skuName": "Standard",
+     "meterName": "Standard Text Records",
+     "armRegionName": "Global",
+     "unitOfMeasure": "1K",
+     "retailPrice": 1.0,
+     "tierMinimumUnits": 0.0,
+     "effectiveStartDate": "2020-12-01T00:00:00Z",
+     "meterId": "6533d6a6-9c10-4f9b-88bf-1460b636975b",
+     "currencyCode": "USD",
+     "type": "Consumption"
+    },
+    {
+     "serviceName": "Foundry Tools",
+     "productName": "Azure Language",
+     "skuName": "Standard",
+     "meterName": "Standard Text Records",
+     "armRegionName": "Global",
+     "unitOfMeasure": "1K",
+     "retailPrice": 0.25,
+     "tierMinimumUnits": 10000.0,
+     "effectiveStartDate": "2020-12-01T00:00:00Z",
+     "meterId": "6533d6a6-9c10-4f9b-88bf-1460b636975b",
+     "currencyCode": "USD",
+     "type": "Consumption"
+    },
+    {
+     "serviceName": "Foundry Tools",
+     "productName": "Azure Language",
+     "skuName": "Standard",
+     "meterName": "Standard Text Records",
+     "armRegionName": "Global",
+     "unitOfMeasure": "1K",
+     "retailPrice": 0.3,
+     "tierMinimumUnits": 2500.0,
+     "effectiveStartDate": "2020-12-01T00:00:00Z",
+     "meterId": "6533d6a6-9c10-4f9b-88bf-1460b636975b",
+     "currencyCode": "USD",
+     "type": "Consumption"
+    },
+    {
+     "serviceName": "Foundry Tools",
+     "productName": "Azure Language",
+     "skuName": "Standard",
+     "meterName": "Standard Text Records",
+     "armRegionName": "Global",
+     "unitOfMeasure": "1K",
+     "retailPrice": 0.75,
+     "tierMinimumUnits": 500.0,
+     "effectiveStartDate": "2020-12-01T00:00:00Z",
+     "meterId": "6533d6a6-9c10-4f9b-88bf-1460b636975b",
+     "currencyCode": "USD",
+     "type": "Consumption"
+    }
+   ]
+  },
+  "content_safety_per_1k": {
+   "value": {
+    "serviceName": "Foundry Tools",
+    "productName": "Content Safety",
+    "skuName": "Standard",
+    "meterName": "Standard Text Records",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1K",
+    "retailPrice": 0.375,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-09-01T00:00:00Z",
+    "meterId": "eed582b9-edfb-5b9a-b4ef-daf457663d2c",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "search_s1_hour": {
+   "value": {
+    "serviceName": "Azure Cognitive Search",
+    "productName": "Azure AI Search",
+    "skuName": "Standard S1",
+    "meterName": "Standard S1 Unit",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Hour",
+    "retailPrice": 0.336,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-04-01T00:00:00Z",
+    "meterId": "412d6928-652a-44ec-8bbb-d1dea652b7a6",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "search_semantic_per_1k": {
+   "value": {
+    "serviceName": "Azure Cognitive Search",
+    "productName": "Azure AI Search",
+    "skuName": "Semantic Ranker",
+    "meterName": "Semantic Ranker queries",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1K",
+    "retailPrice": 1.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-02-01T00:00:00Z",
+    "meterId": "5a2a30ef-d680-5f61-937e-0c4a478c4d1d",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "acs_direct_routing_min": {
+   "value": {
+    "serviceName": "Voice",
+    "productName": "Direct Routing",
+    "skuName": "Standard",
+    "meterName": "Standard Inbound",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Minute",
+    "retailPrice": 0.004,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2023-01-01T00:00:00Z",
+    "meterId": "e52f06cd-9208-54fa-afbb-0f0a89d6c337",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "acs_refer_unit": {
+   "value": {
+    "serviceName": "Voice",
+    "productName": "Direct Routing",
+    "skuName": "Standard",
+    "meterName": "Standard Refer Unit",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1",
+    "retailPrice": 0.1,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-06-01T00:00:00Z",
+    "meterId": "540a66f8-e972-5352-baea-36ed615fd54c",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "acs_audio_streaming_min": {
+   "value": {
+    "serviceName": "Voice",
+    "productName": "Audio Streaming",
+    "skuName": "Mixed Audio Streaming",
+    "meterName": "Mixed Audio Streaming Call",
+    "armRegionName": "Global",
+    "unitOfMeasure": "1 Minute",
+    "retailPrice": 0.004,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-07-01T00:00:00Z",
+    "meterId": "9e0bd59f-4657-55f2-8469-959efc79598d",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "acs_recording_stereo_min": {
+   "value": {
+    "serviceName": "Voice",
+    "productName": "Call Recording",
+    "skuName": "Dual Channel Stereo Audio",
+    "meterName": "Dual Channel Stereo Audio Recording",
+    "armRegionName": "Global",
+    "unitOfMeasure": "1 Minute",
+    "retailPrice": 0.0025,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-05-01T00:00:00Z",
+    "meterId": "44384c3a-39bb-5bcb-9efb-64520a45456e",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "acs_voip_leg_min": {
+   "value": {
+    "serviceName": "Voice",
+    "productName": "Voice and Video Calling",
+    "skuName": "A2AGroupCalling",
+    "meterName": "A2AGroupCalling User Minute",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1",
+    "retailPrice": 0.004,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2021-09-01T00:00:00Z",
+    "meterId": "b30a0630-4764-52b9-9a96-a06f7b5dc32d",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "acs_chat_message": {
+   "value": {
+    "serviceName": "Messaging",
+    "productName": "Chat",
+    "skuName": "Basic",
+    "meterName": "Basic Sent Message",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1",
+    "retailPrice": 0.0008,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2021-09-01T00:00:00Z",
+    "meterId": "e6668cbb-e1b0-5e8b-9adb-d6f2e1de2a8a",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "acs_adv_message": {
+   "value": {
+    "serviceName": "Messaging",
+    "productName": "Advanced Messaging",
+    "skuName": "Message",
+    "meterName": "Message Message",
+    "armRegionName": "Global",
+    "unitOfMeasure": "1",
+    "retailPrice": 0.005,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2024-03-01T00:00:00Z",
+    "meterId": "5b15a006-77b6-5801-879e-98c1f2dfca7c",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "acs_adv_connect": {
+   "value": {
+    "serviceName": "Messaging",
+    "productName": "Advanced Messaging",
+    "skuName": "Connect Fee",
+    "meterName": "Connect Fee Message",
+    "armRegionName": "Global",
+    "unitOfMeasure": "1",
+    "retailPrice": 0.0025,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-06-01T00:00:00Z",
+    "meterId": "f6ac3423-eb6e-574b-9bd2-dd951a654896",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "acs_email": {
+   "value": {
+    "serviceName": "Email",
+    "productName": "Email",
+    "skuName": "Basic",
+    "meterName": "Basic Sent Email",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1",
+    "retailPrice": 0.00025,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2023-04-01T00:00:00Z",
+    "meterId": "91348e14-8d9f-561e-ba5e-06be5a2c7a89",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "cosmos_autoscale_100ru_hour": {
+   "value": {
+    "serviceName": "Azure Cosmos DB",
+    "productName": "Azure Cosmos DB autoscale",
+    "skuName": "AP1",
+    "meterName": "AP1 100 RUs",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1/Hour",
+    "retailPrice": 0.012,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2021-06-08T00:00:00Z",
+    "meterId": "1d4a6e51-d27f-5c0e-84f0-a29b7d995874",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "cosmos_storage_gb_month": {
+   "value": {
+    "serviceName": "Azure Cosmos DB",
+    "productName": "Azure Cosmos DB",
+    "skuName": "RUs",
+    "meterName": "Data Stored",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 GB/Month",
+    "retailPrice": 0.25,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2021-06-08T00:00:00Z",
+    "meterId": "feba2784-d0c5-55e9-8543-c57af5affe64",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "blob_hot_grs_gb_month": {
+   "value": {
+    "serviceName": "Storage",
+    "productName": "General Block Blob v2",
+    "skuName": "Hot GRS",
+    "meterName": "Hot GRS Data Stored",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 GB/Month",
+    "retailPrice": 0.0392,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2024-07-01T00:00:00Z",
+    "meterId": "9d9358f5-95cd-562c-ab07-d71b465634dd",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "blob_cool_grs_gb_month": {
+   "value": {
+    "serviceName": "Storage",
+    "productName": "General Block Blob v2",
+    "skuName": "Cool GRS",
+    "meterName": "Cool GRS Data Stored",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 GB/Month",
+    "retailPrice": 0.02,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2024-07-01T00:00:00Z",
+    "meterId": "dc773ad6-a1a4-5f91-a0c3-2f521d008779",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "fabric_cu_hour": {
+   "value": {
+    "serviceName": "Microsoft Fabric",
+    "productName": "Fabric Capacity",
+    "skuName": "Eventhouse Capacity Usage",
+    "meterName": "Eventhouse Capacity Usage CU",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Hour",
+    "retailPrice": 0.19,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2023-11-01T00:00:00Z",
+    "meterId": "35e88e09-a1de-5b27-88e2-d89e67be4191",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "onelake_hot_gb_month": {
+   "value": {
+    "serviceName": "Microsoft Fabric",
+    "productName": "OneLake",
+    "skuName": "OneLake Storage Hot",
+    "meterName": "OneLake Storage Hot Data Stored",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 GB/Month",
+    "retailPrice": 0.023,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2023-11-01T00:00:00Z",
+    "meterId": "289c2efb-621a-5fdf-a6b5-cd8a9b651d0a",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "eventhubs_standard_tu_hour": {
+   "value": {
+    "serviceName": "Event Hubs",
+    "productName": "Event Hubs",
+    "skuName": "Standard",
+    "meterName": "Standard Throughput Unit",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Hour",
+    "retailPrice": 0.03,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2021-06-08T00:00:00Z",
+    "meterId": "62d94a65-9300-48a6-8c15-0e70fc41eb44",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "eventhubs_premium_pu_hour": {
+   "value": {
+    "serviceName": "Event Hubs",
+    "productName": "Event Hubs",
+    "skuName": "Premium",
+    "meterName": "Premium Processing Unit",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Hour",
+    "retailPrice": 1.336,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2021-12-01T00:00:00Z",
+    "meterId": "cbd61c47-6dbc-573b-9550-57a9790d358e",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "eventhubs_ingress_per_1m": {
+   "value": {
+    "serviceName": "Event Hubs",
+    "productName": "Event Hubs",
+    "skuName": "Standard",
+    "meterName": "Standard Ingress Events",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.028,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2021-06-08T00:00:00Z",
+    "meterId": "d0a685ee-f093-4c5c-ba76-3ec342a75de7",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "aca_vcpu_second": {
+   "value": {
+    "serviceName": "Azure Container Apps",
+    "productName": "Azure Container Apps",
+    "skuName": "Standard",
+    "meterName": "Standard vCPU Active Usage",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Second",
+    "retailPrice": 2.4e-05,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-06-01T00:00:00Z",
+    "meterId": "4ea1c35d-d999-57d0-88f2-e689d3475fcd",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "aca_gib_second": {
+   "value": {
+    "serviceName": "Azure Container Apps",
+    "productName": "Azure Container Apps",
+    "skuName": "Standard",
+    "meterName": "Standard Memory Active Usage",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 GiB Second",
+    "retailPrice": 3e-06,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-06-01T00:00:00Z",
+    "meterId": "05396e31-2622-5cc8-9bb4-06d0ac9c6047",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "aca_requests_per_1m": {
+   "value": {
+    "serviceName": "Azure Container Apps",
+    "productName": "Azure Container Apps",
+    "skuName": "Standard",
+    "meterName": "Standard Requests",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1M",
+    "retailPrice": 0.4,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-06-01T00:00:00Z",
+    "meterId": "b0e8dad1-2d3f-594d-8b67-2bbeba27dc67",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "fd_standard_base_month": {
+   "value": {
+    "serviceName": "Azure Front Door Service",
+    "productName": "Azure Front Door",
+    "skuName": "Standard",
+    "meterName": "Standard Base Fees",
+    "armRegionName": "Zone 1",
+    "unitOfMeasure": "1/Month",
+    "retailPrice": 35.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-05-01T00:00:00Z",
+    "meterId": "7e3eab72-0b95-5524-984a-d1697f73feee",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "fd_premium_base_month": {
+   "value": {
+    "serviceName": "Azure Front Door Service",
+    "productName": "Azure Front Door",
+    "skuName": "Premium",
+    "meterName": "Premium Base Fees",
+    "armRegionName": "Zone 1",
+    "unitOfMeasure": "1/Month",
+    "retailPrice": 330.0,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-05-01T00:00:00Z",
+    "meterId": "7c765472-0673-5e48-bcb0-5a7b34c6330d",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "fd_standard_requests_per_10k": {
+   "value": {
+    "serviceName": "Azure Front Door Service",
+    "productName": "Azure Front Door",
+    "skuName": "Standard",
+    "meterName": "Standard Requests",
+    "armRegionName": "Zone 1",
+    "unitOfMeasure": "10K",
+    "retailPrice": 0.009,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-03-29T00:00:00Z",
+    "meterId": "10455c17-0774-5e4c-be93-0f3c32b1beda",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "fd_premium_requests_per_10k": {
+   "value": {
+    "serviceName": "Azure Front Door Service",
+    "productName": "Azure Front Door",
+    "skuName": "Premium",
+    "meterName": "Premium Requests",
+    "armRegionName": "Zone 1",
+    "unitOfMeasure": "10K",
+    "retailPrice": 0.015,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-03-29T00:00:00Z",
+    "meterId": "c79b85fd-1cb9-58f1-96b5-65dff38474bf",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "fd_egress_gb": {
+   "value": {
+    "serviceName": "Azure Front Door Service",
+    "productName": "Azure Front Door",
+    "skuName": "Premium",
+    "meterName": "Premium Data Transfer Out",
+    "armRegionName": "Zone 1",
+    "unitOfMeasure": "1 GB",
+    "retailPrice": 0.0825,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-05-01T00:00:00Z",
+    "meterId": "fa528978-3833-589c-9a79-be1cc1b13907",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "apim_basic_v2_hour": {
+   "value": {
+    "serviceName": "API Management",
+    "productName": "API Management",
+    "skuName": "Basic v2",
+    "meterName": "Basic v2 Unit",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Hour",
+    "retailPrice": 0.27,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-10-01T00:00:00Z",
+    "meterId": "eb9a4e7f-9abd-5cf7-baa6-0d0cf9c3617a",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "apim_standard_v2_hour": {
+   "value": {
+    "serviceName": "API Management",
+    "productName": "API Management",
+    "skuName": "Standard v2",
+    "meterName": "Standard v2 Unit",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Hour",
+    "retailPrice": 1.25,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2025-10-01T00:00:00Z",
+    "meterId": "6ff2b197-6727-5c48-b623-727e5df3d57e",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "apim_premium_v2_hour": {
+   "value": {
+    "serviceName": "API Management",
+    "productName": "API Management",
+    "skuName": "Premium v2",
+    "meterName": "Premium v2 Unit",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Hour",
+    "retailPrice": 4.98631,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-09-01T00:00:00Z",
+    "meterId": "f32011b5-690c-591c-909d-b625c9c8115b",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "loganalytics_ingestion_gb": {
+   "value": {
+    "serviceName": "Log Analytics",
+    "productName": "Log Analytics",
+    "skuName": "Analytics Logs",
+    "meterName": "Analytics Logs Data Ingestion",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 GB",
+    "retailPrice": 2.99,
+    "tierMinimumUnits": 5.0,
+    "effectiveStartDate": "2021-06-08T00:00:00Z",
+    "meterId": "e3669cc9-19b6-55fc-b9fe-782ab83615ab",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "loganalytics_retention_gb_month": {
+   "value": {
+    "serviceName": "Log Analytics",
+    "productName": "Log Analytics",
+    "skuName": "Analytics Logs",
+    "meterName": "Analytics Logs Data Retention",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 GB/Month",
+    "retailPrice": 0.13,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2021-06-08T00:00:00Z",
+    "meterId": "eccb9d04-6c73-5e3e-8f45-4298156f1a5e",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "defender_cosmos_100ru_hour": {
+   "value": {
+    "serviceName": "Microsoft Defender for Cloud",
+    "productName": "Microsoft Defender for Azure Cosmos DB",
+    "skuName": "Standard",
+    "meterName": "Standard 100 RU/s",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1/Hour",
+    "retailPrice": 0.0012,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-08-01T00:00:00Z",
+    "meterId": "d1503658-0978-5996-a99d-4199fc85545e",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "defender_storage_account_hour": {
+   "value": {
+    "serviceName": "Microsoft Defender for Cloud",
+    "productName": "Microsoft Defender for Storage",
+    "skuName": "Standard",
+    "meterName": "Standard Node",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1/Hour",
+    "retailPrice": 0.0134,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2022-11-01T00:00:00Z",
+    "meterId": "d168b937-9289-505b-bb69-9da28fab6264",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "defender_keyvault_hour": {
+   "value": {
+    "serviceName": "Microsoft Defender for Cloud",
+    "productName": "Microsoft Defender for Key Vault",
+    "skuName": "Per node Std",
+    "meterName": "Per node Std Node",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1/Hour",
+    "retailPrice": 0.00034,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2023-08-01T00:00:00Z",
+    "meterId": "5ffd6fa6-59ab-5d33-87f0-8a65653d2257",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "defender_arm_hour": {
+   "value": {
+    "serviceName": "Microsoft Defender for Cloud",
+    "productName": "Microsoft Defender for Resource Manager",
+    "skuName": "Per node Std",
+    "meterName": "Per node Std Node",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1/Hour",
+    "retailPrice": 0.0069,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2023-08-01T00:00:00Z",
+    "meterId": "a562ee45-80fc-516b-a739-efe7123d59b5",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "keyvault_ops_per_10k": {
+   "value": {
+    "serviceName": "Key Vault",
+    "productName": "Key Vault",
+    "skuName": "Standard",
+    "meterName": "Operations",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "10K",
+    "retailPrice": 0.03,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2021-06-08T00:00:00Z",
+    "meterId": "0f824807-2376-435c-95c9-f992b67a07b0",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  },
+  "purview_capacity_unit_hour": {
+   "value": {
+    "serviceName": "Azure Purview",
+    "productName": "Azure Purview Data Map",
+    "skuName": "Standard",
+    "meterName": "Standard Capacity Unit",
+    "armRegionName": "swedencentral",
+    "unitOfMeasure": "1 Hour",
+    "retailPrice": 0.411,
+    "tierMinimumUnits": 0.0,
+    "effectiveStartDate": "2026-11-01T00:00:00Z",
+    "meterId": "0745df0d-ce4f-52db-ac31-ac574d4dcfe5",
+    "currencyCode": "USD",
+    "type": "Consumption"
+   }
+  }
+ }
+}

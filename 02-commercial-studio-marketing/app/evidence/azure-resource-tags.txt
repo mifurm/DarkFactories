@@ -1,0 +1,16 @@
+Name                                                                      SecurityControl    SecurityExemption        Project    Concept    Owner     Environment
+------------------------------------------------------------------------  -----------------  -----------------------  ---------  ---------  --------  -------------
+id-studio-app                                                             Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+log-studio-vh4ojwexsajyg                                                  Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+acrstudiovh4ojwexsajyg                                                    Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+stvh4ojwexsajyg                                                           Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+cosmos-studio-vh4ojwexsajyg                                               Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+ais-studio-vh4ojwexsajyg                                                  Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+appi-studio-vh4ojwexsajyg                                                 Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+cae-studio-vh4ojw                                                         Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+ca-studio-web                                                             Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+log-studio-vh4ojwexsajyg-DailyCapLimitReachedAlert                        Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+stvh4ojwexsajyg-AvailabilityAlert                                         Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+Failure Anomalies - appi-studio-vh4ojwexsajyg                             Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+appi-studio-vh4ojwexsajyg-ApplicationInsightsThrottlingLimitReachedAlert  Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo
+stvh4ojwexsajyg-e049fd23-3363-45e7-b76a-1e4dfab64f21                      Ignore             StorageAccountKeyAccess  SwarmAI    studio     michalfu  demo

@@ -1,0 +1,37 @@
+"""Labelled intent set (CC-06 macro-F1 acceptance): short multilingual utterances with their reference intent."""
+
+from __future__ import annotations
+
+LABELLED: list[tuple[str, str]] = [
+    ("My sofa arrived damaged", "damaged_item"), ("The table I received has a crack in it", "damaged_item"),
+    ("Mein Sofa ist beschädigt angekommen", "damaged_item"), ("Die Lieferung hatte einen Transportschaden", "damaged_item"),
+    ("Mon canapé est arrivé endommagé", "damaged_item"), ("Mi colchón llegó dañado", "damaged_item"),
+    ("Il mio armadio è arrivato danneggiato", "damaged_item"), ("Mijn bureau is beschadigd aangekomen", "damaged_item"),
+    ("Where is my order?", "order_status"), ("Can you track my parcel please", "order_status"),
+    ("Wo ist meine Bestellung?", "order_status"), ("Wann kommt mein Paket an?", "order_status"),
+    ("Où est ma commande ?", "order_status"), ("¿Dónde está mi pedido?", "order_status"),
+    ("Dov'è il mio ordine?", "order_status"), ("Waar is mijn bestelling?", "order_status"),
+    ("I want to return the chair", "return_request"), ("I would like to send it back and get a replacement", "return_request"),
+    ("Ich möchte den Stuhl zurückgeben", "return_request"), ("Kann ich das im Umtausch zurücksenden?", "return_request"),
+    ("Je voudrais retourner ce fauteuil", "return_request"), ("Quiero devolver la lámpara", "return_request"),
+    ("Vorrei fare un reso", "return_request"), ("Ik wil het retourneren", "return_request"),
+    ("I need to reschedule my delivery", "delivery_change"), ("Can I change the delivery date to Friday?", "delivery_change"),
+    ("Ich möchte den Liefertermin verschieben", "delivery_change"), ("Können wir einen neuen Liefertermin vereinbaren?", "delivery_change"),
+    ("Je dois reporter la livraison", "delivery_change"), ("Necesito reprogramar la entrega", "delivery_change"),
+    ("Where is my refund?", "refund_status"), ("I still haven't got my money back", "refund_status"),
+    ("Wann bekomme ich meine Erstattung?", "refund_status"), ("Meine Rückerstattung fehlt noch", "refund_status"),
+    ("Quand serai-je remboursé ?", "refund_status"), ("¿Cuándo recibiré el reembolso?", "refund_status"),
+    ("My washing machine stopped working, is it under warranty?", "warranty_claim"), ("I want to make a warranty claim", "warranty_claim"),
+    ("Die Waschmaschine funktioniert nicht mehr, ich habe Garantie", "warranty_claim"), ("Ich brauche eine Reparatur im Rahmen der Garantie", "warranty_claim"),
+    ("Mon lave-linge est en panne, garantie", "warranty_claim"), ("Quiero reclamar la garantía", "warranty_claim"),
+    ("I moved house, please change the delivery address", "address_change"), ("The delivery address is wrong, new address needed", "address_change"),
+    ("Ich bin umgezogen, bitte die Adresse ändern", "address_change"), ("Neue Adresse für meine Bestellung", "address_change"),
+    ("Je voudrais changer l'adresse de livraison", "address_change"), ("Quiero cambiar la dirección de entrega", "address_change"),
+    ("Please cancel my order", "cancel_order"), ("I want to cancel the order I placed yesterday", "cancel_order"),
+    ("Ich möchte meine Bestellung stornieren", "cancel_order"), ("Bitte stornieren Sie die Bestellung", "cancel_order"),
+    ("Je souhaite annuler ma commande", "cancel_order"), ("Quiero cancelar mi pedido", "cancel_order"),
+    ("How long do I have to return something?", "policy_question"), ("What is your return policy?", "policy_question"),
+    ("Wie lange habe ich Zeit für eine Rückgabe?", "policy_question"), ("Wie sind die Bedingungen für die Garantie?", "policy_question"),
+    ("Do you offer assembly of the wardrobe?", "installation_info"), ("Wie läuft die Montage des Schranks ab?", "installation_info"),
+    ("Thanks, that's all", "goodbye"), ("Danke, das war's", "goodbye"),
+]

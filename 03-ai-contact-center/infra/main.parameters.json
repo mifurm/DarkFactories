@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "value": "${AZURE_ENV_NAME}" },
+    "location": { "value": "${AZURE_LOCATION=swedencentral}" },
+    "principalId": { "value": "${AZURE_PRINCIPAL_ID}" },
+    "apiAppExists": { "value": "${SERVICE_API_RESOURCE_EXISTS=false}" },
+    "dailyAiBudgetUsd": { "value": "${DAILY_AI_BUDGET_USD=5}" }
+  }
+}

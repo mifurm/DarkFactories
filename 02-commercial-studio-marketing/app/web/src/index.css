@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Fraunces Variable", ui-serif, Georgia, "Times New Roman", serif;
+
+  --color-espresso-950: #150d09;
+  --color-espresso-900: #1f1410;
+  --color-espresso-800: #2b1a12;
+  --color-espresso-700: #3d2a1f;
+  --color-espresso-600: #5a4030;
+  --color-espresso-500: #7a5c49;
+  --color-espresso-400: #9d8271;
+  --color-cream-50: #fcf9f4;
+  --color-cream-100: #f7f0e6;
+  --color-cream-200: #eee3d3;
+  --color-cream-300: #e0d2bd;
+  --color-dawn-300: #f8c27c;
+  --color-dawn-400: #f4a949;
+  --color-dawn-500: #e9892b;
+  --color-dawn-600: #cf7418;
+  --color-dawn-700: #a65b12;
+  --color-roast-500: #b5452b;
+  --color-roast-600: #983820;
+  --color-sage-500: #5c7a5e;
+  --color-sage-600: #4a634c;
+  --color-sage-100: #e3ece3;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-cream-100);
+  color: var(--color-espresso-800);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+.font-display {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  letter-spacing: -0.01em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-dawn-500);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.prose-sm p {
+  margin: 0 0 0.6rem;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--color-cream-200) 25%, var(--color-cream-100) 50%, var(--color-cream-200) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+  border-radius: 8px;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--color-cream-300);
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,16 @@
+
+Load check: 400 requests, concurrency 20, wall 13.6s, 29.4 req/s
+
+| Endpoint | n | p50 ms | p95 ms | p99 ms | max ms | errors |
+|---|---|---|---|---|---|---|
+| GET /healthz | 50 | 302 | 550 | 724 | 724 | 0 |
+| GET /api/features | 50 | 295 | 785 | 916 | 916 | 0 |
+| GET /api/studio/overview | 50 | 1106 | 2039 | 2181 | 2181 | 0 |
+| GET /api/library/assets | 50 | 651 | 1318 | 1439 | 1439 | 0 |
+| GET /api/claims | 50 | 399 | 841 | 963 | 963 | 0 |
+| GET /api/budget | 50 | 811 | 1472 | 1784 | 1784 | 0 |
+| GET /api/brand | 50 | 568 | 1128 | 1290 | 1290 | 0 |
+| POST /api/roi/compute | 50 | 528 | 789 | 1044 | 1044 | 0 |
+| **all** | 400 | 554 | 1414 | 2000 | 2181 | 0 |
+
+LOAD_P50_MS=554 LOAD_P95_MS=1414 ERRORS=0

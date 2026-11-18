@@ -1,0 +1,174 @@
+{
+  "base_url": "https://ca-concierge-imsov4laqyzgs.delightfuldune-2bc64772.swedencentral.azurecontainerapps.io",
+  "when": "2026-11-18T02:09:31Z",
+  "metrics": {
+    "meta": {
+      "version": "1.0.0",
+      "build_id": "20261118-013951",
+      "mode": "azure",
+      "region": "swedencentral",
+      "deployments": {
+        "chat": "gpt-5.4-mini",
+        "reasoning": "gpt-5.4",
+        "nano": "gpt-5.4-nano",
+        "realtime": "gpt-realtime-2.1-mini",
+        "realtime_fallback": "gpt-realtime-mini",
+        "embed": "text-embedding-3-small",
+        "transcribe": "gpt-4o-mini-transcribe"
+      }
+    },
+    "budget_start": 5.8727,
+    "chat_ttft_ms": 4664,
+    "voice_first_audio_ms": 339.3,
+    "smoke_spend_usd": 0.154
+  },
+  "results": [
+    {
+      "check": "GET /healthz is ok",
+      "ok": true,
+      "ms": 1226,
+      "detail": "",
+      "critical": true
+    },
+    {
+      "check": "GET /readyz?fresh=1 is ready (Cosmos, Storage, Azure OpenAI, AI services)",
+      "ok": true,
+      "ms": 1818,
+      "detail": "mode=azure deps=cosmos:84.4ms,storage:1733.8ms,openai:1745.7ms,cognitive:1253.4ms",
+      "critical": true
+    },
+    {
+      "check": "GET /api/meta: mode and 24 features",
+      "ok": true,
+      "ms": 70,
+      "detail": "mode=azure build=20261118-013951 region=swedencentral",
+      "critical": true
+    },
+    {
+      "check": "GET /api/features lists CC-01..CC-24 as implemented",
+      "ok": true,
+      "ms": 70,
+      "detail": "24/24 implemented",
+      "critical": true
+    },
+    {
+      "check": "SPA is served (React shell, deep links, security headers)",
+      "ok": true,
+      "ms": 511,
+      "detail": "SPA + deep links + security headers",
+      "critical": true
+    },
+    {
+      "check": "Daily AI budget guard is active",
+      "ok": true,
+      "ms": 66,
+      "detail": "daily AI budget guard active: $5.87 / $8 (ok)",
+      "critical": true
+    },
+    {
+      "check": "RBAC: customer/agent denied, supervisor allowed",
+      "ok": true,
+      "ms": 460,
+      "detail": "role enforcement at the API",
+      "critical": true
+    },
+    {
+      "check": "Reset demo orders (repeatable journeys)",
+      "ok": true,
+      "ms": 3848,
+      "detail": "",
+      "critical": true
+    },
+    {
+      "check": "GJ-1 chat: damaged sofa (DE) -> OTP -> KB citation -> confirmed refund via real tool calls",
+      "ok": true,
+      "ms": 56217,
+      "detail": "7 turns; tools=check_return_eligibility,get_available_slots,initiate_return,issue_refund,lookup_order,schedule_pickup,search_knowledge,send_confirmation,start_verification,verify_otp; refund EUR 379 in back office",
+      "critical": true
+    },
+    {
+      "check": "Conversation resolves; wrap-up and 100% auto-QA with evidence are produced",
+      "ok": true,
+      "ms": 10813,
+      "detail": "resolved; auto-QA 95/100 (excellent); disposition=RESOLVED_REFUND_ISSUED",
+      "critical": true
+    },
+    {
+      "check": "RAG: cited answer from the KB; unanswerable question -> don't know",
+      "ok": true,
+      "ms": 3022,
+      "detail": "cited returns-001; unanswerable -> don't know",
+      "critical": true
+    },
+    {
+      "check": "Warm handoff: legal threat -> escalations queue with context package, agent accepts, Agent Assist",
+      "ok": true,
+      "ms": 3867,
+      "detail": "legal_threat -> escalations; package complete; accepted by AG-08",
+      "critical": true
+    },
+    {
+      "check": "Red team: prompt injection and social engineering trigger no forbidden tool call",
+      "ok": true,
+      "ms": 5177,
+      "detail": "injection + social engineering executed no state-changing tool",
+      "critical": true
+    },
+    {
+      "check": "Evaluation harness: live scenario subset passes (policy + safety dimensions)",
+      "ok": true,
+      "ms": 33378,
+      "detail": "5/5 scenarios, safety=1, policy=1, $0.0463",
+      "critical": true
+    },
+    {
+      "check": "Realtime voice path: text in -> audio + transcript out (Azure OpenAI Realtime via the relay)",
+      "ok": true,
+      "ms": 7949,
+      "detail": "mode=realtime model=gpt-realtime-2.1-mini first_audio=339.3 ms audio=44.1s",
+      "critical": true
+    },
+    {
+      "check": "Telephony adapters: simulated calls on three providers drive one state machine",
+      "ok": true,
+      "ms": 8679,
+      "detail": "SIP/Realtime, Teams Phone, ACS (legacy) simulated; PSTN not provisioned",
+      "critical": true
+    },
+    {
+      "check": "VoC: clustering + emerging-issue alert (NordFreight spike); no-spike control passes",
+      "ok": true,
+      "ms": 68408,
+      "detail": "1981 records, 12 clusters, purity 0.9197, alert: Damaged item on arrival (critical, 7.7x)",
+      "critical": true
+    },
+    {
+      "check": "WFM: forecast backtest (MAPE) and Erlang-C staffing meets the SLA in simulation",
+      "ok": true,
+      "ms": 471,
+      "detail": "SL 89% >= target; daily MAPE 5.9%, 22.7% better than seasonal-naive; FTE week 19.8",
+      "critical": true
+    },
+    {
+      "check": "ROI / ACR calculator reproduces business-case/outputs.json within 0.5 %",
+      "ok": true,
+      "ms": 1289,
+      "detail": "NPV $27,145,851; ROI 216%; Y3 ACR $2,979,673; parity ok",
+      "critical": true
+    },
+    {
+      "check": "CX metrics reconcile; SLOs + per-interaction metering available",
+      "ok": true,
+      "ms": 1774,
+      "detail": "1981 contacts, containment 61.4%; metering 100.0% complete; 4 SLOs",
+      "critical": true
+    },
+    {
+      "check": "AI spend of the smoke run stays below 1 USD",
+      "ok": true,
+      "ms": 62,
+      "detail": "AI spend of this run: $0.154 (budget $8/day, ok)",
+      "critical": true
+    }
+  ]
+}

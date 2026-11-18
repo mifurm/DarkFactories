@@ -1,0 +1,13 @@
+{
+  "location": "swedencentral",
+  "name": "rg-swarmai-studio",
+  "tags": {
+    "SecurityControl": "Ignore",
+    "SecurityExemption": "StorageAccountKeyAccess",
+    "azd-env-name": "studio",
+    "concept": "studio",
+    "environment": "demo",
+    "owner": "michalfu",
+    "project": "SwarmAI"
+  }
+}

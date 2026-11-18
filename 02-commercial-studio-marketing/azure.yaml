@@ -1,0 +1,18 @@
+name: swarmai-studio
+metadata:
+  template: swarmai-commercial-studio@1.0.0
+
+infra:
+  provider: bicep
+  path: infra
+  module: main
+
+services:
+  web:
+    project: ./app
+    language: py
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .
+      remoteBuild: true

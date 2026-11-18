@@ -1,0 +1,16 @@
+name: swarmai-contact-center
+metadata:
+  template: swarmai-contact-center@1.0.0
+infra:
+  provider: bicep
+  path: infra
+  module: main
+services:
+  api:
+    project: ./app
+    host: containerapp
+    language: python
+    docker:
+      path: ./Dockerfile
+      context: .
+      remoteBuild: true

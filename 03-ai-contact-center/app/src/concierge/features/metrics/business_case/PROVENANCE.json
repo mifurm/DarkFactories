@@ -1,0 +1,9 @@
+{
+  "vendored_at": "2026-11-17T23:20:24Z",
+  "source": "business-case/",
+  "files": {
+    "model.py": "c6dd9b908f592585e2a8cff01d53b92838b1d28d652cac4d73fbeb9815ff9e23",
+    "assumptions.json": "2f70515f024d938cfda7099492e4048a8b75b6b32e4ab48d1a0e026201201520",
+    "outputs.json": "82abaa47f382b079cb245e441f9c0662710752057bb04d9701ca022d3d62edaa"
+  }
+}

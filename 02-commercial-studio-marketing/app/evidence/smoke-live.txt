@@ -1,0 +1,72 @@
+(removed 2 campaign(s) from earlier smoke/E2E runs)
+Smoke test against https://ca-studio-web.yellowgrass-9740f562.swedencentral.azurecontainerapps.io
+
+  PASS  healthz + readyz (Cosmos, Blob, Azure OpenAI, Content Safety, Speech, ffmpeg)    2.9s  mode=azure deps=repository:501ms,blob_storage:359ms,openai_chat:1655ms,content_safety:557ms,speech:488ms,ffmpe
+  PASS  feature registry (24/24) + SPA + Feature Map route                1.4s  24/24 implemented; SPA served
+  PASS  meta + usage: daily AI budget guard active                        1.3s  daily cap $5.0; models=['gpt-5.4-mini', 'gpt-5.4', 'text-embedding-3-small']…
+  PASS  CS-01 Brand Brain retrieval with citations (embeddings)           1.2s  5 cited passages (top: 'Voice and tone', score 0.5309)
+  PASS  CS-02 claims library: prohibited blocked / compliant passes       1.6s  prohibited claim -> block; compliant line -> pass
+  PASS  CS-03 rights registry: unlicensed / expired blocked, library cleared    2.1s  unlicensed music + expired consent blocked; library track cleared
+  PASS  CS-04 briefing agent: <=3 questions, normalized brief, early Guardian flags    5.1s  3 clarifying questions: ['key_message', 'cta', 'duration_targets']; Guardian flags ['claims.prohibited', 'righ
+  PASS  CS-05 strategy agent: 3+ territories grounded with citations     13.6s  3 territories (e.g. 'The first quiet minute'), 5 citations, guardian=warn
+  PASS  CS-06 script agent writes 15 s script; Guardian blocks the mandatory claim + music cue    6.2s  4 beats, 30 words; Guardian BLOCKS (blocks=2, score=56)
+  PASS  CS-12 Guardian auto-revise converges (claim rewritten, music swapped to licensed track)    2.1s  converged in 2 iteration(s); fixes=['replace_text', 'swap_music']; verdict=pass; music -> Slow Ember (library)
+  PASS  CS-07 storyboard: shot list + >=3 gpt-image keyframes (low quality)   89.9s  4/4 keyframes (gpt-image-1.5, low), first image 336 KB; guardian=pass
+  PASS  CS-09 voice-over timed to script beats (tts-hd) + SRT             6.9s  4 lines, 9.9s of VO, voice=openai:nova, cost $0.00366
+  PASS  CS-08 compositor: 15 s H.264/AAC MP4 retrievable via API (ffprobe, loudness, range)   30.5s  14.9s MP4 1387 KB, -16.1 LUFS, render 23.71s; ffprobe: h264/aac 1280x720 14.90s; guardian=pass
+  PASS  CS-14 provenance manifest verifies; tampering is detected; pack export    4.2s  manifest verifies (5 checks, key f916194aefd10562); tampered asset+manifest rejected; pack 1368 KB
+  PASS  CS-13 approvals: stage gates, roles enforced, Guardian-gated approval   27.1s  5/5 gates approved by role; Guardian-gated=True; non-approver refused (403)
+  PASS  CS-13 immutable audit log verifies (hash chain)                   0.7s  hash-chain verified: 25 entries, head 44547d866a38…
+  PASS  CS-11 format factory: 9:16, 1:1 and 6 s bumper from the master   63.7s  version tree: master + 3 derived {'16:9 · 6s cutdown': (1280, 720, 6.0), '1:1': (720, 720, 14.9), '9:16': (720
+  PASS  CS-11/13 derived versions approved (Guardian-gated)               1.9s  approved 3 derived versions; refused 0
+  PASS  CS-10 localization de,fr,pl: glossary kept, back-translation QA, localized VO + render   98.8s  pl: minsim=0.337, review=1, guardian=pass; fr: minsim=0.25, review=1, guardian=pass; de: minsim=0.799, review=
+  PASS  CS-16 pre-flight scorecard (labelled predictive/simulated)        3.4s  predicted 85/100 (heuristic 91, panel avg 7); suggestions=0
+  PASS  CS-17 12-variant experiment: Thompson sampling converges to the best arm in 24 simulated hours    3.1s  leader v03 within 0.3% of the simulator's best (v02); 8 losers auto-paused; +17.1% clicks vs uniform; top shar
+  PASS  CS-18 performance: connector sync + CSV ingest + insights written to Brand Brain    6.1s  98 rows; CTR 1.552% CVR 4.50% CPA $12.90 ROAS 1.12; 7 insight(s) -> Brand Brain (56 learnings)
+  PASS  CS-19 planner: media-mix with diminishing returns + ranges (illustrative)    0.9s  6 channels; ROAS p10/p50/p90 0.81/0.99/1.19; +16.9% vs uniform split
+  PASS  CS-21 asset library: semantic search, upload, versions, range streaming    3.8s  semantic search -> 2 hits; upload + version v2
+  PASS  CS-22 webhooks: Teams-compatible delivery + SSRF guard; roles enforced    2.7s  Teams MessageCard delivered to internal sink; SSRF target (metadata IP) rejected
+  PASS  CS-22 campaign pack export (mp4/png/csv/provenance zip)           7.3s  pack 10966 KB with 40 files (videos, keyframes, captions, provenance, csv)
+  PASS  CS-23 ROI & ACR calculator reproduces outputs.json; overrides recompute    5.8s  model v1.1.0 parity OK (±0.5%); Base NPV $6,979,862, ROI 139.98%, payback 14.97 mo, ACR Y1/Y2/Y3 $64,541/$304,
+  PASS  CS-15 cost meter: $ per approved asset vs agency baseline         0.8s  campaign spend $0.168, 4 approved assets -> $0.0421/asset vs agency $1850 (-100.0%)
+  PASS  CS-15 budget guard fails closed with a clear message (per-campaign cap)    1.9s  generation refused with 402 campaign_budget_exceeded: Campaign AI cap reached: $0.00 of $0.0001 spent on this 
+  PASS  CS-24 observability: status, per-route metrics, AI usage meter    3.0s  telemetry=App Insights; 69 routes metered; AI calls {'safety': 90, 'embedding': 25, 'llm': 13, 'image': 4, 'tt
+
+AI spend incurred by this run (list-price estimate): $0.1744
+
+| # | Check | Result | Time | Evidence |
+|---|---|---|---|---|
+| 1 | healthz + readyz (Cosmos, Blob, Azure OpenAI, Content Safety, Speech, ffmpeg) | PASS | 2.9s | mode=azure deps=repository:501ms,blob_storage:359ms,openai_chat:1655ms,content_safety:557ms,speech:488ms,ffmpeg:204ms |
+| 2 | feature registry (24/24) + SPA + Feature Map route | PASS | 1.4s | 24/24 implemented; SPA served |
+| 3 | meta + usage: daily AI budget guard active | PASS | 1.3s | daily cap $5.0; models=['gpt-5.4-mini', 'gpt-5.4', 'text-embedding-3-small']… |
+| 4 | CS-01 Brand Brain retrieval with citations (embeddings) | PASS | 1.2s | 5 cited passages (top: 'Voice and tone', score 0.5309) |
+| 5 | CS-02 claims library: prohibited blocked / compliant passes | PASS | 1.6s | prohibited claim -> block; compliant line -> pass |
+| 6 | CS-03 rights registry: unlicensed / expired blocked, library cleared | PASS | 2.1s | unlicensed music + expired consent blocked; library track cleared |
+| 7 | CS-04 briefing agent: <=3 questions, normalized brief, early Guardian flags | PASS | 5.1s | 3 clarifying questions: ['key_message', 'cta', 'duration_targets']; Guardian flags ['claims.prohibited', 'rights.unlicensed'] |
+| 8 | CS-05 strategy agent: 3+ territories grounded with citations | PASS | 13.6s | 3 territories (e.g. 'The first quiet minute'), 5 citations, guardian=warn |
+| 9 | CS-06 script agent writes 15 s script; Guardian blocks the mandatory claim + music cue | PASS | 6.2s | 4 beats, 30 words; Guardian BLOCKS (blocks=2, score=56) |
+| 10 | CS-12 Guardian auto-revise converges (claim rewritten, music swapped to licensed track) | PASS | 2.1s | converged in 2 iteration(s); fixes=['replace_text', 'swap_music']; verdict=pass; music -> Slow Ember (library) |
+| 11 | CS-07 storyboard: shot list + >=3 gpt-image keyframes (low quality) | PASS | 89.9s | 4/4 keyframes (gpt-image-1.5, low), first image 336 KB; guardian=pass |
+| 12 | CS-09 voice-over timed to script beats (tts-hd) + SRT | PASS | 6.9s | 4 lines, 9.9s of VO, voice=openai:nova, cost $0.00366 |
+| 13 | CS-08 compositor: 15 s H.264/AAC MP4 retrievable via API (ffprobe, loudness, range) | PASS | 30.5s | 14.9s MP4 1387 KB, -16.1 LUFS, render 23.71s; ffprobe: h264/aac 1280x720 14.90s; guardian=pass |
+| 14 | CS-14 provenance manifest verifies; tampering is detected; pack export | PASS | 4.2s | manifest verifies (5 checks, key f916194aefd10562); tampered asset+manifest rejected; pack 1368 KB |
+| 15 | CS-13 approvals: stage gates, roles enforced, Guardian-gated approval | PASS | 27.1s | 5/5 gates approved by role; Guardian-gated=True; non-approver refused (403) |
+| 16 | CS-13 immutable audit log verifies (hash chain) | PASS | 0.7s | hash-chain verified: 25 entries, head 44547d866a38… |
+| 17 | CS-11 format factory: 9:16, 1:1 and 6 s bumper from the master | PASS | 63.7s | version tree: master + 3 derived {'16:9 · 6s cutdown': (1280, 720, 6.0), '1:1': (720, 720, 14.9), '9:16': (720, 1280, 14.9)} |
+| 18 | CS-11/13 derived versions approved (Guardian-gated) | PASS | 1.9s | approved 3 derived versions; refused 0 |
+| 19 | CS-10 localization de,fr,pl: glossary kept, back-translation QA, localized VO + render | PASS | 98.8s | pl: minsim=0.337, review=1, guardian=pass; fr: minsim=0.25, review=1, guardian=pass; de: minsim=0.799, review=0, guardian=pass |
+| 20 | CS-16 pre-flight scorecard (labelled predictive/simulated) | PASS | 3.4s | predicted 85/100 (heuristic 91, panel avg 7); suggestions=0 |
+| 21 | CS-17 12-variant experiment: Thompson sampling converges to the best arm in 24 simulated hours | PASS | 3.1s | leader v03 within 0.3% of the simulator's best (v02); 8 losers auto-paused; +17.1% clicks vs uniform; top share 51% |
+| 22 | CS-18 performance: connector sync + CSV ingest + insights written to Brand Brain | PASS | 6.1s | 98 rows; CTR 1.552% CVR 4.50% CPA $12.90 ROAS 1.12; 7 insight(s) -> Brand Brain (56 learnings) |
+| 23 | CS-19 planner: media-mix with diminishing returns + ranges (illustrative) | PASS | 0.9s | 6 channels; ROAS p10/p50/p90 0.81/0.99/1.19; +16.9% vs uniform split |
+| 24 | CS-21 asset library: semantic search, upload, versions, range streaming | PASS | 3.8s | semantic search -> 2 hits; upload + version v2 |
+| 25 | CS-22 webhooks: Teams-compatible delivery + SSRF guard; roles enforced | PASS | 2.7s | Teams MessageCard delivered to internal sink; SSRF target (metadata IP) rejected |
+| 26 | CS-22 campaign pack export (mp4/png/csv/provenance zip) | PASS | 7.3s | pack 10966 KB with 40 files (videos, keyframes, captions, provenance, csv) |
+| 27 | CS-23 ROI & ACR calculator reproduces outputs.json; overrides recompute | PASS | 5.8s | model v1.1.0 parity OK (±0.5%); Base NPV $6,979,862, ROI 139.98%, payback 14.97 mo, ACR Y1/Y2/Y3 $64,541/$304,893/$464,798; Upside Y3 $972,886; Enterp |
+| 28 | CS-15 cost meter: $ per approved asset vs agency baseline | PASS | 0.8s | campaign spend $0.168, 4 approved assets -> $0.0421/asset vs agency $1850 (-100.0%) |
+| 29 | CS-15 budget guard fails closed with a clear message (per-campaign cap) | PASS | 1.9s | generation refused with 402 campaign_budget_exceeded: Campaign AI cap reached: $0.00 of $0.0001 spent on this campaign; this safety ca |
+| 30 | CS-24 observability: status, per-route metrics, AI usage meter | PASS | 3.0s | telemetry=App Insights; 69 routes metered; AI calls {'safety': 90, 'embedding': 25, 'llm': 13, 'image': 4, 'tts': 24, 'render': 7} |
+
+30/30 checks passed
+
+TOTAL_AI_SPEND_USD=0.1744

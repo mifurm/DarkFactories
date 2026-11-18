@@ -1,0 +1,38 @@
+# Nightshift policy-as-code (YAML). Evaluated by nightshift.features.df12_policy.engine.PolicyEngine on EVERY consequential action.
+# Autonomy levels: L0 observe | L1 recommend | L2 approve-all | L3 auto-low-risk | L4 supervised autonomy | L5 lights-out
+version: 3
+levels:
+  0: {name: Observe, summary: "Agents observe and log only; nothing is proposed to humans or executed."}
+  1: {name: Recommend, summary: "Proposals appear in the inbox as recommendations; a human executes them."}
+  2: {name: Approve-all, summary: "Every proposal needs a human approval (SLA timers and escalation apply)."}
+  3: {name: Auto low-risk, summary: "Auto-approve small, low-risk, low-cost actions; escalate the rest."}
+  4: {name: Supervised autonomy, summary: "Auto-approve within the L4 blast-radius, risk and cost limits after sim-first validation."}
+  5: {name: Lights-out, summary: "Auto-approve up to the L5 limits; humans are informed afterwards. Protected assets still need approval."}
+thresholds:
+  3: {max_risk: 0.30, max_assets: 1, max_cost_eur: 500}
+  4: {max_risk: 0.55, max_assets: 4, max_cost_eur: 2500}
+  5: {max_risk: 0.80, max_assets: 8, max_cost_eur: 10000}
+risk_score: {w_risk: 0.6, w_blast: 0.2, w_cost: 0.2, blast_assets_max: 8, cost_max_eur: 10000}
+classes:
+  maintenance.schedule:     {level: 4, label: Schedule maintenance, sim_first: true, sla_min: 45, rate_per_hour: 6}
+  maintenance.remote_clear: {level: 4, label: Remote jam clear, sim_first: false, sla_min: 15, rate_per_hour: 6}
+  schedule.replan:          {level: 4, label: Re-plan schedule, sim_first: false, sla_min: 30, rate_per_hour: 30}
+  schedule.expedite:        {level: 3, label: Expedite order, sim_first: false, sla_min: 30, rate_per_hour: 6}
+  setpoint.adjust:          {level: 4, label: Process compensation, sim_first: false, sla_min: 20, rate_per_hour: 12}
+  quality.containment:      {level: 4, label: Lot containment, sim_first: false, sla_min: 20, rate_per_hour: 12}
+  energy.load_shift:        {level: 4, label: Energy load shift, sim_first: true, sla_min: 30, rate_per_hour: 6}
+  energy.defer_job:         {level: 3, label: Defer deferrable job, sim_first: false, sla_min: 30, rate_per_hour: 6}
+  materials.expedite:       {level: 3, label: Expedite / alternate source, sim_first: false, sla_min: 30, rate_per_hour: 4}
+  materials.reorder:        {level: 4, label: Reorder material, sim_first: false, sla_min: 60, rate_per_hour: 6}
+  amr.dispatch:             {level: 5, label: AMR dispatch / staging, sim_first: false, sla_min: 15, rate_per_hour: 60}
+  safety.protective_stop:   {level: 5, label: Protective safe-stop, sim_first: false, sla_min: 5, rate_per_hour: 120}
+  safety.restart:           {level: 4, label: Verified restart, sim_first: false, sla_min: 10, rate_per_hour: 60}
+  process.recipe:           {level: 2, label: Recipe optimisation, sim_first: true, sla_min: 60, rate_per_hour: 4}
+  copilot.proposal:         {level: 2, label: Copilot-proposed action, sim_first: false, sla_min: 30, rate_per_hour: 10}
+  energy.standby:           {level: 4, label: Idle standby, sim_first: false, sla_min: 30, rate_per_hour: 30}
+protected_assets: [COMP-01, WH-01]          # autonomous actions on these always need a human (unless L5 + break-glass)
+forbidden:                                  # hard guards: rejected in every code path, no override
+  speed_pct: [40, 110]
+  offset_sigma: [-2.0, 2.0]
+  melt_temp_c: [180, 265]
+exempt_from_kill_switch: [safety.protective_stop]   # fail-safe stops only ever reduce hazard

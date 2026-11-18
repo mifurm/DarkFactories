@@ -43,8 +43,8 @@ export const messages: Record<string, string> = {
 
   // feature map
   "Everything in the PRD is real": "Wszystko z PRD jest prawdziwe",
-  "Release-1 catalog (CS-01 … CS-24), rendered live from /api/features. Each feature module self-registers; status reflects what is deployed on this instance.":
-    "Katalog Release 1 (CS-01 … CS-24), wczytywany na żywo z /api/features. Każdy moduł funkcji rejestruje się sam; status odzwierciedla to, co jest wdrożone w tej instancji.",
+  "Release-1 catalog (CS-01 … CS-25), rendered live from /api/features. Each feature module self-registers; status reflects what is deployed on this instance.":
+    "Katalog Release 1 (CS-01 … CS-25), wczytywany na żywo z /api/features. Każdy moduł funkcji rejestruje się sam; status odzwierciedla to, co jest wdrożone w tej instancji.",
   "{implemented} / {total} implemented": "{implemented} / {total} wdrożonych",
   "Filter features…": "Filtruj funkcje…",
   "Filter features": "Filtruj funkcje",

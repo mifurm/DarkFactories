@@ -17,7 +17,7 @@ from ...registry import Feature
 from ...roles import Actor, require
 from ...video.spec import ASPECTS, SAFE_AREAS, RenderSpec
 from ..common import studio
-from ..cs08_spot import post_render, render_spec_to_asset
+from ..cs08_spot import post_render, render_spec_to_asset, spot_quality
 from ..jobs_util import submit_job
 
 router = APIRouter(prefix="/api/campaigns/{campaign_id}/formats", tags=["CS-11 Format Factory"])
@@ -72,16 +72,18 @@ async def generate(request: Request, campaign_id: str, body: FormatsIn | None = 
             spec, info = plan_cutdown(reframe(base, body.cutdown_aspect) if body.cutdown_aspect != base.aspect else base, c)
             plan.append((f"{c}s cutdown", spec, {"aspect": spec.aspect, "lang": base.lang, "cutdown_s": c}, info))
         out = []
+        cinematic = base.quality == "cinematic"  # a cinematic master gives cinematic versions: clips natively per aspect, cutdowns from the cached clips
         for n, (label, spec, variant, info) in enumerate(plan):
-            await job.progress(0.05 + 0.9 * n / max(1, len(plan)), step=label, **_format_progress(label, variant, n, len(plan)))
-            art = await render_spec_to_asset(s, st, camp, spec, script_id=master.get("script_id"), storyboard_id=master.get("storyboard_id"), voice_id=master.get("voice_id"), talent=master.get("talent", []), actor=actor, job=None, parent_id=master["id"], lineage_kind=spec.lineage.kind, variant=variant, markets=master.get("markets"))
+            lo, hi = 0.05 + 0.9 * n / max(1, len(plan)), 0.05 + 0.9 * (n + 1) / max(1, len(plan))
+            await job.progress(lo, step=label, **_format_progress(label, variant, n, len(plan)))
+            art = await render_spec_to_asset(s, st, camp, spec, script_id=master.get("script_id"), storyboard_id=master.get("storyboard_id"), voice_id=master.get("voice_id"), talent=master.get("talent", []), actor=actor, job=job.slice(lo, hi) if cinematic else None, parent_id=master["id"], lineage_kind=spec.lineage.kind, variant=variant, markets=master.get("markets"))
             art["format_notes"] = info
             art = await post_render(s, st, camp, art, actor)
             out.append({"artifact_id": art["id"], "label": label, "aspect": spec.aspect, "duration": art["probe"]["duration"], "guardian": art["guardian"]["verdict"], "video_asset_id": art["assets"]["video"]})
         await st.audit(campaign_id, actor, "formats.generated", {"master": master["id"]}, {"versions": [o["label"] for o in out]})
         return {"versions": out, "master_id": master["id"]}
 
-    return await submit_job(request, "formats.generate", run, campaign_id, "job.title.formats", "CS-11", wait, timeout=178, title_params={"formats": len(body.aspects), "cutdowns": len(body.cutdowns)})
+    return await submit_job(request, "formats.generate", run, campaign_id, "job.title.formats", "CS-11", wait, timeout=178, title_params={"formats": len(body.aspects), "cutdowns": len(body.cutdowns)}, lane="motion" if spot_quality(master) == "cinematic" else None)
 
 
 @router.get("/tree")

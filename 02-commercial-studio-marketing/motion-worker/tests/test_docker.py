@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -60,6 +61,20 @@ def test_every_copy_source_exists_and_nothing_secret_is_baked_in():
     ignored = (ROOT / ".dockerignore").read_text("utf-8").split()
     assert {"tests", ".venv", ".scratch"} <= set(ignored)
     assert "Dockerfile" not in ignored, "az acr build needs the Dockerfile in the context"
+
+
+def test_inline_python_build_checks_survive_shell_quoting_and_are_valid_python():
+    runs = [rest for kw, rest in instructions() if kw == "RUN"]
+    snippets = []
+    for run in runs:
+        for part in re.split(r"\s&&\s", run):
+            tokens = shlex.split(part)  # the quoting /bin/sh applies to the RUN line
+            if tokens[:2] == ["python", "-c"]:
+                snippets.append(tokens[2])
+    assert len(snippets) == 3, "dependency import check, bundled-ffmpeg(libx264) check, diffusers/Wan import check"
+    for code in snippets:
+        compile(code, "<Dockerfile RUN>", "exec")
+    assert "AutoencoderKLWan" in snippets[2] and "libx264" in snippets[1] and "azure.storage.queue" in snippets[0]
 
 
 def test_the_image_installs_exactly_the_pinned_requirements():

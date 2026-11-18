@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -83,16 +84,16 @@ class Smoke:
         headers = {"X-Studio-Role": role, **({"X-UI-Lang": lang} if lang else {}), **kw.pop("headers", {})}
         return self.http.request(method, path, headers=headers, **kw)
 
-    def job(self, method: str, path: str, role: str = "creative", **kw: Any) -> dict[str, Any]:
-        """POST an async job with ?wait=true; poll if the server returned a still-running job."""
+    def job(self, method: str, path: str, role: str = "creative", *, deadline_s: float = 420.0, poll_s: float = 2.0, **kw: Any) -> dict[str, Any]:
+        """POST an async job with ?wait=true; poll if the server returned a still-running job (``deadline_s``: a cinematic render may need ~25 minutes)."""
         sep = "&" if "?" in path else "?"
         r = self.call(method, f"{path}{sep}wait=true", role, **kw)
         if r.status_code >= 400:
             raise AssertionError(f"{r.status_code} {r.text[:300]}")
         j = r.json()
-        deadline = time.time() + 420
+        deadline = time.time() + deadline_s
         while j.get("status") in {"queued", "running"} and time.time() < deadline:
-            time.sleep(2)
+            time.sleep(poll_s)
             j = self.call("GET", f"/api/jobs/{j['id']}").json()
         if j.get("status") != "succeeded":
             raise AssertionError(f"job {j.get('status')}: {j.get('error')}")
@@ -188,6 +189,31 @@ def frame_glyph_check(mp4: bytes, spec: dict[str, Any], evidence_dir: Path | Non
     badge = lit_ratio(end_png, bov, bx, by)
     assert badge > 0.85, f"AI-disclosure badge not found in the end frame ({badge:.2f})"
     return f"caption {cue['text'][:34]!r} found in the frame ({caption:.0%} of glyph pixels), badge {badge_text!r} ({badge:.0%})"
+
+
+def moving_picture_check(mp4: bytes, times: tuple[float, ...] = (1.0, 2.5, 4.0, 5.5, 7.0, 8.5), gap: float = 0.6) -> str:
+    """The cinematic spot's footage must move: frames ``gap`` seconds apart (inside the scenes, before the end card) differ clearly — a still with a slow camera move
+    barely changes in 0.6 s. Needs ffmpeg + numpy + Pillow; without them the check says it was skipped."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return "motion check skipped (ffmpeg not installed)"
+    try:
+        import numpy as np
+        from PIL import Image
+    except Exception as exc:
+        return f"motion check skipped ({type(exc).__name__}: needs numpy + Pillow, run with the app venv)"
+    with tempfile.TemporaryDirectory(dir=str(ROOT / "app")) as td:
+        video = Path(td) / "cinematic.mp4"
+        video.write_bytes(mp4)
+
+        def grab(t: float) -> Any:
+            png = subprocess.run([ffmpeg, "-v", "error", "-ss", f"{t:.3f}", "-i", str(video), "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"], capture_output=True, check=True).stdout
+            return np.asarray(Image.open(io.BytesIO(png)).convert("RGB")).astype(int)
+
+        diffs = sorted(float(np.abs(grab(t) - grab(t + gap)).mean()) for t in times)
+    median = diffs[len(diffs) // 2]
+    assert median > 1.0 and diffs[-1] > 2.0, f"the footage barely moves: mean |difference| of frames {gap}s apart = {[round(d, 2) for d in diffs]}"
+    return f"frames {gap}s apart differ (median {median:.1f}, max {diffs[-1]:.1f} grey levels)"
 
 
 def run_polish(s: Smoke, evidence_dir: Path | None = None) -> None:
@@ -338,7 +364,7 @@ def run_polish(s: Smoke, evidence_dir: Path | None = None) -> None:
     s.step("PL-10 Polish voice-over (pl-PL neural voice) timed to the script beats + SRT", voice)
 
     def render() -> str:
-        j = s.job("POST", f"/api/campaigns/{cid}/spot/render", lang=pl, json={"script_id": s.ctx["pl_script"], "storyboard_id": s.ctx["pl_sb"], "voice_id": s.ctx["pl_voice"]})
+        j = s.job("POST", f"/api/campaigns/{cid}/spot/render", lang=pl, json={"script_id": s.ctx["pl_script"], "storyboard_id": s.ctx["pl_sb"], "voice_id": s.ctx["pl_voice"], "quality": "preview"})
         res = j["result"]
         assert abs(res["duration"] - 14.9) <= 0.5 and abs(res["loudness_lufs"] - (-16.0)) <= 1.5, res
         sp = s.call("GET", f"/api/campaigns/{cid}/spot", lang=pl).json()["spots"][0]
@@ -570,7 +596,7 @@ def run(base: str, expect_mode: str | None, langs: list[str], timeout: float, ke
     s.step("CS-09 voice-over timed to script beats (tts-hd) + SRT", voice)
 
     def render() -> str:
-        j = s.job("POST", f"/api/campaigns/{cid}/spot/render", json={"script_id": s.ctx["script"], "storyboard_id": s.ctx["sb"], "voice_id": s.ctx["voice"]})
+        j = s.job("POST", f"/api/campaigns/{cid}/spot/render", json={"script_id": s.ctx["script"], "storyboard_id": s.ctx["sb"], "voice_id": s.ctx["voice"], "quality": "preview"})
         res = j["result"]
         assert abs(res["duration"] - 15.0) <= 0.5 and abs(res["loudness_lufs"] - (-16.0)) <= 1.5, res
         spots = s.call("GET", f"/api/campaigns/{cid}/spot").json()["spots"]
@@ -805,6 +831,53 @@ def run(base: str, expect_mode: str | None, langs: list[str], timeout: float, ke
         return f"campaign spend ${row['spent_usd']:.3f}, {row['approved_assets']} approved assets -> ${row['cost_per_approved_asset_usd']}/asset vs agency ${k['agency_baseline_per_asset_usd']:.0f} (-{row['savings_pct']}%)"
 
     s.step("CS-15 cost meter: $ per approved asset vs agency baseline", meter)
+
+    def motion() -> str:
+        """CS-25: the worker status and the priced estimate always; ONE cinematic render only when the GPU worker is awake (SMOKE_CINEMATIC=1 also allows waking it: that spends the estimate)."""
+        st = s.call("GET", "/api/motion/status").json()
+        assert {"mode", "available", "model", "license", "worker", "price_per_gpu_second", "est_cold_start_s", "max_clip_s"} <= set(st), st
+        if not st["available"]:
+            return f"SKIP cinematic (motion {st['mode']}: {st.get('reason') or 'not available'})"
+        est = s.call("GET", f"/api/campaigns/{cid}/spot/estimate", params={"quality": "cinematic", "storyboard_id": s.ctx["sb"]}).json()
+        rows = sum(x["est_cost_usd"] for x in est["shots"])
+        assert est["shots"] and est["est_wall_seconds"] > 0 and abs(est["est_cost_usd"] - (rows + est["cold_start_cost_usd"])) < 2e-5, est  # the total is the shot rows plus the cold start
+        worker = st["worker"]["state"]
+        plan = f"{len(est['shots'])} shots ({est['cached_shots']} cached), estimate ${est['est_cost_usd']} / ~{est['est_wall_seconds'] / 60:.0f} min, worker {worker}"
+        if worker != "ready" and os.environ.get("SMOKE_CINEMATIC") != "1":
+            return f"SKIP cinematic (worker {worker}; set SMOKE_CINEMATIC=1): {plan}"
+        if not est["budget"]["allowed"]:
+            return f"SKIP cinematic (budget: {est['budget']['reason']}): {plan}"
+        j = s.job("POST", f"/api/campaigns/{cid}/spot/render", deadline_s=35 * 60, poll_s=5, json={"script_id": s.ctx["script"], "storyboard_id": s.ctx["sb"], "voice_id": s.ctx["voice"], "aspect": "16:9", "quality": "cinematic"})
+        res = j["result"]
+        m = res["motion"]
+        assert res["quality"] == "cinematic" and abs(res["duration"] - 15.0) <= 0.5 and abs(res["loudness_lufs"] - (-16.0)) <= 1.5, res
+        assert m["shots_generated"] >= 1 and m["shots_generated"] + len(m["shots_fallback"]) == m["shots_total"], m  # at least one shot carries AI motion; the others (if any) fell back to their stills
+        assert res["guardian"]["verdict"] in {"pass", "warn"}, res["guardian"]
+        sp = next(x for x in s.call("GET", f"/api/campaigns/{cid}/spot").json()["spots"] if x["id"] == res["artifact_id"])
+        assert sp["quality"] == "cinematic" and sp["render"]["motion"]["shots_generated"] == m["shots_generated"], sp.get("render")
+        s.ctx["cinematic_spot"] = sp["id"]
+        mp4 = s.call("GET", f"/api/library/assets/{sp['assets']['video']}/content").content
+        assert mp4[4:8] == b"ftyp"
+        probe = ""
+        if shutil.which("ffprobe"):
+            with tempfile.TemporaryDirectory(dir=str(ROOT / "app")) as td:
+                p = Path(td) / "cinematic.mp4"
+                p.write_bytes(mp4)
+                out = json.loads(subprocess.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(p)], capture_output=True, text=True, check=True).stdout)
+            v = next(x for x in out["streams"] if x["codec_type"] == "video")
+            a = next(x for x in out["streams"] if x["codec_type"] == "audio")
+            assert v["codec_name"] == "h264" and a["codec_name"] == "aac" and (v["width"], v["height"]) == (1280, 720) and v["avg_frame_rate"] == "25/1", v
+            assert abs(float(out["format"]["duration"]) - 15.0) <= 0.5
+            probe = f"ffprobe: {v['codec_name']}/{a['codec_name']} {v['width']}x{v['height']}@25 {float(out['format']['duration']):.2f}s"
+        assert s.call("GET", f"/api/campaigns/{cid}/spot/{sp['id']}").json()["spec"]["disclosure_badge"], "a cinematic spot carries the AI badge"
+        moving = moving_picture_check(mp4)
+        prov = s.call("GET", f"/api/provenance/assets/{sp['assets']['video']}").json()
+        gv = prov["manifest"]["assertions"].get("generative_video")
+        assert gv and gv["model"] == m["model"] and len(gv["shots"]) == m["shots_generated"] and prov["verification"]["ok"], prov
+        return (f"{res['duration']}s MP4 {len(mp4) // 1024} KB {probe}; {m['shots_generated']}/{m['shots_total']} shots AI motion ({m['shots_cached']} cached, {len(m['shots_fallback'])} fallback), "
+                f"{m['gpu_seconds']}s GPU = ${m['cost_usd']} ({m['model']}); {moving}; manifest names the model")
+
+    s.step("CS-25 cinematic motion: status + priced estimate; AI-video render (moving footage, GPU metered, manifest names the model)", motion)
 
     def cap() -> str:
         c = s.call("POST", "/api/campaigns", json={"name": "Smoke cap test", "markets": ["US"], "channels": ["youtube"]}).json()

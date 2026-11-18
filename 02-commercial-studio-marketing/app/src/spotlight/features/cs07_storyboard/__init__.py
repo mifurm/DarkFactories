@@ -373,6 +373,11 @@ async def patch_shot(request: Request, campaign_id: str, sb_id: str, shot_id: st
             sh["description_en"] = body.description  # a hand-edited line is the best English-prompt we have for the model
         if "opening_en" in sh:
             sh["opening_en"] = body.description  # the keyframe is drawn from the opening frame: an edited description has to reach it
+        lang = campaign_lang(camp)
+        if lang == "en":
+            sh.pop("opening_edited_lang", None)
+        else:
+            sh["opening_edited_lang"] = lang  # the image model took the edit; the English-only video model leaves such an opening line out of its prompt (motion.prompts.opening_text)
     if body.movement:
         sh["movement"] = body.movement
         if isinstance(sh.get("motion"), dict):
@@ -380,9 +385,14 @@ async def patch_shot(request: Request, campaign_id: str, sb_id: str, shot_id: st
         sh["motion_stale"] = True  # the camera phrase is part of the clip's prompt
     if body.motion is not None:
         m = sh["motion"] if isinstance(sh.get("motion"), dict) else sh.setdefault("motion", {})
-        m["prompt"] = m["prompt_en"] = trim_motion(body.motion, 300)  # a hand-edited line is the best English prompt we have for the video model
+        text = trim_motion(body.motion, 300)
+        m["prompt"], m["edited"] = text, True  # `prompt` is what people read (in the campaign's language)
+        if campaign_lang(camp) == "en":
+            m["prompt_en"] = text  # an English hand-edit is the best English prompt we have for the video model (the convention of description_en)
+            sh["motion_stale"] = True  # the clip has to be generated again; the keyframe stays valid
+        # Another language: the video model only reads English, so a hand-edited line changes the text shown to people and nothing the model gets: `prompt_en` stays the last
+        # machine-generated English prompt and the clip stays valid (same prompt, same seed, same cached clip).
         m["camera"] = m.get("camera") or camera_phrase(sh.get("movement"))
-        sh["motion_stale"] = True  # the clip has to be generated again; the keyframe stays valid
     if body.focal:
         sh["focal"] = [min(1, max(0, v)) for v in body.focal]
     if body.super_text is not None:

@@ -123,7 +123,7 @@ async def pack(request: Request, asset_id: str, _: Actor = Depends(require("expo
 async def campaign_summary(request: Request, campaign_id: str) -> dict[str, Any]:
     st = studio(request)
     await st.campaign(campaign_id)
-    assets = [a for a in await st.repo.query("assets", {"campaign_id": campaign_id}, limit=500) if a["kind"] == "video"]  # deliverables; keyframes/voice are hashed as ingredients of the spot manifest
+    assets = [a for a in await st.repo.query("assets", {"campaign_id": campaign_id}, limit=500) if a["kind"] == "video" and "motion-clip" not in a.get("tags", [])]  # deliverables; keyframes, voice and AI motion clips are hashed as ingredients of the spot manifest
     manifests = {m["asset_id"]: m for m in await st.repo.query("provenance", pk=campaign_id)}
     rows = [{"asset_id": a["id"], "name": a["name"], "kind": a["kind"], "has_manifest": a["id"] in manifests, "manifest_id": manifests.get(a["id"], {}).get("id"), "ai_generated": a.get("ai_generated")} for a in assets]
     return {"assets": rows, "coverage": round(sum(1 for r in rows if r["has_manifest"]) / max(1, len(rows)) * 100, 1), "signer": (await prov.get_signer(svc(request))).key_id}

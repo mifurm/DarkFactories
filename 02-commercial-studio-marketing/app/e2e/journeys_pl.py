@@ -697,6 +697,7 @@ def main() -> int:
         def video() -> None:
             need_campaign("the render")
             run.go(page, f"/campaigns/{run.cid}/video")
+            page.get_by_test_id("quality-preview").click()  # Cinematic (AI video, real GPU time) is the default whenever the server can do it: this journey renders the cheap preview
             page.get_by_role("button", name=run.T(page, "Render spot")).click()
             wait_job(300_000)
             expect(page.get_by_test_id("video-player").first).to_be_visible(timeout=ai(60000))

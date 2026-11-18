@@ -28,3 +28,7 @@ dist/
 # generated / cache
 tools/deckkit/.cache/
 .DS_Store
+
+# scratch space of tools and agents (browser profiles, screenshots, downloaded wheels): never commit
+.scratch/
+**/.scratch/

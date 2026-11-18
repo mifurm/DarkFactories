@@ -26,6 +26,7 @@ export const features: EnumTable = {
   "CS-22": "Współpraca, role i integracje",
   "CS-23": "Kalkulator ROI i ACR",
   "CS-24": "Obserwowalność, bezpieczeństwo i IaC",
+  "CS-25": "Ruch filmowy AI (wideo generatywne)",
 };
 
 export const featureSummaries: EnumTable = {
@@ -36,7 +37,7 @@ export const featureSummaries: EnumTable = {
   "CS-05": "Wnioski, segmentacja, pozycjonowanie i 3–5 kierunków głównej idei z uzasadnieniem i uwagami o ryzyku — oparte na Brand Brain i zgromadzonych w nim wnioskach.",
   "CS-06": "Scenariusze 6/15/30/60\u00A0s z segmentami, lektorem, napisami ekranowymi i CTA; teksty na kanały; warianty tonu; uwzględnianie claimów (zastrzeżenia, dosłowne elementy obowiązkowe).",
   "CS-07": "Lista ujęć + księga stylu i klatki kluczowe storyboardu z gpt-image, ze spójnością z założenia (księga stylu, sterowanie paletą kolorów, opcjonalny obraz referencyjny).",
-  "CS-08": "Montaż spotów oparty na ffmpeg, za interfejsem VideoProvider: ruch na klatkach kluczowych, przenikania, lektor, napisy wtopione w obraz + SRT, podkład muzyczny, plansza końcowa, EBU R128, MP4 H.264/AAC.",
+  "CS-08": "Montaż spotów oparty na ffmpeg, za interfejsem VideoProvider: ruch na klatkach kluczowych albo prawdziwe klipy generowane przez AI (tryb filmowy), przenikania, lektor, napisy wtopione w obraz + SRT, podkład muzyczny, plansza końcowa, EBU R128, MP4 H.264/AAC.",
   "CS-09": "Lektor z tts-hd lub głosów neuronowych Azure AI Speech w 8 językach, dopasowany do segmentów scenariusza, SRT, wybór licencjonowanej muzyki z rejestru praw i licencji, normalizacja EBU R128.",
   "CS-10": "Transkreacja na EN/DE/FR/ES/IT/PL/PT/NL z egzekwowaniem glosariusza i terminów nietłumaczonych, kontrolą jakości przez tłumaczenie zwrotne, zlokalizowanym lektorem/napisami/planszą końcową i Strażnikiem dla rynku lokalnego.",
   "CS-11": "Przekadrowanie mastera do 16:9/9:16/1:1/4:5 z punktami skupienia dla każdej sceny i strefami bezpiecznymi, wersje skrócone 6/15/30\u00A0s według priorytetu scen, nakładki według szablonu, drzewo wersji.",
@@ -53,6 +54,8 @@ export const featureSummaries: EnumTable = {
   "CS-22": "Role (Administrator, Brand Manager, Dyrektor kreatywny, Specjalista kreatywny, Dział prawny, Agencja (gość)) egzekwowane w API, webhooki zgodne z Teams/Slack (z ochroną SSRF), eksport pakietu kampanii w zip, REST API + OpenAPI.",
   "CS-23": "ROI / okres zwrotu / NPV i ACR Azure wg usługi z wbudowanego modelu business case (testowana zgodność z outputs.json) oraz porównanie agencji ze Studiem na żywo ze zmierzonego wdrożenia.",
   "CS-24": "Sondy kondycji i gotowości, OpenTelemetry → App Insights, licznik zużycia AI, limity żądań, limity budżetu, Bicep/azd, testy dymne.",
+  "CS-25":
+    "Ruch filmowy: zatwierdzona klatka kluczowa staje się pierwszą klatką prawdziwego klipu wygenerowanego przez AI (otwarty model image-to-video uruchamiany na bezserwerowym GPU w środowisku Azure klienta — skalowanie do zera, bez kluczy dostępu); stan serwera GPU i rozgrzewanie, wycena przed renderem, dla każdego ujęcia: pamięć podręczna, kontrola budżetu, kontrola Content Safety i ujęcie zastępcze; pochodzenie modelu.",
 };
 
 export const epics: EnumTable = {

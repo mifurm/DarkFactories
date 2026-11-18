@@ -42,7 +42,7 @@ export default function FeatureMap() {
       <PageHeader
         eyebrow={t("Everything in the PRD is real")}
         title={t("Feature map")}
-        subtitle={t("Release-1 catalog (CS-01 … CS-24), rendered live from /api/features. Each feature module self-registers; status reflects what is deployed on this instance.")}
+        subtitle={t("Release-1 catalog (CS-01 … CS-25), rendered live from /api/features. Each feature module self-registers; status reflects what is deployed on this instance.")}
         actions={
           <div className="flex items-center gap-2">
             <Badge tone={implemented === total && total > 0 ? "good" : "warn"}>{t("{implemented} / {total} implemented", { implemented, total })}</Badge>

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from .models import MotionRequest, MotionResult, MotionUnavailable, ProgressCb, WorkerStatus
+from .models import MotionDisabled, MotionRequest, MotionResult, ProgressCb, WorkerStatus
 
 
 class MotionClient(Protocol):
@@ -54,7 +54,7 @@ class OffMotionClient:
         return await self.status()
 
     async def generate(self, req: MotionRequest, on_progress: ProgressCb | None = None, timeout_s: float = 1500.0) -> MotionResult:
-        raise MotionUnavailable("Cinematic motion is not available in this deployment.", hint="Use the Preview quality, or ask an Admin to enable the GPU motion worker (MOTION_MODE).")
+        raise MotionDisabled("Cinematic motion is not available in this deployment.", hint="Use the Preview quality, or ask an Admin to enable the GPU motion worker (MOTION_MODE).")
 
     async def close(self) -> None:
         return None

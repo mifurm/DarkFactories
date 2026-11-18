@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../i18n";
 import { feature as storyboardFeature } from "../features/cs07-storyboard";
 import { feature as spotFeature } from "../features/cs08-spot";
+import { feature as provenanceFeature } from "../features/cs14-provenance";
 import { normalizeEstimate, normalizeMotionStatus, readSpotMotion, statusRefetchInterval, type SpotMotionInfo } from "./model";
 import { MotionPromptEditor } from "./MotionPromptEditor";
 import { RenderFailure } from "./RenderFailure";
@@ -201,12 +202,15 @@ describe("RenderQualityPicker — GPU worker states", () => {
     expect(plain(render(<RenderQualityPicker {...picker({ status: workerState("ready", 0) })} />))).not.toContain("in the GPU queue");
   });
 
-  it("the offline simulator has nothing to warm up", () => {
+  it("the offline simulator has nothing to warm up, and says that its figures are simulated", () => {
     const html = render(<RenderQualityPicker {...picker({ status: status({ mode: "stub" }) })} />);
     expect(plain(html)).toContain("Offline motion simulator");
+    expect(plain(html)).toContain("Offline simulator: the motion is procedural (no AI model) and the costs shown are simulated at the same list prices.");
     expect(button(html, "Warm up GPU")).toBeUndefined();
     expect(html).not.toContain('data-testid="cold-start-note"');
     expect(html).toContain('data-testid="motion-estimate"');
+    // a real GPU worker has no such note
+    expect(render(<RenderQualityPicker {...picker({ status: workerState("ready") })} />)).not.toContain("simulator-note");
   });
 
   it("the E2E settle check treats [aria-live=polite] as the toast area and [aria-label=loading] as a pending request: neither may appear for a warming GPU", () => {
@@ -363,6 +367,9 @@ describe("RenderQualityPicker — Polish", () => {
       "Ruch AI nie jest dostępny na tym serwerze — można renderować tylko w trybie podglądu.",
     );
     expect(plain(render(<RenderQualityPicker {...picker({ status: status({ mode: "stub" }) })} />))).toContain("Symulator ruchu offline");
+    expect(flat(plain(render(<RenderQualityPicker {...picker({ status: status({ mode: "stub" }) })} />)))).toContain(
+      "Symulator offline: ruch jest generowany proceduralnie (bez modelu AI), a pokazane koszty są symulowane według tych samych cen katalogowych.",
+    );
   });
 
   it("language switching works on the same component: the markup follows the active language", () => {
@@ -644,6 +651,50 @@ describe("Video step (CS-08)", () => {
     expect(t).toContain("Filmowy · ruch AI: 3/4 ujęć · 1 ujęcie zastępcze");
     expect(t).toContain("Dostawca: ");
     expect(t).not.toMatch(/Render quality|Cinematic|Sora/);
+    expect(missingKeys()).toEqual([]);
+  });
+});
+
+describe("Provenance step (CS-14): the generative_video assertion", () => {
+  const manifest = (assertions: object) => ({
+    manifest_hash: "ab".repeat(32),
+    signature: { alg: "Ed25519", key_id: "k1" },
+    sidecar_url: "/api/provenance/assets/vid_1/sidecar",
+    verification: { ok: true, checks: [] },
+    manifest: { manifest_version: "1.0", title: "Dawn Roast", asset: { sha256: "cd".repeat(32) }, claim_generator: "Spotlight", notice: "", audit_anchor: { chain: "c1", seq: 5 }, assertions },
+  });
+  const base = { ai_disclosure: { ai_generated: true }, models: [{ deployment: "gpt-image-1.5" }], ingredients: [{}, {}, {}], actions: [{}], approvals: [], rights: [] };
+  const tabHtml = (assertions: object) =>
+    tab(
+      provenanceFeature as never,
+      { campaign: { id: CID, markets: ["US"], channels: [] } },
+      client([
+        [["prov-sum", CID], { coverage: 100, signer: "demo", assets: [{ asset_id: "vid_1", kind: "video", name: "spot.mp4", has_manifest: true }] }],
+        [["manifest", "vid_1"], manifest(assertions)],
+        [["prov-labels", "US", ""], { jurisdictions: [], platforms: [], badge_text: "AI", burn_in_required: true, metadata: [], notice: "" }],
+      ]),
+    );
+
+  it("a cinematic spot's manifest shows the model, licence and how many shots carry AI motion; AI clips count as ingredients", () => {
+    const t = plain(tabHtml({ ...base, models: [{ deployment: "gpt-image-1.5" }, { deployment: "wan2.2-ti2v-5b" }], generative_video: { model: "wan2.2-ti2v-5b", license: "Apache-2.0", shots: [{}, {}, {}], shots_total: 4 } }));
+    expect(t).toContain("Generative video");
+    expect(t).toContain("wan2.2-ti2v-5b · licence Apache-2.0 · 3/4 shots with AI motion");
+    expect(t).toContain("3 hashed (keyframes, AI clips, voice-over)");
+  });
+
+  it("a preview spot's manifest is unchanged", () => {
+    const t = plain(tabHtml(base));
+    expect(t).not.toContain("Generative video");
+    expect(t).toContain("3 hashed (keyframes, voice-over)");
+  });
+
+  it("Polish", () => {
+    setLang("pl");
+    const t = flat(plain(tabHtml({ ...base, generative_video: { model: "wan2.2-ti2v-5b", license: "Apache-2.0", shots: [{}, {}], shots_total: 4 } })));
+    expect(t).toContain("Wideo generatywne");
+    expect(t).toContain("wan2.2-ti2v-5b · licencja Apache-2.0 · 2/4 ujęć z ruchem AI");
+    expect(t).toContain("skróty: 3 (klatki kluczowe, klipy AI, lektor)");
+    expect(unresolved(t)).toEqual([]);
     expect(missingKeys()).toEqual([]);
   });
 });

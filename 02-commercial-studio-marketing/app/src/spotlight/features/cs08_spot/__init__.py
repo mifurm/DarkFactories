@@ -20,9 +20,10 @@ from ...deps import mutate_limit, spend_limit, svc
 from ...domain.rights import RightsEntry, best_replacement_track
 from ...domain.spot_builder import SpotBuildError, build_master_spec, music_spec, scenes_from_storyboard
 from ...errors import AppError, NotFound, ProviderUnavailable, ValidationFailed
-from ...i18n import has, t
+from ...i18n import t
 from ...motion import plan as motion_plan
-from ...motion.orchestrator import find_cached, generate_clips, motion_status
+from ...motion.orchestrator import client_license, find_cached, generate_clips, motion_status
+from ...motion.report import localize_motion
 from ...registry import Feature
 from ...roles import Actor, require
 from ...util import new_id
@@ -136,18 +137,21 @@ class RenderIn(BaseModel):
     quality: str = Field(default="preview", pattern="^(preview|cinematic)$")  # preview: keyframes + camera moves; cinematic: AI-generated clips (real motion, costs GPU time)
 
 
+def spot_quality(art: dict[str, Any] | None) -> str:
+    """``preview`` | ``cinematic`` of a spot artifact (spots rendered before cinematic motion existed have neither field: preview)."""
+    return (art or {}).get("quality") or ((art or {}).get("spec") or {}).get("quality") or "preview"
+
+
 def _motion_summary(art: dict[str, Any]) -> dict[str, Any] | None:
     m = (art.get("render") or {}).get("motion")
-    return {k: m[k] for k in ("mode", "model", "license", "shots_total", "shots_generated", "shots_cached", "shots_fallback", "gpu_seconds", "cost_usd")} if m else None
+    return {k: m[k] for k in ("mode", "model", "license", "shots_total", "shots_generated", "shots_cached", "shots_fallback", "gpu_seconds", "cost_usd", "cold_start_usd") if k in m} if m else None
 
 
 def _with_reason_text(art: dict[str, Any]) -> dict[str, Any]:
     """A spot artifact as served: each fallback shot gets ``reason_text`` in the viewer's language (the stored record keeps the stable ``reason`` code)."""
     motion = (art.get("render") or {}).get("motion")
-    if not motion or not motion.get("shots_fallback"):
-        return art
-    rows = [{**f, "reason_text": t(f"motion.reason.{f.get('reason')}" if has(f"motion.reason.{f.get('reason')}") else "motion.reason.failed")} for f in motion["shots_fallback"]]
-    return {**art, "render": {**art["render"], "motion": {**motion, "shots_fallback": rows}}}
+    shown = localize_motion(motion)
+    return art if shown is motion else {**art, "render": {**art["render"], "motion": shown}}
 
 
 @router.post("/render", dependencies=[Depends(mutate_limit), Depends(spend_limit)])
@@ -218,7 +222,7 @@ async def rerender(request: Request, campaign_id: str, spot_id: str, wait: bool 
     """Render again from the (possibly auto-revised) spec stored on the artifact. A cinematic spot finds its clips in the library again: no GPU call, no cost."""
     st = studio(request)
     source = await st.artifact(campaign_id, spot_id, "spot")
-    cinematic = (source.get("spec") or {}).get("quality") == "cinematic"
+    cinematic = spot_quality(source) == "cinematic"
 
     async def run(job: JobContext) -> dict[str, Any]:
         s = request.app.state.services
@@ -238,7 +242,7 @@ async def list_spots(request: Request, campaign_id: str) -> dict[str, Any]:
     st = studio(request)
     await st.campaign(campaign_id)
     arts = await st.artifacts(campaign_id, "spot")
-    slim = [{k: a.get(k) for k in ("id", "version", "status", "title", "created_at", "assets", "probe", "loudness", "guardian", "variant", "lineage_kind", "parent_id", "provenance_id", "needs_rerender", "markets")} | {"duration": a["spec"]["scenes"] and a["probe"]["duration"], "lang": a["spec"]["lang"], "aspect": a["spec"]["aspect"], "music": a["spec"].get("music"), "quality": a.get("quality") or a["spec"].get("quality", "preview"), "render": _with_reason_text(a).get("render")} for a in arts]
+    slim = [{k: a.get(k) for k in ("id", "version", "status", "title", "created_at", "assets", "probe", "loudness", "guardian", "variant", "lineage_kind", "parent_id", "provenance_id", "needs_rerender", "markets")} | {"duration": a["spec"]["scenes"] and a["probe"]["duration"], "lang": a["spec"]["lang"], "aspect": a["spec"]["aspect"], "music": a["spec"].get("music"), "quality": spot_quality(a), "render": _with_reason_text(a).get("render")} for a in arts]
     return {"spots": slim, "provider": get_provider(svc(request).settings.video_provider).capabilities(), "aspects": list(ASPECTS)}
 
 
@@ -256,7 +260,11 @@ async def estimate(
     camp = await st.campaign(campaign_id)
     caps = await s.guard.caps(campaign_id)
     daily_left, camp_left = float(caps["daily_remaining_usd"]), float(caps.get("campaign_remaining_usd", caps["daily_remaining_usd"]))
-    body: dict[str, Any] = {"quality": quality, "aspect": aspect, "shots": [], "cached_shots": 0, "est_gpu_seconds": 0.0, "est_cost_usd": 0.0, "est_wall_seconds": 30.0, "cold_start_seconds": 0, "budget": {"allowed": True, "daily_remaining_usd": daily_left, "campaign_remaining_usd": camp_left, "reason": None}}
+    client = s.motion
+    body: dict[str, Any] = {
+        "quality": quality, "aspect": aspect, "shots": [], "cached_shots": 0, "est_gpu_seconds": 0.0, "est_cost_usd": 0.0, "est_wall_seconds": 30.0, "cold_start_seconds": 0, "cold_start_cost_usd": 0.0,
+        "available": client.name != "off", "mode": client.name, "model": client.model or s.settings.motion_model, "license": client_license(client, s.settings.motion_model), "budget": {"allowed": True, "daily_remaining_usd": daily_left, "campaign_remaining_usd": camp_left, "reason": None},
+    }  # a preview is free: same shape, nothing to price
     if quality == "preview":
         return body
     sb = await (st.artifact(campaign_id, storyboard_id, "storyboard") if storyboard_id else st.latest(campaign_id, "storyboard"))
@@ -281,8 +289,9 @@ async def estimate(
     state = status["worker"]["state"]
     cold_wall = cfg.motion_cold_start_s if (todo and status["available"] and state != "ready") else 0
     cold_billed = cfg.motion_cold_start_s if (todo and status["available"] and state == "cold") else 0
+    cold_usd = round(pricing.motion_cost(cold_billed, cfg.motion_price_per_gpu_second), 5)
     est_gpu = round(sum(sp.est_gpu_seconds for sp in todo) + cold_billed, 2)
-    est_cost = round(pricing.motion_cost(est_gpu, cfg.motion_price_per_gpu_second), 5)
+    est_cost = round(sum(sp.est_cost_usd for sp in todo) + cold_usd, 5)  # the rows plus the cold start: what the UI adds up
     reason: str | None = None
     if not status["available"]:
         reason = t("motion.estimate.unavailable")
@@ -293,7 +302,7 @@ async def estimate(
     body.update(
         shots=[{"shot_id": sp.shot_id, "seconds": sp.seconds, "frames": sp.frames, "cached": cached[sp.scene_id], "est_gpu_seconds": 0.0 if cached[sp.scene_id] else sp.est_gpu_seconds, "est_cost_usd": 0.0 if cached[sp.scene_id] else sp.est_cost_usd} for sp in plan.shots],
         cached_shots=sum(cached.values()), est_gpu_seconds=est_gpu, est_cost_usd=est_cost, est_wall_seconds=motion_plan.wall_seconds(todo, cold_wall), cold_start_seconds=cold_wall,
-        cold_start_cost_usd=round(pricing.motion_cost(cold_billed, cfg.motion_price_per_gpu_second), 5), available=status["available"], mode=status["mode"], model=status["model"], license=status["license"],
+        cold_start_cost_usd=cold_usd, available=status["available"], mode=status["mode"], model=status["model"], license=status["license"],
         budget={"allowed": reason is None, "daily_remaining_usd": daily_left, "campaign_remaining_usd": camp_left, "reason": reason},
     )
     return body

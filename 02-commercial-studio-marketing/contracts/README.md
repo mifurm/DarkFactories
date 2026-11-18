@@ -89,6 +89,7 @@ Write the **image first, then `request.json`, then enqueue** (so the worker neve
 Image handling (worker side): decode JPEG/PNG/WEBP (≤ 20 MiB, ≤ 40 MP, EXIF orientation applied, transparency flattened on
 white) → **centre-crop to the `width:height` aspect → resize to exactly `width×height` with LANCZOS** → first-frame
 conditioning. The Studio may therefore upload the keyframe as is. Keyframes must be ONE single frame (no diptychs).
+`request.json` itself must stay below 256 KiB.
 
 ## 5. Deterministic job id
 

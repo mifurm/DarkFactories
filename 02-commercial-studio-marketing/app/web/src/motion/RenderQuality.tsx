@@ -184,6 +184,12 @@ export function EstimatePanel({ estimate, state, error, status }: { estimate: Sp
           [t("Budget left for this campaign"), left(estimate.budget.campaign_remaining_usd)],
         ]}
       />
+      {view.kind === "simulator" && (
+        <p className="flex items-start gap-2 text-[12.5px] text-espresso-600" data-testid="simulator-note">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-700" aria-hidden="true" />
+          {t("Offline simulator: the motion is procedural (no AI model) and the costs shown are simulated at the same list prices.")}
+        </p>
+      )}
       {view.kind === "gpu" && view.state !== "ready" && (
         <p className="flex items-start gap-2 text-[12.5px] text-espresso-600" data-testid="cold-start-note">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-700" aria-hidden="true" />

@@ -17,6 +17,7 @@ from typing import Any
 
 from ..errors import AppError, NotFound
 from ..i18n import DEFAULT, current_locale, t
+from ..motion.report import localize_motion
 from ..util import new_id, now, now_iso, parse_iso
 from .ai.base import reset_ctx, set_ctx
 
@@ -40,9 +41,13 @@ def _set_message(doc: dict[str, Any], key: str, params: dict[str, Any] | None = 
 def render_job(j: dict[str, Any], locale: str | None = None) -> dict[str, Any]:
     """A job as served to clients: title, message, error and hint rendered in ``locale`` from the stored catalog keys.
 
-    English (the language the text is stored in) and records without keys come back exactly as stored; ids, status and numbers never change."""
+    English (the language the text is stored in) and records without keys come back exactly as stored; ids, status and numbers never change.
+    The one addition in every language: a cinematic render's result lists its fallback shots with ``reason_text`` next to the stored ``reason`` code."""
     loc = locale or current_locale()
     out = dict(j)
+    result = j.get("result")
+    if isinstance(result, dict) and isinstance(motion := result.get("motion"), dict) and motion.get("shots_fallback"):
+        out["result"] = {**result, "motion": localize_motion(motion, loc)}
     if loc == DEFAULT:
         return out
     if j.get("title_key"):
@@ -90,6 +95,20 @@ class JobContext:
 
     async def add_cost(self, usd: float) -> None:
         self.doc["cost_usd"] = round(self.doc.get("cost_usd", 0.0) + usd, 6)
+
+    def slice(self, lo: float, hi: float) -> JobContext:
+        """The part ``lo``..``hi`` of this job's progress bar, for nested work that reports its own 0..1 progress (one cinematic render inside a multi-version job)."""
+        return JobSlice(self, lo, hi)
+
+
+class JobSlice(JobContext):
+    def __init__(self, parent: JobContext, lo: float, hi: float) -> None:
+        super().__init__(parent._runner, parent.doc)
+        self._parent, self._lo, self._hi = parent, lo, hi
+
+    async def progress(self, pct: float | None = None, message: str | None = None, step: str | None = None, *, key: str | None = None, params: dict[str, Any] | None = None, force: bool = False) -> None:
+        scaled = None if pct is None else self._lo + (self._hi - self._lo) * max(0.0, min(1.0, pct))
+        await self._parent.progress(scaled, message, step, key=key, params=params, force=force)
 
 
 JobFn = Callable[[JobContext], Awaitable[dict[str, Any] | None]]
@@ -283,6 +302,8 @@ class JobRunner:
     async def shutdown(self) -> None:
         if self._sweeper is not None:
             self._sweeper.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._sweeper
         for task in list(self._tasks.values()):
             task.cancel()
         for task in list(self._tasks.values()):

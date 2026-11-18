@@ -26,7 +26,7 @@ Studio ◄──blob motion-out/<job>/{status,result}.json, clip.mp4, _worker/re
 | `motion_worker/worker.py` | main loop, heartbeat/visibility renewal, status + ready writers, poison guard, OOM mapping, SIGTERM, watchdog |
 | `motion_worker/submit.py` | producer tool: enqueue a job / warm-up the same way the Studio does (local or Azure) |
 | `Dockerfile`, `requirements.txt` | image: pinned base digest, pinned extra wheels, non-root, `/tmp` only |
-| `tests/` | CPU-only suite (no network, no GPU, no Azure): 346 tests, 98 % line+branch coverage |
+| `tests/` | CPU-only suite (no network, no GPU, no Azure): 356 tests, 98 % line+branch coverage |
 
 ## Run it locally (no GPU, no Azure)
 

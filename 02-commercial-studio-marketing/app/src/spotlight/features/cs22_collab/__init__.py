@@ -117,7 +117,7 @@ async def export_pack(request: Request, campaign_id: str, approved_only: bool = 
         lang = campaign_lang(camp)
         await job.progress(0.1, step="collect", key="job.msg.export.collect")
         assets = await st.repo.query("assets", {"campaign_id": campaign_id}, limit=1000)
-        videos = [a for a in assets if a["kind"] == "video" and (a.get("status") == "approved" or not approved_only)]
+        videos = [a for a in assets if a["kind"] == "video" and "motion-clip" not in a.get("tags", []) and (a.get("status") == "approved" or not approved_only)]  # the raw AI clips are ingredients of the spots, not deliverables
         extra = [a for a in assets if a["kind"] in {"subtitle"} or (a["kind"] == "image" and ("storyboard" in a.get("tags", []) or "poster" in a.get("tags", [])))]
         arts = {k: await st.latest(campaign_id, k) for k in ("brief", "strategy", "script", "storyboard", "voice")}
         files: dict[str, bytes] = {}

@@ -15,17 +15,26 @@ NEGATIVE_PROMPT = (
     "morphing or warping packaging, cartoon, static image, overexposed, split screen, collage"
 )
 
+# Why a shot played its still instead of an AI clip (``render.motion.shots_fallback[].reason``); every code has a ``motion.reason.<code>`` catalog entry.
+FALLBACK_REASONS = ("oom", "timeout", "safety", "budget", "worker_unavailable", "bad_request", "internal", "disabled")
+
 
 class MotionError(ProviderUnavailable):
     """Base of the motion backend errors. ``reason`` is the stable code stored on a shot that fell back to the still-image path."""
 
     code = "motion_failed"
-    reason = "failed"
+    reason = "internal"
 
 
 class MotionUnavailable(MotionError):
     code = "motion_unavailable"
-    reason = "unavailable"
+    reason = "worker_unavailable"
+
+
+class MotionDisabled(MotionUnavailable):
+    """Cinematic motion is not configured in this deployment (``MOTION_MODE=off``)."""
+
+    reason = "disabled"
 
 
 class MotionTimeout(MotionError):
@@ -35,7 +44,7 @@ class MotionTimeout(MotionError):
 
 class MotionTransportError(MotionError):
     code = "motion_transport"
-    reason = "unavailable"
+    reason = "worker_unavailable"
 
 
 class MotionBadRequest(MotionError):
@@ -54,7 +63,7 @@ class MotionFailed(MotionError):
         self.worker_code = worker_code
         self.retryable = retryable
         self.gpu_seconds = gpu_seconds
-        self.reason = worker_code if worker_code in {"oom", "bad_request", "timeout"} else "failed"
+        self.reason = worker_code if worker_code in {"oom", "bad_request", "timeout"} else "internal"
 
 
 @dataclass(frozen=True)

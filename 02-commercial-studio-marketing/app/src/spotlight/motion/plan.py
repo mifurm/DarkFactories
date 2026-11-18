@@ -182,13 +182,13 @@ def plan_motion(
         negative = (known.negative if known else "") or NEGATIVE_PROMPT
         seed = known.seed if known else shot_seed(cid, shot_id, prompt)
         timing = timing_for(sc.duration)
-        est = pricing.motion_estimate(timing.frames, width, height, steps)
+        est = round(pricing.motion_estimate(timing.frames, width, height, steps), 2)
         key = cache_key(model, revision, prompt, negative, (keyframe_sha or {}).get(sc.asset_id, ""), width, height, (float(sc.focal[0]), float(sc.focal[1])), seed, steps, guidance)
         plan.shots.append(
             ShotPlan(
                 scene_id=sc.id, shot_id=shot_id, role=sc.role, asset_id=sc.asset_id, seconds=sc.duration, needed_s=timing.needed_s, frames=timing.frames, width=width, height=height, seed=seed,
                 prompt=prompt, negative=negative, steps=steps, guidance=guidance, focal=(float(sc.focal[0]), float(sc.focal[1])), speed=timing.speed, hold_tail=timing.hold_tail, cache_key=key,
-                est_gpu_seconds=round(est, 2), est_cost_usd=round(pricing.motion_cost(est, price), 5),
+                est_gpu_seconds=est, est_cost_usd=round(pricing.motion_cost(est, price), 5),  # the price of the seconds shown: a row reads the same in both columns
             )
         )
     return plan

@@ -26,7 +26,7 @@ from ...registry import Feature
 from ...roles import Actor, require
 from ...util import new_id
 from ..common import CREW_PREAMBLE, studio, untrusted
-from ..cs08_spot import post_render, render_spec_to_asset
+from ..cs08_spot import post_render, render_spec_to_asset, spot_quality
 from ..cs09_voice import build_voice
 from ..jobs_util import submit_job
 
@@ -282,6 +282,9 @@ async def generate(request: Request, campaign_id: str, body: LocIn | None = None
         supported = [c for c in lz.LANGS if c != source_lang]
         raise ValidationFailed(f"unsupported target language(s) {bad}; use {supported}", code="bad_language", params={"langs": ", ".join(bad), "supported": ", ".join(supported)})
 
+    master0 = await st.gate_artifact(camp0, "spot") if body.render else None
+    lane = "motion" if spot_quality(master0) == "cinematic" and master0 else None  # a cinematic master: the localized renders may need the GPU worker, so they wait in its lane
+
     async def run(job: JobContext) -> dict[str, Any]:
         s = request.app.state.services
         camp = await st.campaign(campaign_id)
@@ -334,12 +337,13 @@ async def generate(request: Request, campaign_id: str, body: LocIn | None = None
                 for sh in sb_loc["shots"]:
                     if sh.get("beat_id") in loc_supers:
                         sh["super_text"] = loc_supers[sh["beat_id"]]
+                quality = spot_quality(master)  # a localized version of a cinematic master is cinematic too: the picture is unchanged, so its clips come straight from the library cache
                 try:
-                    spec = build_master_spec(spec_id=new_id("spec"), campaign=camp, script=loc_script, storyboard=sb_loc, voice=voice, kit=kit, music=music_spec(m_entry), brief_fields=(brief or {}).get("fields"), lang=lang, title=f"{loc_script.get('title', 'Spot')} [{lang.upper()}]")
+                    spec = build_master_spec(spec_id=new_id("spec"), campaign=camp, script=loc_script, storyboard=sb_loc, voice=voice, kit=kit, music=music_spec(m_entry), brief_fields=(brief or {}).get("fields"), lang=lang, title=f"{loc_script.get('title', 'Spot')} [{lang.upper()}]", quality=quality)
                 except SpotBuildError as exc:
                     raise ValidationFailed(str(exc), code="inputs_missing", key=exc.key, params=exc.params or {"detail": str(exc)}) from exc
                 await job.progress(base + per * 0.6, step=f"render-{lang}", key="job.msg.loc.render", params={"code": lang.upper()})
-                spot = await render_spec_to_asset(s, st, camp, spec, script_id=script["id"], storyboard_id=sb["id"], voice_id=voice["id"], talent=script.get("talent", []), actor=actor, job=None, parent_id=(master or {}).get("id"), lineage_kind="localized", variant={"aspect": spec.aspect, "lang": lang, "cutdown_s": None}, markets=[lz.LANG_MARKET[lang]])
+                spot = await render_spec_to_asset(s, st, camp, spec, script_id=script["id"], storyboard_id=sb["id"], voice_id=voice["id"], talent=script.get("talent", []), actor=actor, job=job.slice(base + per * 0.6, base + per * 0.95) if quality == "cinematic" else None, parent_id=(master or {}).get("id"), lineage_kind="localized", variant={"aspect": spec.aspect, "lang": lang, "cutdown_s": None}, markets=[lz.LANG_MARKET[lang]])
                 spot = await post_render(s, st, camp, spot, actor)
                 art_extra = {"voice_id": voice["id"], "spot_id": spot["id"], "video_asset_id": spot["assets"]["video"], "spot_guardian": spot["guardian"]}
             art = await st.create_artifact(campaign_id, "localization", {"title": t("artifact.title.localization", source_lang, language=label("label.lang", lang, source_lang)), "lang": lang, "source_lang": source_lang, "market": lz.LANG_MARKET[lang], "script_id": script["id"], "lines": rows, "legal": legal, "tagline": tagline, "glossary_issues": issues, "min_similarity": min(r["similarity"] for r in rows), "needs_review": [r["id"] for r in rows if r["status"] != "ok"], **art_extra}, actor=actor, parent_id=script["id"])
@@ -349,7 +353,7 @@ async def generate(request: Request, campaign_id: str, body: LocIn | None = None
         await st.audit(campaign_id, actor, "localization.generated", {"script_id": script["id"]}, {"langs": langs, "source_lang": source_lang})
         return {"localizations": results}
 
-    return await submit_job(request, "localization.generate", run, campaign_id, "job.title.localization", "CS-10", wait, timeout=178, title_params={"langs": ", ".join(code.upper() for code in langs)})
+    return await submit_job(request, "localization.generate", run, campaign_id, "job.title.localization", "CS-10", wait, timeout=178, title_params={"langs": ", ".join(code.upper() for code in langs)}, lane=lane)
 
 
 @router.get("")

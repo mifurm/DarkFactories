@@ -47,7 +47,7 @@ class ShotOutcome:
     shot_id: str
     status: str  # generated | cached | fallback
     plan: ShotPlan
-    reason: str | None = None  # fallback only: timeout | unavailable | failed | oom | bad_request | bad_clip | safety | budget
+    reason: str | None = None  # fallback only, one of models.FALLBACK_REASONS: oom | timeout | safety | budget | worker_unavailable | bad_request | internal | disabled
     detail: str = ""
     asset_id: str | None = None
     clip: bytes | None = None
@@ -56,10 +56,19 @@ class ShotOutcome:
     frames: int = 0
     transport_cached: bool = False  # generate() was answered by an earlier worker result (still no GPU time)
     safety_max: int | None = None
+    model: str = ""  # what actually produced the clip (the worker reports it; a cache hit carries what the asset recorded)
+    revision: str = ""
 
     @property
     def has_clip(self) -> bool:
         return self.status != "fallback"
+
+
+def license_of(model: str, revision: str, default: str = "") -> str:
+    """Licence of the model that made a clip. The worker's fake pipeline (revision ``fake``) is no generative model at all and never claims a licence."""
+    if revision == "fake":
+        return "n/a (fake pipeline, no generative model)"
+    return wire.MODEL_LICENSES.get(model) or default
 
 
 @dataclass
@@ -90,21 +99,24 @@ class MotionOutcome:
 
     def report(self) -> dict[str, Any]:
         """``render.motion`` of the spot artifact. ``shots_generated`` counts every shot that carries AI motion in the final video (fresh or from the cache),
-        ``shots_cached`` those of them that came from the cache, so ``shots_generated + len(shots_fallback) == shots_total``."""
+        ``shots_cached`` those of them that came from the cache, so ``shots_generated + len(shots_fallback) == shots_total``. ``model`` / ``revision`` are what actually
+        made the clips (as reported by the worker), not what was configured."""
         carry = [o for o in self.shots if o.has_clip]
+        used = {(o.model or self.plan.model, o.revision or self.plan.revision) for o in carry}
+        model, revision = next(iter(used)) if len(used) == 1 else (self.plan.model, self.plan.revision)
         gpu = round(sum(o.gpu_seconds for o in self.shots), 2)
         return {
             "mode": self.mode,
-            "model": self.plan.model,
-            "revision": self.plan.revision,
-            "license": self.plan.license,
+            "model": model,
+            "revision": revision,
+            "license": license_of(model, revision, self.plan.license),
             "host": self.host,
             "steps": self.plan.steps,
             "guidance": self.plan.guidance,
             "shots_total": len(self.shots),
             "shots_generated": len(carry),
             "shots_cached": sum(1 for o in carry if o.status == "cached"),
-            "shots_fallback": [{"shot_id": o.shot_id, "reason": o.reason or "failed", "detail": o.detail[:240]} for o in self.shots if not o.has_clip],
+            "shots_fallback": [{"shot_id": o.shot_id, "reason": o.reason or "internal", "detail": o.detail[:240]} for o in self.shots if not o.has_clip],
             "gpu_seconds": gpu,
             "cost_usd": round(sum(o.cost_usd for o in self.shots) + self.cold_start_usd, 6),
             "cold_start_s": self.cold_start_s,
@@ -155,6 +167,11 @@ async def find_cached(st: Any, campaign_id: str, shot: ShotPlan) -> dict[str, An
     return min(ok, key=lambda r: int(r["meta"]["frames"])) if ok else None
 
 
+def client_license(client: Any, default_model: str = "") -> str:
+    """The licence of the model behind a motion client (an ``off`` client has no model of its own: the configured one)."""
+    return client.license or wire.MODEL_LICENSES.get(client.model or default_model, "")
+
+
 async def motion_status(s: Any) -> dict[str, Any]:
     """The ``GET /api/motion/status`` body. Never raises: a storage problem is reported as ``available: false`` with a reason."""
     client, cfg = s.motion, s.settings
@@ -165,7 +182,7 @@ async def motion_status(s: Any) -> dict[str, Any]:
         "mode": client.name,
         "available": client.name != "off" and not st.error,
         "model": model,
-        "license": client.license or wire.MODEL_LICENSES.get(model, ""),
+        "license": client_license(client, cfg.motion_model),
         "worker": {"state": st.state, "age_s": st.age_s, "queue_depth": st.queue_depth},
         "price_per_gpu_second": cfg.motion_price_per_gpu_second,
         "est_cold_start_s": cfg.motion_cold_start_s,
@@ -261,7 +278,12 @@ async def generate_clips(
             except Exception:  # the blob behind the cache entry is gone: generate it again
                 hit, clip = None, b""
             if hit is not None:
-                out.shots.append(ShotOutcome(scene_id=sp.scene_id, shot_id=sp.shot_id, status="cached", plan=sp, asset_id=hit["id"], clip=clip, frames=int(hit["meta"].get("frames", sp.frames))))
+                out.shots.append(
+                    ShotOutcome(
+                        scene_id=sp.scene_id, shot_id=sp.shot_id, status="cached", plan=sp, asset_id=hit["id"], clip=clip, frames=int(hit["meta"].get("frames", sp.frames)),
+                        model=str(hit["meta"].get("model") or plan.model), revision=str(hit["meta"].get("revision") or plan.revision), safety_max=hit["meta"].get("safety_max"),
+                    )
+                )
                 await s.meter.record(kind="motion", model=plan.model, units={"gpu_seconds": 0.0, "frames": sp.frames, "shots": 1, "w": sp.width, "h": sp.height}, cost_usd=0.0, cached=True)
                 await say(frac_done + 0.5 / total, "job.msg.motion.cached", n=n)
                 continue
@@ -287,9 +309,9 @@ async def generate_clips(
         out.shots.append(outcome)
         if outcome.status == "fallback":
             await say(frac_done + 1.0 / total, "job.msg.motion.fallback", n=n)
-            infra_failures = infra_failures + 1 if outcome.reason in {"timeout", "unavailable"} else 0
+            infra_failures = infra_failures + 1 if outcome.reason in {"timeout", "worker_unavailable"} else 0
             if infra_failures >= BREAKER_AFTER:
-                breaker = (outcome.reason or "unavailable", "skipped: the motion worker did not respond to the previous shots")
+                breaker = (outcome.reason or "worker_unavailable", "skipped: the motion worker did not respond to the previous shots")
         else:
             infra_failures = 0
     return out
@@ -320,10 +342,10 @@ async def _one_shot(s: Any, st: Any, cid: str, plan: MotionPlan, sp: ShotPlan, i
             await s.meter.record(kind="motion", model=client.model, units={"gpu_seconds": wasted, "frames": sp.frames, "shots": 0, "failed": True, "w": sp.width, "h": sp.height}, cost_usd=wasted_usd)
         return fallback(exc.reason, exc.message, gpu_seconds=wasted, cost_usd=wasted_usd)
     except AppError as exc:
-        return fallback("failed", exc.message)
+        return fallback("internal", exc.message)
     except Exception as exc:
         log.exception("motion shot %s failed", sp.shot_id)
-        return fallback("failed", f"{type(exc).__name__}: {str(exc)[:160]}")
+        return fallback("internal", f"{type(exc).__name__}: {str(exc)[:160]}")
 
     cost = 0.0 if res.cached else pricing.motion_cost(res.gpu_seconds, cfg.motion_price_per_gpu_second)
     await s.meter.record(
@@ -333,7 +355,8 @@ async def _one_shot(s: Any, st: Any, cid: str, plan: MotionPlan, sp: ShotPlan, i
     try:
         info, frames = await asyncio.to_thread(inspect_clip, res.clip, cfg.work_dir or None)
     except media.MediaError as exc:
-        return fallback("bad_clip", str(exc), **spent)
+        log.warning("motion shot %s: the clip is not a playable video: %s", sp.shot_id, str(exc)[:300])
+        return fallback("internal", "the generated clip could not be read as a video", **spent)  # the worker returned something that is not a playable video (the ffprobe output stays in the log)
     obs = await st.gather_safety(GuardianSubject(), image_bytes={f"{sp.shot_id}:{k}": v for k, v in frames.items()})
     worst = max((int(v.get("max", 0)) for v in obs.images.values()), default=0)
     if worst >= FLAG_FROM:
@@ -347,4 +370,4 @@ async def _one_shot(s: Any, st: Any, cid: str, plan: MotionPlan, sp: ShotPlan, i
         campaign_id=cid, name=f"motion-{sp.shot_id}-{res.width}x{res.height}.mp4", data=res.clip, mime="video/mp4", kind="video", actor=actor, tags=["motion-clip", sp.shot_id], index=False,
         description=f"AI motion clip · {sp.shot_id} · {res.width}x{res.height}, {res.num_frames} frames", meta=meta,
     )
-    return ShotOutcome(scene_id=sp.scene_id, shot_id=sp.shot_id, status="generated", plan=sp, asset_id=asset["id"], clip=res.clip, frames=res.num_frames, safety_max=worst, **spent)
+    return ShotOutcome(scene_id=sp.scene_id, shot_id=sp.shot_id, status="generated", plan=sp, asset_id=asset["id"], clip=res.clip, frames=res.num_frames, safety_max=worst, model=res.model, revision=res.revision, **spent)

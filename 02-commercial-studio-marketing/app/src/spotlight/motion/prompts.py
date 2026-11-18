@@ -53,14 +53,21 @@ def _sentence(text: str) -> str:
 
 
 def opening_text(shot: dict[str, Any]) -> str:
-    """The first instant of the shot (English): ``opening_en``, else the (English) description of older storyboards."""
+    """The first instant of the shot (English): ``opening_en``, else the (English) description of older storyboards.
+
+    A line that was hand-edited in another language (``opening_edited_lang``) reached the image model, but the video model only reads English: it is left out."""
+    if shot.get("opening_edited_lang") not in (None, "en"):
+        return ""
     return str(shot.get("opening_en") or shot.get("description_en") or shot.get("description") or "").strip()
 
 
 def motion_text(shot: dict[str, Any], role: str | None = None) -> str:
-    """What moves during the shot (English): the editable motion prompt, else ``motion_en``, else a role default."""
+    """What moves during the shot (English): the English motion prompt, else ``motion_en``, else a role default.
+
+    ``motion.prompt`` is the text shown to people (the campaign's language); it only stands in for a missing English prompt when nobody edited it, so a hand-edit made in
+    another language never reaches the English-only model."""
     m = shot.get("motion")
-    prompt = (m.get("prompt_en") or m.get("prompt")) if isinstance(m, dict) else None
+    prompt = (m.get("prompt_en") or (None if m.get("edited") else m.get("prompt"))) if isinstance(m, dict) else None
     text = str(prompt or shot.get("motion_en") or "").strip()
     return text[:MAX_MOTION_CHARS] if text else default_motion(role or shot.get("role"))
 

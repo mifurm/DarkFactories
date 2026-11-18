@@ -48,6 +48,8 @@ export const motionMessages: Record<string, string> = {
   "Budget left today": "Pozostały budżet na dziś",
   "Budget left for this campaign": "Pozostały budżet kampanii",
   "The GPU worker is warming up — rendering starts as soon as it is ready.": "Serwer GPU się rozgrzewa — renderowanie ruszy, gdy tylko będzie gotowy.",
+  "Offline simulator: the motion is procedural (no AI model) and the costs shown are simulated at the same list prices.":
+    "Symulator offline: ruch jest generowany proceduralnie (bez modelu AI), a pokazane koszty są symulowane według tych samych cen katalogowych.",
   "The GPU worker is cold: the first shot also waits for the GPU to start (about {minutes} min). Warm it up now to skip that wait.":
     "Serwer GPU jest uśpiony: pierwsze ujęcie czeka dodatkowo na uruchomienie GPU (ok. {minutes}\u00A0min). Rozgrzej go teraz, aby pominąć to oczekiwanie.",
   "Estimate unavailable: {reason}": "Szacunek niedostępny: {reason}",

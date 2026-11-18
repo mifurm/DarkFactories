@@ -50,6 +50,7 @@
       "rights.updated",
       "script.edited",
       "script.generated",
+      "spot.motion_generated",
       "spot.rendered",
       "storyboard.frames_generated",
       "storyboard.shot_edited",
@@ -62,6 +63,7 @@
       "embedding",
       "image",
       "llm",
+      "motion",
       "render",
       "safety",
       "tts"
@@ -240,6 +242,7 @@
       "embedding",
       "image",
       "llm",
+      "motion",
       "render",
       "safety",
       "tts"

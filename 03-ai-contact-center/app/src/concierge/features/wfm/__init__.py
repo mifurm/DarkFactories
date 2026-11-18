@@ -12,9 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from ...core import i18n
 from ...core.rbac import Actor, require
 from ...core.registry import EPIC_D, FeatureInfo
-from ...engine import synth, wfm
+from ...engine import localize, synth, wfm
 from ...engine.history_seed import seed_history
 from ...engine.routing import QUEUES
 
@@ -28,6 +29,21 @@ SEED_ORDER = 61
 
 router = APIRouter(prefix="/api/wfm", tags=["wfm (CC-14)"])
 DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+DOW_PL = ["pon.", "wt.", "śr.", "czw.", "pt.", "sob.", "niedz."]  # CLDR abbreviations
+
+
+def dow_name(index: int) -> str:
+    return (DOW_PL if i18n.current_locale() == "pl" else DOW)[index]
+
+
+def queue_meta(queue: str) -> dict[str, Any]:
+    """Market / time zone of the planned queue (Polish-market queues are in Europe/Warsaw local time; the global queues carry no zone, as before)."""
+    spec = synth.queue_spec(queue)
+    return {"market": spec["market"], "timezone": spec["timezone"]} if "timezone" in spec else {}
+
+
+def queue_label(queue: str) -> str:
+    return i18n.msg(f"wfm.queue.{queue}") if i18n.has(f"wfm.queue.{queue}") else localize.queue_name(queue)
 
 
 async def seed(svc: Any, force: bool) -> dict[str, Any]:
@@ -39,8 +55,8 @@ def _slabel(i: int) -> str:
 
 
 async def _days(svc: Any, queue: str) -> list[dict[str, Any]]:
-    if queue not in synth.WFM_QUEUES:
-        raise HTTPException(404, f"unknown queue '{queue}' (planned queues: {', '.join(synth.WFM_QUEUES)})")
+    if queue not in synth.WFM_QUEUES and queue not in synth.WFM_QUEUES_PL:
+        raise HTTPException(404, f"unknown queue '{queue}' (planned queues: {', '.join([*synth.WFM_QUEUES, *synth.WFM_QUEUES_PL])})")
     rows = await svc.repo.query("wfm_history", {"queue": queue}, order_by="date", limit=400)
     if not rows:
         await seed_history(svc)
@@ -71,7 +87,7 @@ def _sl_seconds(queue: str, body_value: int | None) -> int:
 
 def build_plan(days: list[dict[str, Any]], queue: str, body: PlanBody, *, with_sim: bool = True, offsets: list[int] | None = None) -> dict[str, Any]:
     fc = wfm.forecast_days(days, 7, body.method, tuple(body.promo_offsets))
-    aht = synth.WFM_QUEUES[queue]["aht_s"]
+    aht = synth.queue_spec(queue)["aht_s"]
     t_s = _sl_seconds(queue, body.sl_seconds)
     out = []
     week_hours = 0.0
@@ -81,22 +97,22 @@ def build_plan(days: list[dict[str, Any]], queue: str, body: PlanBody, *, with_s
         plan = wfm.plan_day(d["intervals"], aht, containment=body.containment, sl_target=body.sl_target, t_s=t_s, shrinkage=body.shrinkage, max_occupancy=body.max_occupancy)
         sched = wfm.build_schedule(plan["agents_required"])
         week_hours += sched["paid_hours"]
-        entry = {"offset": d["offset"], "date": _date_of(days, d["offset"]), "dow": DOW[d["dow"]], "forecast_total": d["total"], "promo": d["promo"], "plan": plan, "schedule": sched}
+        entry = {"offset": d["offset"], "date": _date_of(days, d["offset"]), "dow": dow_name(d["dow"]), "forecast_total": d["total"], "promo": d["promo"], "plan": plan, "schedule": sched}
         if with_sim and d["offset"] == body.day_offset:
             seats = [round(c * (1 - body.shrinkage)) for c in sched["coverage"]]
             entry["simulation"] = {**wfm.simulate(plan["human_volume"], seats, plan["aht_human_s"], t_s), "sl_target": body.sl_target, "t_s": t_s}
             entry["simulation"]["meets_target"] = entry["simulation"]["sl_mean"] >= body.sl_target
         out.append(entry)
-    return {"queue": queue, "aht_s": aht, "sl_seconds": t_s, "params": body.model_dump(), "days": out, "week_paid_hours": round(week_hours, 1), "fte_week": round(week_hours / wfm.PAID_H_PER_FTE_WEEK, 1)}
+    return {"queue": queue, "aht_s": aht, "sl_seconds": t_s, "params": body.model_dump(), "days": out, "week_paid_hours": round(week_hours, 1), "fte_week": round(week_hours / wfm.PAID_H_PER_FTE_WEEK, 1), **queue_meta(queue)}
 
 
 @router.get("/queues")
 async def queues(request: Request, _: Actor = Depends(require("wfm.read"))) -> list[dict[str, Any]]:
     svc = request.app.state.services
     out = []
-    for q, spec in synth.WFM_QUEUES.items():
+    for q, spec in [*synth.WFM_QUEUES.items(), *synth.WFM_QUEUES_PL.items()]:
         days = await _days(svc, q)
-        out.append({"queue": q, "name": QUEUES.get(q, {}).get("name", q), "aht_s": spec["aht_s"], "sl_target": 0.8, "sl_seconds": QUEUES.get(q, {}).get("sla_s", 120), "avg_daily": round(sum(d["total"] for d in days) / len(days), 1), "history_days": len(days), "last_date": days[-1]["date"]})
+        out.append({"queue": q, "name": queue_label(q), "aht_s": spec["aht_s"], "sl_target": 0.8, "sl_seconds": QUEUES.get(q, {}).get("sla_s", 120), "avg_daily": round(sum(d["total"] for d in days) / len(days), 1), "history_days": len(days), "last_date": days[-1]["date"], **queue_meta(q)})
     return out
 
 
@@ -110,7 +126,7 @@ async def history(request: Request, queue: str = "delivery", _: Actor = Depends(
         for i, v in enumerate(d["intervals"]):
             heat[d["dow"]][i] += v
     heat = [[round(v / max(cnt[dw], 1), 1) for v in row] for dw, row in enumerate(heat)]
-    return {"queue": queue, "daily": [{"date": d["date"], "dow": DOW[d["dow"]], "total": d["total"], "event": d.get("event")} for d in days], "heatmap": heat, "intervals": [_slabel(i) for i in range(wfm.N_INT)], "synthetic": True}
+    return {"queue": queue, "daily": [{"date": d["date"], "dow": dow_name(d["dow"]), "total": d["total"], "event": d.get("event")} for d in days], "heatmap": heat, "intervals": [_slabel(i) for i in range(wfm.N_INT)], "synthetic": True, **queue_meta(queue)}
 
 
 @router.get("/forecast")
@@ -122,18 +138,18 @@ async def forecast(request: Request, queue: str = "delivery", method: str = Quer
     band = bt["summary"][method]["mape_daily"] * 1.28
     for d in fc["days"]:
         d["date"] = _date_of(days, d["offset"])
-        d["dow_label"] = DOW[d["dow"]]
+        d["dow_label"] = dow_name(d["dow"])
         d["low"], d["high"] = round(d["total"] * (1 - band), 1), round(d["total"] * (1 + band), 1)
-    return {"queue": queue, **fc, "backtest": bt["summary"], "band_pct": round(100 * band, 1), "intervals": [_slabel(i) for i in range(wfm.N_INT)]}
+    return {"queue": queue, **fc, "backtest": bt["summary"], "band_pct": round(100 * band, 1), "intervals": [_slabel(i) for i in range(wfm.N_INT)], **queue_meta(queue)}
 
 
 @router.get("/backtest")
 async def backtest(request: Request, queue: str | None = None, _: Actor = Depends(require("wfm.read"))) -> dict[str, Any]:
     svc = request.app.state.services
     res = {}
-    for q in [queue] if queue else list(synth.WFM_QUEUES):
+    for q in [queue] if queue else list(synth.WFM_QUEUES):  # without `queue`: the five global queues (the Polish-market queues are back-tested on request)
         res[q] = wfm.backtest(await _days(svc, q))
-    return {"queues": res, "method": "rolling origin, 4 folds x 7 days; event days excluded; WAPE on 30-min intervals within 07:00-22:00", "targets": {"mape_daily_max": 0.10, "min_improvement_vs_naive_pct": 15}}
+    return {"queues": res, "method": i18n.msg("wfm.backtest.method"), "targets": {"mape_daily_max": 0.10, "min_improvement_vs_naive_pct": 15}}
 
 
 @router.post("/plan")

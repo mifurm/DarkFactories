@@ -50,3 +50,52 @@ FABRICATED: list[tuple[str, str, bool]] = [
     ("How long is the warranty on a mattress?", "Mattresses carry a 36-month warranty from the delivery date.", False),
     ("What if the installer does not show up?", "You get priority rebooking within 48 hours and a goodwill credit of 30 EUR.", False),
 ]
+
+# ---- Polish set (same labels as above, answered from the Polish articles `<id>-pl`; used by `POST /api/kb/evalset/run?lang=pl`) ----------------------
+IN_SCOPE_PL: list[tuple[str, list[str]]] = [
+    ("Ile mam czasu na zwrot towaru?", ["returns-001-pl"]),
+    ("Moja sofa dotarła uszkodzona, co mogę zrobić?", ["damage-001-pl"]),
+    ("Czy odbiór zwracanej sofy jest bezpłatny?", ["returns-001-pl", "returns-003-pl"]),
+    ("Kiedy dostanę zwrot pieniędzy i jak jest wypłacany?", ["refunds-001-pl"]),
+    ("Jaką rekompensatę mogę dostać za opóźnioną dostawę?", ["refunds-004-pl", "delivery-005-pl"]),
+    ("Czy mogę zmienić termin dostawy?", ["delivery-003-pl"]),
+    ("Co się stanie, jeśli nikogo nie będzie w domu, gdy przyjedzie kurier?", ["delivery-004-pl"]),
+    ("Ile kosztuje montaż pralki?", ["install-001-pl", "install-003-pl"]),
+    ("Co jeśli monter nie przyjedzie na umówiony termin?", ["install-002-pl"]),
+    ("Ile trwa gwarancja na materac?", ["warranty-001-pl"]),
+    ("Jak złożyć reklamację gwarancyjną?", ["warranty-002-pl"]),
+    ("Jakie metody płatności akceptujecie?", ["billing-001-pl"]),
+    ("Czy mogę podać numer karty na czacie?", ["billing-002-pl"]),
+    ("Jak dostać fakturę VAT?", ["billing-003-pl"]),
+    ("Jakie korzyści daje poziom VIP w Klubie Contoso Home?", ["loyalty-001-pl"]),
+    ("Jak mogę usunąć swoje dane osobowe?", ["privacy-001-pl"]),
+    ("Czy nagrywacie rozmowy i czaty?", ["privacy-002-pl"]),
+    ("Pralka pokazuje błąd E18", ["care-003-pl"]),
+    ("Z nowego piekarnika czuć gaz", ["care-006-pl"]),
+    ("Jakie są godziny pracy?", ["service-001-pl"]),
+    ("Którzy przewoźnicy realizują dostawy?", ["delivery-008-pl"]),
+    ("Czy mogę zmienić adres dostawy po wysyłce?", ["delivery-007-pl"]),
+    ("Czym różni się rękojmia od gwarancji?", ["warranty-005-pl"]),
+    ("Jak czyścić sofę tapicerowaną tkaniną?", ["care-001-pl"]),
+    ("Czy zabieracie stary sprzęt przy montażu nowego?", ["service-005-pl"]),
+    ("Gdzie mogę złożyć skargę do UOKiK lub rzecznika konsumentów?", ["service-006-pl"]),
+]
+UNANSWERABLE_PL: list[str] = [
+    "Jaka będzie jutro pogoda w Gdańsku?",
+    "Kto wygrał wczoraj mecz?",
+    "Czy możesz polecić dobrego adwokata od rozwodów?",
+    "Jaka jest stolica Australii?",
+    "Jak ugotować risotto?",
+    "Opowiedz mi dowcip o kotach",
+    "Jaki jest dziś kurs akcji Microsoftu?",
+    "Czy możesz pomóc mi z rozliczeniem PIT?",
+]
+FABRICATED_PL: list[tuple[str, str, bool]] = [
+    ("Ile mam czasu na zwrot towaru?", "Można zwrócić każdy towar w ciągu 90 dni od dostawy, bez podawania przyczyny.", True),
+    ("Ile trwa gwarancja na materac?", "Materace mają dożywotnią gwarancję, która obejmuje także normalne zużycie.", True),
+    ("Kiedy dostanę zwrot pieniędzy?", "Zwrot środków trafia na konto PayPal w ciągu 24 godzin od zgłoszenia.", True),
+    ("Ile kosztuje montaż pralki?", "Montaż pralki jest bezpłatny dla wszystkich klientów.", True),
+    ("Ile mam czasu na zwrot towaru?", "Większość towarów można zwrócić bezpłatnie w ciągu 30 dni od dostawy.", False),
+    ("Ile trwa gwarancja na materac?", "Materace mają 36 miesięcy gwarancji od daty dostawy.", False),
+    ("Co jeśli monter nie przyjedzie?", "Przysługuje Państwu priorytetowe ponowne umówienie terminu w ciągu 48 godzin i bon rekompensacyjny w wysokości 30 EUR.", False),
+]

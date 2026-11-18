@@ -385,7 +385,7 @@ class Shots:
 
 
 # Evidence quoted from REPORT-TEST-AND-DEPLOYMENT.md; the build fails loudly if the report no longer says so. The build id is read from the report, never typed here.
-EVIDENCE_CHECKS = ["212 passed", "27 passed", "85 %", "21 / 21", "42 / 42", "40–42 / 42", "1.6 / 1.9 s", "1.3 / 1.6 s", "0.35 s", "1.13 s", "1.82 s",
+EVIDENCE_CHECKS = ["212 passed", "27 passed", "85 %", "21 / 21", "42 / 42", "40–42 / 42", "1.6 / 1.9 s", "1.3 / 1.6 s", "0.34 s", "1.13 s", "1.82 s",
                    "≈ US$28 / month", "44 attacks", "6.4 s"]
 
 
@@ -665,6 +665,32 @@ def build(scratch: Path) -> CCDeck:
             takeaway=quality_takeaway,
             source=f"Source: PRD §6, §10; QA and quality benefit from outputs.json (base, risk-adjusted: {m(qa_total)} over 3 years). Features CC-10, 12, 14, 16, 17.",
             notes=quality_notes)
+
+    # 10b · the same product in a second language: live screenshots of the Polish UI (deck/assets/screens-pl/, captured on the deployed app)
+    pl_dir = HERE / "assets" / "screens-pl"
+    pl_widget, pl_console, pl_voc = (pl_dir / n_ for n_ in ("01-customer-widget-resolved.png", "02-agent-console-handoff.png", "05-voc-insights.png"))
+    if all(p_.exists() for p_ in (pl_widget, pl_console, pl_voc)):
+        from PIL import Image
+
+        widget_crop = scratch / "pl-widget.png"  # the widget sits in the middle of a 1600x900 capture: keep the chat and the simulated phone, drop the empty margins
+        Image.open(pl_widget).convert("RGB").crop((300, 95, 1300, 735)).save(widget_crop)
+        d.triptych(
+            "Polish is a first-class language: the customer, the agent and the analyst all work in Polish",
+            [
+                {"image": widget_crop, "heading": "Customer widget",
+                 "bullets": ["Formal Polish, AI disclosure first; the refund of 1 599,00 zł is read back and confirmed", "Real tool calls on Azure; caps checked in EUR at a fixed demo rate (1 EUR = 4.30 PLN)"]},
+                {"image": prepare(pl_console, scratch, crop=True), "heading": "Human-agent console",
+                 "bullets": ["Legal threat caught with and without diacritics; warm handoff with a Polish context package", "PESEL, NIP, REGON and bank-account numbers redacted with checksum validation"]},
+                {"image": prepare(pl_voc, scratch, crop=True), "heading": "Voice of customer",
+                 "bullets": ["Topic summaries and the emerging-issue alert in Polish", "Queues in Europe/Warsaw time with Polish public holidays"]},
+            ],
+            takeaway="Evaluated, not just translated: a 31-scenario Polish pack scores 93.5% on the real model with policy and safety at 1.00, and the live smoke test passes 31 of 31 checks.",
+            source=f"{shot_source}, Polish interface; REPORT-TEST-AND-DEPLOYMENT.md §14. Legal wording is demo content, not legal advice.",
+            notes=("Polish is available end to end in the reference implementation, not only as translated labels. The customer chats in formal Polish; the assistant discloses that it is an AI, "
+                   "reads the refund back in zloty and asks for confirmation before it acts. The agent console shows the same warm handoff with a Polish context package, and the voice-of-customer "
+                   "analytics are summarised in Polish. Behind it are fifty Polish knowledge articles, redaction of Polish personal identifiers with checksum validation, and a thirty-one-scenario "
+                   "evaluation pack: ninety-three percent on the real model, with policy and safety at one hundred percent. The euro-based caps use a fixed demo exchange rate, and the legal wording "
+                   "is demo content, not legal advice."))
 
     # 11 · Azure reference architecture
     d.architecture(
@@ -1217,12 +1243,12 @@ def build(scratch: Path) -> CCDeck:
             {"from": "policy", "to": "bo", "label": "connectors"},
             {"from": "ctrl", "to": "web", "label": "WebSocket", "bidir": True, "dashed": True},
         ],
-        takeaway="Measured in the demo, with typed turns from a laptop: first audio 0.35 s in the smoke test, p50 1.1 s and p95 1.8 s over 3 calls. The 800 ms p95 budget is the phone-path target, measured in the pilot.",
+        takeaway="Measured in the demo, with typed turns from a laptop: first audio 0.34 s in the smoke test, p50 1.1 s and p95 1.8 s over 3 calls. The 800 ms p95 budget is the phone-path target, measured in the pilot.",
         source="Source: REPORT-TEST-AND-DEPLOYMENT.md (live latency table); ARCHITECTURE.md §7 design budget in ms, p50/p95: carrier 30/60, network 10/20, end-of-turn 200/300, model 200/300, return 40/80. PSTN is not provisioned.",
         notes=("The voice path in one picture. The caller reaches a SIP trunk or session border controller, which routes the call over TLS to the Azure OpenAI Realtime "
                "endpoint. Azure calls our webhook; the voice control service accepts the call and opens a WebSocket by call ID for tools, transcripts and telemetry. Tool "
                "calls pass through the policy engine, and a SIP REFER hands the caller to a human. The under-800-millisecond budget is a design target for the phone path, "
-               "to be measured in the pilot. The demo uses browser voice, and it measured a first audio of 0.35 seconds in the smoke test and 1.1 seconds at the median "
+               "to be measured in the pilot. The demo uses browser voice, and it measured a first audio of 0.34 seconds in the smoke test and 1.1 seconds at the median "
                "over three calls."))
 
     d.capability_map(
@@ -1256,7 +1282,7 @@ def build(scratch: Path) -> CCDeck:
             ["Live smoke test", "21 of 21 checks pass against the Azure deployment, including voice, handoff and the ROI calculator", "Scripted, against the live URL"],
             ["Evaluation harness", "42 of 42 scenarios on real models (run-to-run 40–42); 44-attack red-team pack; the release gate fails for four deliberately broken configurations", "gpt-5.4-mini; resolution, accuracy, policy, safety"],
             ["Business-case parity", f"In-app calculator reproduces outputs.json within 0.5%: NPV {n.npv}, ROI {n.roi}, Year-3 ACR {n.acr3}", "Smoke check 19"],
-            ["Latency, from a laptop", "Chat turn p50 / p95 1.6 / 1.9 s; first token 1.3 / 1.6 s; voice first audio 0.35 s (smoke), p50 1.1 s, p95 1.8 s", "12 chat turns, 3 voice calls: small samples"],
+            ["Latency, from a laptop", "Chat turn p50 / p95 1.6 / 1.9 s; first token 1.3 / 1.6 s; voice first audio 0.34 s (smoke), p50 1.1 s, p95 1.8 s", "12 chat turns, 3 voice calls: small samples"],
             ["Known gaps", "First-token objective burns on turns with tool calls (p95 6.4 s); voice p95 is above the 800 ms phone-path target; PSTN is simulated", "Observability and FinOps screen"],
             ["Idle cost", "About US$28 a month (one always-on replica ≈ $22, container registry ≈ $5, other < $1); tokens extra, capped by a daily budget guard", "Retail Prices API estimate"],
         ],

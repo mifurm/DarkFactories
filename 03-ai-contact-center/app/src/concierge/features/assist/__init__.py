@@ -11,6 +11,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ...core import i18n
+from ...core.money import format_money, pick
 from ...core.rbac import Actor, require
 from ...core.registry import EPIC_B, FeatureInfo
 from ...engine.guard import EXPLICIT_HUMAN, find_risky_promises, toxicity_rules
@@ -27,21 +29,22 @@ FEATURES = [
 
 router = APIRouter(prefix="/api/assist", tags=["assist (CC-08)"])
 
-NBA = {
-    "damaged_item": [("Confirm the damage and the delivery date", "Damage must be reported within 14 days of delivery.", "damage-001", None), ("Offer replacement or full refund; pickup is free", "Refunds up to EUR 500 can be issued immediately; above that a specialist approves.", "refunds-001", None), ("Book the free pickup slot", "Pickup windows are Mon-Fri 09-13 / 13-17.", "returns-003", "get_available_slots")],
-    "return_request": [("Check the 30-day return window and item eligibility", "Unused items within 30 days of delivery qualify.", "returns-001", "check_return_eligibility"), ("Start the return and book the pickup", "Bulky items are collected free of charge.", "returns-003", "initiate_return")],
-    "refund_status": [("Look up the refund status and release date", "Refunds are paid 5-7 business days after the item is collected.", "refunds-003", "lookup_order")],
-    "order_status": [("Track the shipment and share the new ETA", "Delayed means the carrier expects to miss the planned date.", "delivery-002", "track_shipment")],
-    "delivery_change": [("Offer the next delivery windows (free until 24 h before)", "Rescheduling is free up to 24 hours before the window.", "delivery-003", "get_available_slots")],
-    "warranty_claim": [("Open a warranty claim within 24/36 months", "Decision within 10 working days.", "warranty-002", "warranty_claim")],
-    "complaint": [("Acknowledge the complaint, summarise it back, give a timeline", "A senior colleague responds within 5 working days.", "service-003", "create_ticket")],
-    "address_change": [("Verify at L2 and change the address if not yet dispatched", "Address changes are free until dispatch.", "delivery-007", "update_address")],
+NBA = {  # intent -> [(doc id, tool)]; the title / rationale of entry i come from the catalog keys nba.<intent>.<i>.title / .why (request locale)
+    "damaged_item": [("damage-001", None), ("refunds-001", None), ("returns-003", "get_available_slots")],
+    "return_request": [("returns-001", "check_return_eligibility"), ("returns-003", "initiate_return")],
+    "refund_status": [("refunds-003", "lookup_order")],
+    "order_status": [("delivery-002", "track_shipment")],
+    "delivery_change": [("delivery-003", "get_available_slots")],
+    "warranty_claim": [("warranty-002", "warranty_claim")],
+    "complaint": [("service-003", "create_ticket")],
+    "address_change": [("delivery-007", "update_address")],
 }
 REPLIES = {
     "en": {"empathy": "I'm really sorry about this, {name}. I've read everything you told our assistant, so you won't need to repeat it. {next}", "damaged_item": "Thank you for your patience, {name}. I can arrange a free replacement or a full refund and collect the item at no cost - which would you prefer?", "legal_threat": "I understand how serious this is for you, {name}, and I want to resolve it properly. Let me review the full history of your order and tell you exactly what I can do today.", "generic": "Thanks for your patience, {name}. Let me look into this right away.", "refund_terms": "Once the item is collected, the refund reaches your original payment method within 5-7 business days."},
+    "pl": {"empathy": "Bardzo przykro mi z powodu tej sytuacji. Znam już całą Państwa rozmowę z naszym asystentem, więc nie trzeba niczego powtarzać. {next}", "damaged_item": "Dziękuję za cierpliwość. Mogę zlecić bezpłatną wymianę albo pełny zwrot środków; towar odbierzemy bezpłatnie. Którą opcję mam zrealizować?", "legal_threat": "Rozumiem, jak poważna jest ta sprawa, i chcę ją rzetelnie wyjaśnić. Sprawdzę pełną historię zamówienia i powiem, co mogę zrobić już dziś.", "generic": "Dziękuję za cierpliwość. Już sprawdzam tę sprawę.", "refund_terms": "Po odebraniu towaru zwrot środków trafi na tę samą metodę płatności, której użyto przy zakupie, w ciągu 5–7 dni roboczych."},
     "de": {"empathy": "Das tut mir wirklich leid, {name}. Ich habe alles gelesen, was Sie unserem Assistenten geschildert haben - Sie müssen nichts wiederholen. {next}", "damaged_item": "Danke für Ihre Geduld, {name}. Ich kann einen kostenlosen Ersatz oder die volle Erstattung veranlassen und den Artikel kostenlos abholen lassen - was möchten Sie?", "legal_threat": "Ich verstehe, wie ernst das für Sie ist, {name}, und möchte es ordentlich klären. Ich prüfe jetzt den gesamten Verlauf Ihrer Bestellung und sage Ihnen genau, was ich heute für Sie tun kann.", "generic": "Danke für Ihre Geduld, {name}. Ich prüfe das sofort.", "refund_terms": "Nach der Abholung erhalten Sie die Erstattung innerhalb von 5-7 Werktagen auf die ursprüngliche Zahlungsart."},
 }
-EMPATHY_RX = re.compile(r"\b(sorry|apolog|understand|regret|tut mir leid|entschuldig|verständnis|bedauer)", re.IGNORECASE)
+EMPATHY_RX = re.compile(r"\b(sorry|apolog|understand|regret|tut mir leid|entschuldig|verständnis|bedauer|przepraszam|przykro|rozumiem|ubolewam|współczuj)", re.IGNORECASE)
 
 
 class FeedbackBody(BaseModel):
@@ -68,44 +71,50 @@ class EndBody(BaseModel):
     disposition: str | None = None
 
 
-def tone_coaching(conv: Conversation, draft: str | None = None) -> dict[str, Any]:
+def tone_coaching(conv: Conversation, draft: str | None = None, lang: str | None = None) -> dict[str, Any]:
+    lang = lang or i18n.current_locale()
     last_cust = next((m for m in reversed(conv.messages) if m.role == "customer"), None)
     sentiment = conv.sentiment_trajectory[-1] if conv.sentiment_trajectory else 0.0
     text = draft if draft is not None else next((m.text for m in reversed(conv.messages) if m.role == "agent_human"), "")
     tips: list[str] = []
     if sentiment <= -0.4 and not EMPATHY_RX.search(text):
-        tips.append("The customer is frustrated - lead with an acknowledgement or apology before the solution.")
+        tips.append(i18n.msg("assist.tone.frustrated", lang))
     if text and len(text.split()) < 4:
-        tips.append("Very short reply - add the next step and a timeframe.")
-    if re.search(r"\b(you should have|your fault|as I said|wie gesagt|sie hätten)\b", text, re.IGNORECASE):
-        tips.append("Avoid blame wording; focus on what you can do now.")
+        tips.append(i18n.msg("assist.tone.short", lang))
+    if re.search(r"\b(you should have|your fault|as I said|wie gesagt|sie hätten|to pana wina|to pani wina|jak już mówiłem|jak już mówiłam|powinien pan|powinna pani)\b", text, re.IGNORECASE):
+        tips.append(i18n.msg("assist.tone.blame", lang))
     if text and sum(c.isupper() for c in text) > 0.5 * max(sum(c.isalpha() for c in text), 1) and len(text) > 12:
-        tips.append("Avoid ALL-CAPS - it reads as shouting.")
+        tips.append(i18n.msg("assist.tone.caps", lang))
     if find_risky_promises(text):
-        tips.append("Do not promise outcomes ('guaranteed refund'); say what policy allows.")
+        tips.append(i18n.msg("assist.tone.promise", lang))
     if toxicity_rules(text)["Hate"] >= 2 or toxicity_rules(text)["Violence"] >= 4:
-        tips.append("Message contains abusive language and will be blocked.")
+        tips.append(i18n.msg("assist.tone.abusive", lang))
     return {"customer_sentiment": sentiment, "customer_emotion": conv.understanding.emotion if conv.understanding else "neutral", "tips": tips, "ok": not tips, "last_customer": last_cust.text[:120] if last_cust else None}
 
 
-def reminders(conv: Conversation) -> list[dict[str, Any]]:
+def reminders(conv: Conversation, lang: str | None = None) -> list[dict[str, Any]]:
+    lang = lang or i18n.current_locale()
     human = " ".join(m.text for m in conv.messages if m.role == "agent_human")
     intent = conv.understanding.intent if conv.understanding else "other"
     ok = {s["tool"] for s in conv.steps if s["status"] == "ok"}
+
+    def item(rid: str, required: bool, done: bool, **params: Any) -> dict[str, Any]:
+        return {"id": rid, "label": i18n.msg(f"assist.rem.{rid}", lang), "required": required, "done": done, "detail": i18n.msg(f"assist.rem.{rid}.detail", lang, **params)}
+
     out = [
-        {"id": "ai_disclosure", "label": "AI / recording disclosure was given at the start", "required": True, "done": any("disclosure" in m.flags for m in conv.messages), "detail": "Shown by the assistant at conversation start."},
-        {"id": "recording_consent", "label": "Recording consent captured", "required": True, "done": conv.consent.recording in ("granted", "declined"), "detail": f"status: {conv.consent.recording}"},
-        {"id": "verify_identity", "label": "Customer identity verified before account changes", "required": intent not in ("policy_question", "product_info", "greeting"), "done": conv.identity.verified, "detail": f"level L{conv.identity.level}"},
+        item("ai_disclosure", True, any("disclosure" in m.flags for m in conv.messages)),
+        item("recording_consent", True, conv.consent.recording in ("granted", "declined"), status=conv.consent.recording),
+        item("verify_identity", intent not in ("policy_question", "product_info", "greeting"), conv.identity.verified, level=conv.identity.level),
     ]
     if "issue_refund" in ok or intent in ("damaged_item", "refund_status", "return_request"):
-        out.append({"id": "refund_terms", "label": "State refund terms: 5-7 business days after pickup, original payment method", "required": True, "done": bool(re.search(r"5-7|business days|werktage", human, re.IGNORECASE)), "detail": "Required statement for refunds."})
+        out.append(item("refund_terms", True, bool(re.search(r"5-7|business days|werktage|dni\s+robocz", human, re.IGNORECASE))))
     if "legal_threat" in conv.risk_flags:
-        out.append({"id": "no_liability", "label": "Do not admit liability or promise outcomes", "required": True, "done": not find_risky_promises(human), "detail": "Legal-risk conversation."})
-        out.append({"id": "complaint_logged", "label": "Complaint ticket logged and legal desk notified", "required": True, "done": "create_ticket" in ok, "detail": "Create a ticket with priority 'urgent'."})
+        out.append(item("no_liability", True, not find_risky_promises(human)))
+        out.append(item("complaint_logged", True, "create_ticket" in ok))
     if intent == "privacy_request":
-        out.append({"id": "gdpr_log", "label": "Data-subject request logged (30-day clock)", "required": True, "done": "create_ticket" in ok, "detail": "Privacy policy privacy-001"})
+        out.append(item("gdpr_log", True, "create_ticket" in ok))
     if intent == "address_change":
-        out.append({"id": "address_readback", "label": "Read the new address back to the customer", "required": True, "done": bool(re.search(r"address|adresse", human, re.IGNORECASE)), "detail": "Address changes are a fraud vector."})
+        out.append(item("address_readback", True, bool(re.search(r"address|adresse|adres", human, re.IGNORECASE))))
     return out
 
 
@@ -114,12 +123,13 @@ def autofill(conv: Conversation) -> dict[str, Any]:
     intent = u.intent if u else "other"
     cat = {"damaged_item": "returns", "return_request": "returns", "refund_status": "refund", "order_status": "delivery", "delivery_change": "delivery", "warranty_claim": "warranty", "billing_question": "billing", "complaint": "complaint", "installation_info": "installation"}.get(intent, "other")
     prio = "urgent" if {"legal_threat", "safety_issue", "fraud_suspected"} & set(conv.risk_flags) else "high" if (conv.sentiment_trajectory and conv.sentiment_trajectory[-1] <= -0.5) or "vulnerable_customer" in conv.risk_flags else "normal"
-    amounts = [t.result.get("amount_eur") or t.result.get("refundable_amount_eur") for m in conv.messages for t in m.tools if isinstance(t.result, dict) and (t.result.get("amount_eur") or t.result.get("refundable_amount_eur"))]
+    amounts = [(pick(t.result, "amount") or pick(t.result, "refundable_amount"), t.result.get("currency") or "EUR") for m in conv.messages for t in m.tools if isinstance(t.result, dict) and (pick(t.result, "amount") or pick(t.result, "refundable_amount"))]
     first = next((m.text for m in conv.messages if m.role == "customer"), "")
     return {
         "category": cat, "priority": prio, "order_id": conv.entities.get("order_id"), "customer_id": conv.identity.customer_id, "language": conv.language,
-        "product": conv.entities.get("product"), "carrier": conv.entities.get("carrier"), "amount_eur": amounts[-1] if amounts else conv.entities.get("amount"),
-        "summary": f"{intent.replace('_', ' ')}: {first[:140]}", "resolution_suggested": {"damaged_item": "replacement or refund + free pickup", "warranty_claim": "warranty claim", "complaint": "complaint handling + goodwill within limits"}.get(intent, "per policy"),
+        "product": conv.entities.get("product"), "carrier": conv.entities.get("carrier"), "amount_eur": amounts[-1][0] if amounts and amounts[-1][1] == "EUR" else (None if amounts else conv.entities.get("amount")),
+        "amount": amounts[-1][0] if amounts else conv.entities.get("amount"), "currency": amounts[-1][1] if amounts else conv.entities.get("currency", "EUR"),
+        "summary": f"{i18n.label('intent', intent, i18n.current_locale(), intent.replace('_', ' ')) if i18n.current_locale() != 'en' else intent.replace('_', ' ')}: {first[:140]}", "resolution_suggested": i18n.msg(f"assist.resolution.{intent}" if intent in ("damaged_item", "warranty_claim", "complaint") else "assist.resolution.default"),
         "legal_risk": "legal_threat" in conv.risk_flags,
     }  # fmt: skip
 
@@ -129,26 +139,34 @@ async def build_assist(svc: Any, conv: Conversation, draft: str | None = None) -
     u = conv.understanding
     intent = u.intent if u else "other"
     lang = conv.language if conv.language in REPLIES else "en"
-    name = (conv.customer_label or "").strip() or ("Kunde" if lang == "de" else "there")
+    name = (conv.customer_label or "").strip() or ("Kunde" if lang == "de" else "there")  # (Polish replies address the customer formally and need no name: no vocative guessing)
     pkg = (conv.handoff or {}).get("package") or {}
     kb_cache: dict[str, Any] = {}
 
     async def cite(doc_id: str) -> dict[str, Any] | None:
         if doc_id in kb_cache:
             return kb_cache[doc_id]
-        chunk = next((c for c in svc.kb.chunks if c["doc_id"] == doc_id), None)
-        kb_cache[doc_id] = {"doc_id": doc_id, "title": chunk["title"], "chunk_id": chunk["id"], "snippet": chunk["text"][:220], "version": chunk["version"]} if chunk else None
+        pl_id = f"{doc_id}-pl" if i18n.current_locale() == "pl" else doc_id  # Polish operators get the Polish article when one exists
+        chunk = next((c for c in svc.kb.chunks if c["doc_id"] == pl_id), None) or next((c for c in svc.kb.chunks if c["doc_id"] == doc_id), None)
+        kb_cache[doc_id] = {"doc_id": chunk["doc_id"], "title": chunk["title"], "chunk_id": chunk["id"], "snippet": chunk["text"][:220], "version": chunk["version"]} if chunk else None
         return kb_cache[doc_id]
 
     nbas = []
-    specs = list(NBA.get(intent, [("Clarify the request and confirm what has already been tried", "The package shows the assistant's steps.", "service-001", None)]))
+    ui = i18n.current_locale()  # the operator's language: next-best-actions, reminders and coaching are for the human agent (customer replies below use the conversation language)
+
+    def nba(key: str, i: int, doc: str, tool: str | None) -> tuple[str, str, str, str | None]:
+        return (i18n.msg(f"nba.{key}.{i}.title", ui), i18n.msg(f"nba.{key}.{i}.why", ui), doc, tool)
+
+    base = [nba(intent, i, doc, tool) for i, (doc, tool) in enumerate(NBA.get(intent, []))] or [nba("default", 0, "service-001", None)]
+    specs = list(base)
     if "legal_threat" in conv.risk_flags:
-        specs = [("Acknowledge; do not admit liability; summarise the history back", "Avoid promising outcomes.", "service-003", None), ("Review order timeline and offer the policy remedy + goodwill up to EUR 50", "Goodwill above EUR 50 needs a specialist.", "refunds-004", "goodwill_credit"), ("Create an urgent complaint ticket and notify the legal desk", "Complaints are answered within 5 working days.", "service-003", "create_ticket")] + specs[:1]
+        specs = [nba("legal", 0, "service-003", None), nba("legal", 1, "refunds-004", "goodwill_credit"), nba("legal", 2, "service-003", "create_ticket")] + base[:1]
     if "vulnerable_customer" in conv.risk_flags:
-        specs = [("Slow down, use plain language and offer a callback", "Vulnerable customers are handled by the care team.", "service-002", None)] + specs
+        specs = [nba("vulnerable", 0, "service-002", None)] + specs
     appr = await svc.repo.query("approvals", {"conv_id": conv.id, "status": "pending"})
     for a in appr:
-        specs.insert(0, (f"Review approval {a['id']}: {a['kind']} EUR {a['amount']:.2f}", "Above the autonomous cap - a supervisor approves or declines.", "refunds-001", None))
+        kind = i18n.label("assist.kind", a["kind"], ui, a["kind"])
+        specs.insert(0, (i18n.msg("nba.approval.title", ui, id=a["id"], kind=kind, money=format_money(a["amount"], a.get("currency"), ui)), i18n.msg("nba.approval.why", ui), "refunds-001", None))
     for i, (title, why, doc, tool) in enumerate(specs[:5]):
         nbas.append({"id": f"nba_{i}", "rank": i + 1, "title": title, "rationale": why, "citation": await cite(doc), "tool": tool, "confidence": round(max(0.55, 0.92 - 0.08 * i), 2)})
     reps = REPLIES[lang]
@@ -172,7 +190,7 @@ async def build_assist(svc: Any, conv: Conversation, draft: str | None = None) -
                 suggestions.insert(0, {"id": "rep_llm", "text": str(reply)[:600], "tone": "ai-composed", "citations": [c for c in [await cite("service-003" if "legal_threat" in conv.risk_flags else "damage-001")] if c]})
         except Exception:
             pass
-    agent_lang = "en"
+    agent_lang = ui
     translations: dict[str, Any] = {}
     if conv.language != agent_lang:
         for m in [m for m in conv.messages if m.role == "customer"][-4:]:
@@ -181,8 +199,8 @@ async def build_assist(svc: Any, conv: Conversation, draft: str | None = None) -
             translations[str(m.idx)] = m.translations[agent_lang]
     return {
         "conversation_id": conv.id, "generated_ms": round((time.perf_counter() - t0) * 1000, 1), "intent": intent, "language": conv.language,
-        "next_best_actions": nbas, "suggested_replies": suggestions, "compliance_reminders": reminders(conv), "form_autofill": autofill(conv),
-        "tone": tone_coaching(conv, draft), "translations": translations, "package_summary": pkg.get("summary"),
+        "next_best_actions": nbas, "suggested_replies": suggestions, "compliance_reminders": reminders(conv, ui), "form_autofill": autofill(conv),
+        "tone": tone_coaching(conv, draft, ui), "translations": translations, "package_summary": pkg.get("summary"),
     }  # fmt: skip
 
 

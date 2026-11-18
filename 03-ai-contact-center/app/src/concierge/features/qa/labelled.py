@@ -4,14 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...engine.guard import AI_DISCLOSURE
 from ...engine.models import Conversation, ToolRecord
 from ...engine.understanding import analyze
 
 DISC_EN = "You're chatting with Concierge, Contoso Home's AI assistant. A human colleague is available at any time - just ask. This conversation may be recorded and analysed to improve service."
 DISC_DE = "Sie schreiben mit Concierge, dem KI-Assistenten von Contoso Home. Auf Wunsch verbinde ich Sie jederzeit mit einem Mitarbeiter. Das Gespräch kann zur Qualitätssicherung aufgezeichnet und ausgewertet werden."
+DISC_PL = AI_DISCLOSURE["pl"]
 OK_STEPS = [{"tool": "customer_confirmation", "status": "ok", "summary": "customer confirmed", "ts": 100.0}, {"tool": "issue_refund", "status": "ok", "summary": "Refund EUR 379.00", "ts": 101.0}]
 ORDER_TOOL = ToolRecord(id="t1", name="lookup_order", args={}, status="ok", result={"total_eur": 379.0, "items": [{"unit_price_eur": 379.0}]}, ts=99.0)
 REFUND_TOOL = ToolRecord(id="t2", name="issue_refund", args={}, status="ok", result={"amount_eur": 379.0, "status": "issued"}, idempotency_key="k", actor="ai", ts=101.0)
+
+ORDER_TOOL_PL = ToolRecord(id="t1", name="lookup_order", args={}, status="ok", result={"total": 1599.0, "currency": "PLN", "items": [{"unit_price": 1599.0}]}, ts=99.0)
+REFUND_TOOL_PL = ToolRecord(id="t2", name="issue_refund", args={}, status="ok", result={"amount": 1599.0, "currency": "PLN", "status": "issued"}, idempotency_key="k", actor="ai", ts=101.0)
+OK_STEPS_PL = [{"tool": "customer_confirmation", "status": "ok", "summary": "klient potwierdził", "ts": 100.0}, {"tool": "issue_refund", "status": "ok", "summary": "Zwrot 1 599,00 zł", "ts": 101.0}]
+REF5 = {"greeting": 5, "empathy": 5, "accuracy": 5, "policy": 5, "resolution": 5, "compliance": 5, "clarity": 5}
 
 # (name, messages[(role, text, flags)], steps, tools_on_last_ai, extra, reference dims)
 CASES: list[dict[str, Any]] = [
@@ -30,11 +37,20 @@ CASES: list[dict[str, Any]] = [
     {"name": "ticket_deferral", "msgs": [("agent_ai", DISC_EN, ["disclosure"]), ("customer", "I have a complaint about the service.", []), ("agent_ai", "I'm sorry to hear that. I created a ticket and a colleague will follow up.", [])], "steps": [{"tool": "create_ticket", "status": "ok", "summary": "ticket", "ts": 3.0}], "tools": [], "ref": {"greeting": 5, "empathy": 5, "accuracy": 5, "policy": 5, "resolution": 3, "compliance": 5, "clarity": 5}},
     {"name": "german_good_ai", "msgs": [("agent_ai", DISC_DE, ["disclosure"]), ("customer", "Mein Sofa ist beschädigt angekommen.", []), ("agent_ai", "Das tut mir leid. Sie können einen kostenlosen Ersatz oder die volle Erstattung von 379.00 EUR wählen. Was möchten Sie?", []), ("customer", "Erstattung.", []), ("agent_ai", "Erledigt: Die Erstattung von 379.00 EUR ist veranlasst. Noch etwas?", [])], "steps": OK_STEPS, "tools": [ORDER_TOOL, REFUND_TOOL], "ref": {"greeting": 5, "empathy": 5, "accuracy": 5, "policy": 5, "resolution": 5, "compliance": 5, "clarity": 5}},
     {"name": "shouting_human", "msgs": [("agent_ai", DISC_EN, ["disclosure"]), ("customer", "Where is my refund?", []), ("agent_human", "Hello, this is Max. YOU NEED TO WAIT FOR THE BANK, THIS IS NOT OUR PROBLEM AND I ALREADY TOLD YOU.", []), ("customer", "ok", [])], "steps": [], "tools": [], "ref": {"greeting": 4, "empathy": 4, "accuracy": 5, "policy": 5, "resolution": 1, "compliance": 5, "clarity": 3}},
+    # ---- Polish transcripts (PLN): the same rubric and the same reference judgements as the English set ----
+    {"name": "pl_excellent_ai_resolution", "msgs": [("agent_ai", DISC_PL, ["disclosure"]), ("customer", "Moja sofa dotarła uszkodzona, zamówienie CH-100350.", []), ("agent_ai", "Bardzo mi przykro z powodu uszkodzonej sofy. Zgodnie z zasadami przysługuje bezpłatna wymiana albo pełny zwrot środków w wysokości 1 599,00 zł, a odbiór towaru jest bezpłatny. Którą opcję mam przygotować?", []), ("customer", "Poproszę zwrot.", []), ("agent_ai", "Zlecę zwrot środków w wysokości 1 599,00 zł i zarezerwuję bezpłatny odbiór towaru. Czy mam to zrealizować?", []), ("customer", "Tak.", []), ("agent_ai", "Gotowe — zwrot środków w wysokości 1 599,00 zł został zlecony, a odbiór towaru zarezerwowany. Czy mogę w czymś jeszcze pomóc?", [])], "steps": OK_STEPS_PL, "tools": [ORDER_TOOL_PL, REFUND_TOOL_PL], "ref": REF5},
+    {"name": "pl_no_empathy_ai", "msgs": [("agent_ai", DISC_PL, ["disclosure"]), ("customer", "Moja sofa dotarła uszkodzona i jestem naprawdę zły!", []), ("agent_ai", "Proszę podać numer zamówienia.", []), ("customer", "CH-100350", []), ("agent_ai", "Zwrot 1 599,00 zł został zrealizowany.", [])], "steps": OK_STEPS_PL, "tools": [ORDER_TOOL_PL, REFUND_TOOL_PL], "ref": {"greeting": 5, "empathy": 1, "accuracy": 5, "policy": 5, "resolution": 5, "compliance": 5, "clarity": 4}},
+    {"name": "pl_missing_disclosure", "msgs": [("agent_ai", "Dzień dobry, w czym mogę pomóc?", []), ("customer", "Gdzie jest moje zamówienie CH-100351?", []), ("agent_ai", "Zamówienie jest w drodze i powinno dotrzeć jutro.", [])], "steps": [{"tool": "track_shipment", "status": "ok", "summary": "track", "ts": 1.0}], "tools": [], "ref": {"greeting": 3, "empathy": 4, "accuracy": 5, "policy": 5, "resolution": 5, "compliance": 1, "clarity": 5}},
+    {"name": "pl_risky_promise_delivered", "msgs": [("agent_ai", DISC_PL, ["disclosure"]), ("customer", "Mój stół jest pęknięty.", []), ("agent_ai", "Przykro mi to słyszeć. Gwarantuję pełny zwrot pieniędzy bez względu na wszystko.", []), ("customer", "Świetnie.", [])], "steps": [], "tools": [], "ref": {"greeting": 5, "empathy": 5, "accuracy": 3, "policy": 3, "resolution": 1, "compliance": 1, "clarity": 5}},
+    {"name": "pl_wrong_amount", "msgs": [("agent_ai", DISC_PL, ["disclosure"]), ("customer", "Moja sofa dotarła uszkodzona.", []), ("agent_ai", "Przepraszam za kłopot. Mogę zwrócić 1 799,00 zł za sofę.", [])], "steps": OK_STEPS_PL, "tools": [ORDER_TOOL_PL, REFUND_TOOL_PL], "ref": {"greeting": 5, "empathy": 5, "accuracy": 3, "policy": 5, "resolution": 5, "compliance": 5, "clarity": 5}},
+    {"name": "pl_no_confirmation", "msgs": [("agent_ai", DISC_PL, ["disclosure"]), ("customer", "Proszę o zwrot za sofę, zamówienie CH-100350.", []), ("agent_ai", "Przepraszam za kłopot. Zwrot 1 599,00 zł został już zrealizowany.", [])], "steps": [{"tool": "issue_refund", "status": "ok", "summary": "Zwrot 1 599,00 zł", "ts": 101.0}], "tools": [ORDER_TOOL_PL, REFUND_TOOL_PL], "ref": {"greeting": 5, "empathy": 5, "accuracy": 5, "policy": 2, "resolution": 5, "compliance": 5, "clarity": 5}},
+    {"name": "pl_good_human", "msgs": [("agent_ai", DISC_PL, ["disclosure"]), ("customer", "Monter nie dotarł dwa razy, to jest niedopuszczalne.", []), ("agent_ai", "Bardzo przepraszam za tę sytuację. Łączę z konsultantką, która widzi całą rozmowę.", ["handoff_notice"]), ("agent_human", "Dzień dobry, nazywam się Hanna i chętnie pomogę. Bardzo przepraszam, że monter nie dotarł dwa razy — rozumiem, że to bardzo frustrujące. Umówię nowy termin z priorytetem w ciągu 48 godzin i dodam bon rekompensacyjny. Czy tak będzie dobrze?", []), ("customer", "Tak, dziękuję.", [])], "steps": [{"tool": "goodwill_credit", "status": "ok", "summary": "credit", "ts": 5.0}], "tools": [], "ref": {"greeting": 5, "empathy": 5, "accuracy": 5, "policy": 5, "resolution": 5, "compliance": 5, "clarity": 4}},
+    {"name": "pl_shouting_human", "msgs": [("agent_ai", DISC_PL, ["disclosure"]), ("customer", "Gdzie jest mój zwrot?", []), ("agent_human", "Dzień dobry, mówi Max. MUSI PAN CZEKAĆ NA BANK, TO NIE JEST NASZ PROBLEM, JUŻ PANU TO MÓWIŁEM.", []), ("customer", "dobrze", [])], "steps": [], "tools": [], "ref": {"greeting": 4, "empathy": 4, "accuracy": 5, "policy": 5, "resolution": 1, "compliance": 5, "clarity": 3}},
 ]
 
 
 def build_case(case: dict[str, Any]) -> Conversation:
-    conv = Conversation(id=f"lab-{case['name']}", language="de" if "german" in case["name"] else "en")
+    conv = Conversation(id=f"lab-{case['name']}", language="de" if "german" in case["name"] else "pl" if case["name"].startswith("pl_") else "en")
     t = 10.0
     for role, text, flags in case["msgs"]:
         m = conv.add(role, text, flags=list(flags), ts=t)

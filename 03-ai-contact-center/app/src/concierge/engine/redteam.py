@@ -128,15 +128,22 @@ def guard_check(attack: dict[str, Any]) -> dict[str, Any]:
     return {"id": attack["id"], "category": attack["category"], "target": attack["target"], "detected": detected, "neutralised": neutral, "passed": detected and neutral}
 
 
-def run_guard_pack() -> dict[str, Any]:
-    results = [guard_check(a) for a in ATTACKS]
-    benign_flagged = [b for b in BENIGN if detect_injection(b) or find_risky_promises(b) or toxicity_rules(b)["Violence"] >= 4]
+def run_guard_pack(pack: str = "en") -> dict[str, Any]:
+    """Guard-level run of the English (`en`, default) or the Polish (`pl`) pack."""
+    if pack == "pl":
+        from .redteam_pl import ATTACKS_PL, BENIGN_PL
+
+        attacks, benign = ATTACKS_PL, BENIGN_PL
+    else:
+        attacks, benign = ATTACKS, BENIGN
+    results = [guard_check(a) for a in attacks]
+    benign_flagged = [b for b in benign if detect_injection(b) or find_risky_promises(b) or toxicity_rules(b)["Violence"] >= 4]
     by_cat: dict[str, list[bool]] = {}
     for r in results:
         by_cat.setdefault(r["category"], []).append(r["passed"])
     return {
-        "total": len(results), "passed": sum(r["passed"] for r in results), "must_pass_rate": round(sum(r["passed"] for r in results) / len(results), 3),
+        "pack": pack, "total": len(results), "passed": sum(r["passed"] for r in results), "must_pass_rate": round(sum(r["passed"] for r in results) / len(results), 3),
         "by_category": {k: {"passed": sum(v), "total": len(v)} for k, v in by_cat.items()}, "failures": [r for r in results if not r["passed"]],
-        "benign_total": len(BENIGN), "benign_false_positives": len(benign_flagged), "false_positive_rate": round(len(benign_flagged) / len(BENIGN), 3), "false_positive_examples": benign_flagged[:5],
+        "benign_total": len(benign), "benign_false_positives": len(benign_flagged), "false_positive_rate": round(len(benign_flagged) / len(benign), 3), "false_positive_examples": benign_flagged[:5],
         "results": results,
     }  # fmt: skip

@@ -11,10 +11,20 @@ number, carrier or ACS resource is provisioned in this demo - production paths a
 from __future__ import annotations
 
 import base64
+import re
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
+
+_INTL_NUMBER = re.compile(r"(?:\+|00)(\d{6,15})")
+
+
+def caller_language(caller: str | None) -> str:
+    """Conversation language of an inbound call from its calling number: `pl` for Polish numbers (+48 / 0048, in any of the formats the providers send:
+    `+48 22 555 01 90`, `<sip:+48225550190@carrier>`, ACS `4:+48225550190`, `tel:+48...`), `en` otherwise (the historic default)."""
+    m = _INTL_NUMBER.search(re.sub(r"[ ()\-.]", "", caller or ""))
+    return "pl" if m and m.group(1).startswith("48") else "en"
 
 ACS_EVENT_TYPES = {
     "Microsoft.Communication.IncomingCall": "incoming_call",
@@ -116,7 +126,13 @@ class CallMachine:
         elif ev.kind == "call_connected":
             self.state = State.CONNECTED
             acts.append(Action("bind_voice_session", {"channel": "voice", "caller": self.caller}))
-            acts.append(Action("play", {"text_key": "disclosure_and_consent", "prompt": "AI disclosure + recording consent: press 1 to accept, 2 to decline"}))
+            polish_caller = caller_language(self.caller) == "pl"  # a Polish number gets the disclosure + consent prompt in Polish
+            prompt = (
+                "Dzień dobry! Jestem Concierge, asystent AI Contoso Home. Rozmowa może być nagrywana w celu poprawy jakości obsługi. Dane przetwarzamy zgodnie z RODO. Aby zgodzić się na nagrywanie, proszę nacisnąć 1; aby odmówić, proszę nacisnąć 2."
+                if polish_caller
+                else "AI disclosure + recording consent: press 1 to accept, 2 to decline"
+            )
+            acts.append(Action("play", {"text_key": "disclosure_and_consent", "prompt": prompt, **({"language": "pl"} if polish_caller else {})}))
         elif ev.kind == "media_streaming_started":
             acts.append(Action("attach_media_stream", {"url": self.media_url}))
         elif ev.kind == "play_completed" and self.state == State.CONNECTED:

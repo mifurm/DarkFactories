@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from . import qa as qa_engine
+from . import synth_pl
 from .backoffice import CARRIERS, MARKETS
 
 SEED = 20260901
@@ -265,6 +266,7 @@ def generate_history(anchor_ts: float, *, days: int = DAYS, seed: int = SEED, sp
             dims, overall, band_, auto_fail = _qa(rng, not contained, agent_id, topic, resolved, sent0)
             product = rng.choice(PRODUCTS_BULKY if topic in ("damaged_on_delivery", "installation_issue") else PRODUCTS)
             template = rng.choice(SUMMARY_TEMPLATES[topic]) if rng.random() > 0.06 else GENERIC_SUMMARY
+            template_index = SUMMARY_TEMPLATES[topic].index(template) if template in SUMMARY_TEMPLATES[topic] else None
             summary = f"{REASON[topic]}. " + template.format(product=product, carrier=carrier or "the carrier")
             ai_cost = 0.0
             if contained or escalated:
@@ -279,6 +281,7 @@ def generate_history(anchor_ts: float, *, days: int = DAYS, seed: int = SEED, sp
                 "disposition": "abandoned" if abandoned else ("resolved_ai" if contained and resolved else "resolved_agent" if resolved else "escalated" if escalated else "unresolved"),
                 "summary": summary, "text": _text(rng, topic, lang, summary), "ai_cost_usd": round(ai_cost, 5),
             }  # fmt: skip
+            rec.update(synth_pl.record_fields(topic, product, carrier, template_index, n, market))  # Polish fields: no random draw, no other field changes
             out.append(rec)
             if not resolved and rng.random() < 0.7:
                 followups.append((day + timedelta(days=rng.randint(1, 5)), customer, topic))
@@ -296,9 +299,37 @@ WFM_QUEUES: dict[str, dict[str, Any]] = {
 }
 INTERVALS_PER_DAY = 48
 
+# Polish-market queues: a separate generator and random stream, so the five global queues (and every number planned from them) stay exactly as before.
+# The 30-minute intervals of these queues are in Europe/Warsaw local time; Polish public holidays carry `event: "holiday"` (excluded from back-tests).
+WFM_QUEUES_PL: dict[str, dict[str, Any]] = {
+    "general-pl": {"daily": 42, "aht_s": 410, "peaks": [(10.0, 2.0, 0.45), (14.0, 2.0, 0.30), (19.0, 1.8, 0.25)], "market": "PL", "timezone": "Europe/Warsaw"},
+    "delivery-pl": {"daily": 58, "aht_s": 480, "peaks": [(8.5, 1.8, 0.40), (12.0, 2.2, 0.35), (18.0, 2.0, 0.25)], "market": "PL", "timezone": "Europe/Warsaw"},
+}
+
+
+def queue_spec(queue: str) -> dict[str, Any]:
+    return WFM_QUEUES.get(queue) or WFM_QUEUES_PL[queue]
+
+
+def pl_holidays(year: int) -> set[str]:
+    """Polish public holidays (fixed dates plus Easter Monday, Pentecost Sunday and Corpus Christi) as ISO dates."""
+    a, b, c = year % 19, year // 100, year % 100  # Easter Sunday: Meeus / Jones / Butcher algorithm
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    el = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * el) // 451
+    month, day = divmod(h + el - 7 * m + 114, 31)
+    easter = datetime(year, month, day + 1, tzinfo=UTC)
+    fixed = [(1, 1), (1, 6), (5, 1), (5, 3), (8, 15), (11, 1), (11, 11), (12, 25), (12, 26)]
+    days = {datetime(year, mo, dd, tzinfo=UTC) for mo, dd in fixed} | {easter, easter + timedelta(days=1), easter + timedelta(days=49), easter + timedelta(days=60)}
+    return {f"{d:%Y-%m-%d}" for d in days}
+
 
 def intraday_profile(queue: str) -> list[float]:
-    peaks = WFM_QUEUES[queue]["peaks"]
+    peaks = queue_spec(queue)["peaks"]
     raw = []
     for i in range(INTERVALS_PER_DAY):
         h = i / 2 + 0.25
@@ -321,6 +352,30 @@ def generate_wfm_history(anchor_ts: float, *, days: int = DAYS, seed: int = SEED
             level = spec["daily"] * factor * rng.lognormvariate(0, 0.04)
             intervals = [_poisson(rng, level * p) for p in profile]
             docs.append({"id": f"{queue}:{day:%Y-%m-%d}", "queue": queue, "date": f"{day:%Y-%m-%d}", "dow": day.weekday(), "intervals": intervals, "total": sum(intervals), "aht_s": spec["aht_s"], "interval_minutes": 30, "event": "promo" if d in (days - 31, days - 30) else None})
+    return docs
+
+
+def generate_wfm_history_pl(anchor_ts: float, *, days: int = DAYS, seed: int = SEED, spike: bool = True) -> list[dict[str, Any]]:
+    """Interval history of the Polish-market queues (local time, Europe/Warsaw); deterministic, own random stream."""
+    rng = random.Random(seed + 11)
+    anchor = datetime.fromtimestamp(anchor_ts, UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    holidays = pl_holidays(anchor.year) | pl_holidays(anchor.year - 1)
+    docs: list[dict[str, Any]] = []
+    for queue, spec in WFM_QUEUES_PL.items():
+        profile = intraday_profile(queue)
+        for d in range(days):
+            day = anchor - timedelta(days=days - d)
+            date = f"{day:%Y-%m-%d}"
+            holiday = date in holidays
+            factor = DOW_FACTOR[day.weekday()] * (1 + 0.0012 * d) * (1.35 if d in (days - 31, days - 30) else 1.0) * (0.25 if holiday else 1.0)
+            if spike and queue == "delivery-pl" and d >= days - SPIKE_DAYS:
+                factor *= 1.08
+            level = spec["daily"] * factor * rng.lognormvariate(0, 0.04)
+            intervals = [_poisson(rng, level * p) for p in profile]
+            docs.append({
+                "id": f"{queue}:{date}", "queue": queue, "date": date, "dow": day.weekday(), "intervals": intervals, "total": sum(intervals), "aht_s": spec["aht_s"], "interval_minutes": 30,
+                "event": "holiday" if holiday else ("promo" if d in (days - 31, days - 30) else None), "market": "PL", "timezone": "Europe/Warsaw",
+            })  # fmt: skip
     return docs
 
 

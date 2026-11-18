@@ -1,0 +1,31 @@
+{
+  "_comment": "Shared by the vitest dictionary lint (src/i18n/i18n.test.ts) and the Playwright English-leftover scan (app/tests/e2e/i18n_helpers.py). Only words that are NOT also Polish words belong in functionWords/uiWords (so no a/as/by/do/no/on/to/it/in/per/we/was/but/role/status/start/reset/agent/test ...). Matching is on lower-cased whole tokens.",
+  "functionWords": [
+    "the", "and", "with", "for", "not", "from", "your", "this", "that", "are", "were", "will", "can", "you", "has", "have", "been",
+    "into", "any", "all", "its", "than", "then", "when", "where", "which", "while", "who", "how", "why", "what", "our", "more", "only",
+    "also", "each", "other", "these", "those", "their", "there", "here", "after", "before", "over", "under", "between", "without", "within",
+    "about", "above", "below", "until", "once", "both", "such", "does", "did", "may", "must", "should", "would", "could", "use", "used",
+    "using", "of", "is", "or", "an", "be", "if", "up", "out"
+  ],
+  "uiWords": [
+    "save", "cancel", "delete", "loading", "search", "filter", "refresh", "send", "submit", "close", "open", "edit", "create", "next", "previous",
+    "back", "error", "warning", "success", "failed", "passed", "pending", "active", "average", "name", "time", "date", "details", "summary",
+    "score", "cost", "price", "amount", "currency", "language", "category", "priority", "severity", "message", "messages", "conversation",
+    "conversations", "transcript", "knowledge", "policy", "overview", "help", "login", "logout", "customer", "customers", "queue", "settings",
+    "title", "description", "actions", "results", "result", "show", "hide", "select", "choose", "upload", "download", "update", "apply",
+    "confirm", "decline", "approve", "reject", "approved", "rejected", "declined", "resolved", "closed", "waiting", "running", "stopped",
+    "enabled", "disabled", "yes", "none", "unknown", "never", "always", "today", "yesterday", "tomorrow", "week", "month", "year", "day",
+    "days", "hours", "minutes", "seconds", "reply", "notes", "note", "source", "sources", "users", "user"
+  ],
+  "allowPhrases": [
+    "Azure OpenAI", "Azure AI Search", "Azure AI Foundry", "Azure AI Language", "Azure AI Speech", "Azure Language", "Azure Speech",
+    "Azure Communication Services", "Azure Container Apps", "Azure Cosmos DB", "Azure Key Vault", "Azure Monitor", "Application Insights",
+    "Azure Content Safety", "Content Safety", "Prompt Shields", "Contoso Home Retail", "Contoso Home", "Microsoft Entra ID", "Log Analytics",
+    "Event Grid", "Service Bus", "Teams Phone", "Customer 360", "Agent Assist", "Language Studio", "AI Language", "AI Search", "Speech, Language", "Retry-After"
+  ],
+  "allowWords": [
+    "Azure", "OpenAI", "Concierge", "Contoso", "SwarmAI", "Cosmos", "Realtime", "SIP", "Teams", "Mastercard", "Visa", "DPD", "Nordby", "Entra",
+    "Bicep", "Foundry", "Twilio", "Redis", "FastAPI", "React", "Vite", "Recharts", "Tailwind", "GitHub", "Copilot", "Playwright", "Python",
+    "TypeScript", "Luhn", "Kappa", "Cohen", "BM25"
+  ]
+}

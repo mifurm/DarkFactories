@@ -12,17 +12,20 @@ from pathlib import Path
 
 import httpx
 import pytest
+from e2e_env import ai
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 
 APP = Path(__file__).resolve().parents[2]
 DIST = APP / "web" / "dist"
 PORT = int(os.environ.get("E2E_PORT", "8103"))
 SHOTS = os.environ.get("E2E_SHOTS_DIR")
+# Polish journeys save their 1600x900 screenshots next to (never into) the English ones; E2E_PL_SHOTS_DIR overrides, E2E_NO_PL_SHOTS=1 disables
+PL_SHOTS = Path(os.environ.get("E2E_PL_SHOTS_DIR") or APP.parent / "deck" / "assets" / "screens-pl")
 
 
 def _up(url: str) -> bool:
     try:
-        return httpx.get(f"{url}/healthz", timeout=2).status_code == 200
+        return httpx.get(f"{url}/healthz", timeout=5).status_code == 200
     except Exception:
         return False
 
@@ -35,9 +38,14 @@ def _port_open(port: int) -> bool:
 
 @pytest.fixture(scope="session")
 def base_url() -> Iterator[str]:
-    explicit = os.environ.get("E2E_BASE_URL")
+    explicit = os.environ.get("E2E_BASE_URL") or os.environ.get("BASE_URL")  # e.g. the live Azure URL: the same journeys run unchanged
     if explicit:
-        assert _up(explicit.rstrip("/")), f"{explicit} is not healthy"
+        for _ in range(15):  # a deployed app may be scaling up
+            if _up(explicit.rstrip("/")):
+                break
+            time.sleep(2)
+        else:
+            raise AssertionError(f"{explicit} is not healthy")
         yield explicit.rstrip("/")
         return
     url = f"http://127.0.0.1:{PORT}"
@@ -109,6 +117,34 @@ def shot(page: Page):
 
 
 @pytest.fixture
+def pl_context(browser: Browser) -> Iterator[BrowserContext]:
+    """A Polish visitor: pl-PL browser locale and the Europe/Warsaw time zone (the app still honours ?lang= first)."""
+    ctx = browser.new_context(viewport={"width": 1600, "height": 900}, locale="pl-PL", timezone_id="Europe/Warsaw")
+    yield ctx
+    ctx.close()
+
+
+@pytest.fixture
+def pl_page(pl_context: BrowserContext) -> Iterator[Page]:
+    p = pl_context.new_page()
+    errors: list[str] = []
+    p.on("pageerror", lambda e: errors.append(f"pageerror: {e} {(getattr(e, 'stack', '') or '')[:600]}"))
+    p.on("console", lambda m: errors.append(f"console.error: {m.text}") if m.type == "error" and "favicon" not in m.text else None)
+    yield p
+    assert not errors, errors
+
+
+@pytest.fixture
+def pl_shot(pl_page: Page):
+    def take(name: str) -> None:
+        if not os.environ.get("E2E_NO_PL_SHOTS"):
+            PL_SHOTS.mkdir(parents=True, exist_ok=True)
+            pl_page.screenshot(path=str(PL_SHOTS / f"{name}.png"))
+
+    return take
+
+
+@pytest.fixture
 def api(base_url: str) -> Iterator[httpx.Client]:
-    with httpx.Client(base_url=base_url, timeout=60, headers={"X-Demo-Role": "admin"}) as c:
+    with httpx.Client(base_url=base_url, timeout=ai(60_000) / 1000, headers={"X-Demo-Role": "admin"}) as c:  # a chat turn behind the API may take a real model's time
         yield c

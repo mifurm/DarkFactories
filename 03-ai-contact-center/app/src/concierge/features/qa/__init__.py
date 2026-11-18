@@ -39,7 +39,7 @@ async def reviews(request: Request, limit: int = 60, band: str | None = None, pa
     rows = await svc.repo.query("qa_reviews", {"band": band} if band else None, order_by="scored_at", desc=True, limit=max(1, min(limit, 300)))
     if participant:
         rows = [r for r in rows if participant in r.get("participants", [])]
-    return [_strip({k: r[k] for k in ("id", "conversation_id", "channel", "language", "scored_at", "scorer", "dimensions", "overall", "band", "auto_fail", "disposition", "participants", "calibration")}) for r in rows]
+    return [_strip({k: r[k] for k in ("id", "conversation_id", "channel", "language", "scored_at", "scorer", "dimensions", "overall", "band", "auto_fail", "disposition", "participants", "calibration")}) for r in map(qa_engine.localize_review, rows)]
 
 
 @router.get("/reviews/{conv_id}")
@@ -51,7 +51,7 @@ async def review(conv_id: str, request: Request, actor: Actor = Depends(require(
     conv = await svc.store.get(conv_id)
     await svc.access_audit.log("qa.review_viewed", actor=f"{actor.role}:{actor.user}", resource=conv_id, conv_id=conv_id)
     transcript = [{"idx": m.idx, "role": m.role, "text": m.text, "flags": m.flags} for m in conv.messages if m.visible_to_customer] if conv else []
-    return {**_strip(rec), "transcript": transcript}
+    return {**_strip(qa_engine.localize_review(rec)), "transcript": transcript}
 
 
 @router.post("/score/{conv_id}")
@@ -60,7 +60,7 @@ async def rescore(conv_id: str, request: Request, _: Actor = Depends(require("qa
     conv = await svc.store.get(conv_id)
     if conv is None:
         raise HTTPException(404, "conversation not found")
-    return _strip(await qa_engine.score_conversation(svc, conv))
+    return _strip(qa_engine.localize_review(await qa_engine.score_conversation(svc, conv)))
 
 
 @router.post("/reviews/{conv_id}/calibrate")
@@ -71,7 +71,7 @@ async def calibrate(conv_id: str, body: CalibrateBody, request: Request, actor: 
         rec = await qa_engine.calibrate(request.app.state.services, conv_id, body.scores, actor.user, body.note)
     except KeyError:
         raise HTTPException(404, "review not found") from None
-    return _strip(rec)
+    return _strip(qa_engine.localize_review(rec))
 
 
 @router.get("/agreement")

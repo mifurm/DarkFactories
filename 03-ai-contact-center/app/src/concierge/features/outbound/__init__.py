@@ -12,9 +12,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ...core import i18n
 from ...core.rbac import Actor, require
 from ...core.registry import EPIC_D, FeatureInfo
 from ...engine import outbound as ob
+from ...engine import plan_text
+from ...engine.backoffice import PL_PERSONA_IDS
 
 FEATURES = [
     FeatureInfo(
@@ -40,11 +43,15 @@ async def seed(svc: Any, force: bool) -> dict[str, Any]:
     n = 0
     custs = await svc.repo.query("bo_customers")
     anchor = time.time() - 120 * 86400
-    for i, c in enumerate(sorted(custs, key=lambda x: x["id"])):
+    for i, c in enumerate(sorted((x for x in custs if x["id"] not in PL_PERSONA_IDS), key=lambda x: x["id"])):  # the Polish personas must not shift the index-based demo opt-outs
         mc = {**(c.get("marketing_consent") or {}), **DEMO_OVERRIDES.get(c["id"], {})}
         consents = {ch: {"granted": bool(mc.get(ch, False)), "ts": anchor if mc.get(ch) else None, "source": "preference-centre (checkout)", "text_version": ob.CONSENT_TEXT_VERSION} for ch in ob.CHANNEL_ORDER}
         opt_out = {"all": True, "ts": anchor + 30 * 86400, "reason": "customer request (STOP)", "channels": ob.CHANNEL_ORDER} if (c["id"] in DEMO_OPT_OUT or (i % 11 == 5 and c["id"] not in DEMO_OVERRIDES)) else {"all": False, "channels": []}
         await svc.repo.put("contact_prefs", {"id": c["id"], "customer_id": c["id"], "market": c["market"], "timezone": ob.TZ.get(c["market"]), "consents": consents, "opt_out": opt_out, "updated_at": time.time()})
+        n += 1
+    for c in sorted((x for x in custs if x["id"] in PL_PERSONA_IDS), key=lambda x: x["id"]):  # Polish personas: SMS + e-mail consent, never opted out
+        consents = {ch: {"granted": ch in ("sms", "email"), "ts": anchor if ch in ("sms", "email") else None, "source": "preference-centre (checkout)", "text_version": ob.CONSENT_TEXT_VERSION} for ch in ob.CHANNEL_ORDER}
+        await svc.repo.put("contact_prefs", {"id": c["id"], "customer_id": c["id"], "market": c["market"], "timezone": ob.TZ.get(c["market"]), "consents": consents, "opt_out": {"all": False, "channels": []}, "updated_at": time.time()})
         n += 1
     for camp in ob.DEFAULT_CAMPAIGNS:
         if force or await svc.repo.get("campaigns", camp["id"]) is None:
@@ -71,7 +78,7 @@ async def _compose(svc: Any, trigger: str, cust: dict[str, Any], lang: str, slot
         res = await svc.llm.chat(
             [
                 {"role": "system", "content": f"You write a proactive customer notification for Contoso Home Retail in language code '{lang}'. Max 330 characters, friendly, plain text. Required: greet by first name, state the facts given, offer to reply to reschedule/ask a question/request a callback, say it is an automated message from Concierge, the AI assistant, and end with the opt-out instruction (reply STOP). Never promise compensation, refunds or exact times beyond the facts."},
-                {"role": "user", "content": f"Event: {trigger}. First name: {cust['first_name']}. Facts: {slots}."},
+                {"role": "user", "content": f"Event: {trigger}. First name: {cust['first_name']}. Facts: {ob.localize_slots(lang, slots)}."},
             ],
             role="nano", max_tokens=260, reasoning_effort=None, feature="outbound",
         )  # fmt: skip
@@ -174,7 +181,7 @@ async def run_event(svc: Any, body: EventBody, actor: str) -> dict[str, Any]:
         results.append(doc)
     counts = {k: sum(1 for r in results if r["decision"] == k) for k in ("sent", "deferred", "suppressed")}
     await svc.audit.log("outbound.event", actor=actor, resource=camp["id"], detail={"trigger": body.trigger, "candidates": len(cands), **counts, "carrier": body.carrier, "as_of": now_ts})
-    return {"campaign": camp["id"], "trigger": body.trigger, "candidates": len(cands), "counts": counts, "decisions": [_strip(r) for r in results]}
+    return {"campaign": camp["id"], "trigger": body.trigger, "candidates": len(cands), "counts": counts, "decisions": [_strip(ob.localize_decision(r)) for r in results]}
 
 
 async def release_due(svc: Any, now_ts: float | None = None) -> dict[str, Any]:
@@ -218,11 +225,19 @@ async def startup(svc: Any) -> None:
         svc.spawn(loop())
 
 
+def _campaign(c: dict[str, Any]) -> dict[str, Any]:
+    """Campaign document without storage fields; the display name of the built-in campaigns follows the request locale."""
+    out = _strip(c)
+    if i18n.has(f"ob.campaign.{c.get('id')}") and i18n.current_locale() != "en":
+        out["name"] = i18n.msg(f"ob.campaign.{c['id']}")
+    return out
+
+
 @router.get("/overview")
 async def overview(request: Request, _: Actor = Depends(require("outbound.read"))) -> dict[str, Any]:
     svc = request.app.state.services
-    camps = [_strip(c) for c in await svc.repo.query("campaigns", {"type": "campaign"})]
-    out = await _outreach(svc)
+    camps = [_campaign(c) for c in await svc.repo.query("campaigns", {"type": "campaign"})]
+    out = [ob.localize_decision(r) for r in await _outreach(svc)]  # the reason text of every decision is rendered in the request locale
     counts = {k: sum(1 for r in out if r["decision"] == k) for k in ("sent", "deferred", "suppressed")}
     prefs = await svc.repo.query("contact_prefs")
     cb = await svc.repo.query("callbacks", limit=100)
@@ -274,7 +289,7 @@ async def update_campaign(campaign_id: str, body: CampaignBody, request: Request
     c["updated_at"] = time.time()
     await svc.repo.put("campaigns", c)
     await svc.audit.log("outbound.campaign_updated", actor=f"{actor.role}:{actor.user}", resource=campaign_id, detail=body.model_dump(exclude_none=True))
-    return _strip(c)
+    return _campaign(c)
 
 
 class KillBody(BaseModel):
@@ -342,7 +357,7 @@ async def request_callback(body: CallbackBody, request: Request) -> dict[str, An
         raise HTTPException(404, "conversation not found")
     cb = {"id": f"cb_{uuid.uuid4().hex[:8]}", "conversation_id": conv.id, "customer_id": conv.identity.customer_id, "window": body.window, "reason": body.reason, "queue": conv.queue or "general", "status": "scheduled", "created_at": time.time(), "source": "customer", "language": conv.language, "simulated": True}
     await svc.repo.put("callbacks", cb)
-    conv.add("system_notice", f"Callback scheduled: {body.window}.", lang=conv.language, flags=["callback"])
+    conv.add("system_notice", plan_text.callback_short(conv.language, body.window), lang=conv.language, flags=["callback"])
     await svc.store.save(conv)
     await svc.audit.log("outbound.callback_scheduled", actor="customer", resource=conv.id, conv_id=conv.id, detail={"window": body.window})
     return _strip(cb)
@@ -351,6 +366,36 @@ async def request_callback(body: CallbackBody, request: Request) -> dict[str, An
 @router.get("/callbacks")
 async def list_callbacks(request: Request, _: Actor = Depends(require("outbound.read", "wfm.read"))) -> list[dict[str, Any]]:
     return [_strip(r) for r in await request.app.state.services.repo.query("callbacks", order_by="created_at", desc=True, limit=100)]
+
+
+class ReplyBody(BaseModel):
+    conversation_id: str = Field(max_length=40)
+    text: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/replies")
+async def inbound_reply(body: ReplyBody, request: Request) -> dict[str, Any]:
+    """Simulated inbound reply to an outreach message (an SMS gateway webhook in production). `STOP` / `REZYGNUJĘ` / `WYPISZ MNIE` withdraws the customer's
+    consent for ALL proactive contact at once, is audited and is confirmed in the customer's language; any other reply continues in the conversation."""
+    svc = request.app.state.services
+    conv = await svc.store.get(body.conversation_id)
+    if conv is None or "outbound" not in conv.tags:
+        raise HTTPException(404, "conversation not found")
+    if not ob.is_opt_out_keyword(body.text):
+        return {"opted_out": False, "next": "conversation", "link": f"/widget?c={conv.id}"}
+    rec = next(iter(await _outreach(svc, {"conversation_id": conv.id})), None)
+    prefs = await svc.repo.get("contact_prefs", rec["customer_id"]) if rec else None
+    if rec is None or prefs is None:
+        raise HTTPException(404, "no preferences on file")
+    prefs["opt_out"] = {"all": True, "channels": ob.CHANNEL_ORDER, "ts": time.time(), "reason": "customer reply (STOP)", "source": "reply-keyword"}
+    await svc.repo.put("contact_prefs", prefs)
+    confirmation = ob.OPT_OUT_CONFIRMATION["pl" if conv.language == "pl" else "en"]
+    async with svc.store.lock(conv.id):
+        conv.add("customer", body.text.strip(), lang=conv.language)
+        conv.add("agent_ai", confirmation, lang=conv.language, flags=["opt_out"])
+        await svc.store.save(conv)
+    await svc.audit.log("outbound.opt_out", actor="customer", resource=rec["customer_id"], conv_id=conv.id, detail={"source": "reply-keyword", "keyword": body.text.strip()[:30]})
+    return {"opted_out": True, "customer_id": rec["customer_id"], "channels": ob.CHANNEL_ORDER, "confirmation": confirmation}
 
 
 @router.post("/reset-demo")

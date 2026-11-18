@@ -26,7 +26,7 @@ class FakeRealtimeServer:
     """Speaks just enough of the Realtime GA protocol: acks session.update, turns 10 appended frames into a transcribed utterance that triggers a
     tool call, streams audio deltas for responses and honours response.cancel."""
 
-    def __init__(self, *, slow_answer: bool = False) -> None:
+    def __init__(self, *, slow_answer: bool = False, greetings: list[str] | None = None) -> None:
         self.received: list[dict] = []
         self.auth: str | None = None
         self.path = ""
@@ -36,6 +36,7 @@ class FakeRealtimeServer:
         self.streaming: asyncio.Task | None = None
         self.deltas_sent = 0
         self.stage = "greeting"
+        self.greetings = list(greetings or ["Hello this is Concierge the AI assistant of Contoso Home how can I help"])  # one text per opening response.create
 
     async def _stream(self, ws, text: str, frames: int = 3) -> None:
         with contextlib.suppress(ConnectionClosed):
@@ -69,8 +70,10 @@ class FakeRealtimeServer:
                 await ws.send(json.dumps({"type": "session.updated", "session": ev["session"]}))
             elif t == "response.create":
                 if self.stage == "greeting":
-                    self.stage = "listening"
-                    await self._stream(ws, "Hello this is Concierge the AI assistant of Contoso Home how can I help")
+                    text = self.greetings.pop(0)
+                    if not self.greetings:
+                        self.stage = "listening"
+                    await self._stream(ws, text)
                 elif self.stage == "after_tool":
                     self.stage = "done"
                     self.streaming = asyncio.create_task(self._stream(ws, "You can return most items within 30 days of delivery free of charge [K1]", frames=12 if self.slow_answer else 3))

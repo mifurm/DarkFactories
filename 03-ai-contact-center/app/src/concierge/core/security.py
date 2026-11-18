@@ -9,6 +9,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from .config import Settings
+from .errors import error_fields
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 
@@ -78,7 +79,7 @@ class SecurityMiddleware:
     async def _reject(self, send: Any, status: int, body: dict[str, Any], extra: list[tuple[bytes, bytes]] | None = None) -> None:
         import json
 
-        payload = json.dumps(body).encode()
+        payload = json.dumps({**body, **error_fields(str(body.get("error", "generic")))}).encode()  # stable `code` + localized message / hint
         headers = [(b"content-type", b"application/json"), (b"content-length", str(len(payload)).encode()), *(extra or [])]
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": payload})

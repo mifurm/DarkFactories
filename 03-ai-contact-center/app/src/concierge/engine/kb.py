@@ -10,11 +10,13 @@ import math
 import re
 import time
 from collections import Counter
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
 
 from ..core.ai.embedding import cosine_matrix
+from ..core.langid import detect_language
 from ..core.repo import Repository
 from .audit import AuditLog
 from .guard import sanitize_untrusted_document
@@ -49,6 +51,49 @@ SYNONYMS: dict[str, list[str]] = {
 }
 
 
+# Polish concept -> English words (query expansion for the offline lexical / hashed retrieval path; real embeddings are cross-lingual natively)
+_SYN_PL_WORDS: dict[str, list[str]] = {
+    "uszkodzony": ["damaged", "damage", "broken"], "zniszczony": ["damaged", "damage"], "rozbity": ["damaged", "broken"], "pekniety": ["damaged", "cracked"], "uszkodzenie": ["damaged", "damage"],
+    "zwrot": ["return", "refund"], "zwrocic": ["return"], "zwracam": ["return"], "odeslac": ["return"], "pieniadze": ["refund", "money"], "pieniedzy": ["refund", "money"], "srodkow": ["refund"],
+    "wymiana": ["replacement", "exchange"], "wymienic": ["replacement", "exchange"], "gwarancja": ["warranty", "guarantee"], "rekojmia": ["warranty"], "reklamacja": ["warranty", "claim", "complaint"],
+    "naprawa": ["repair", "warranty"], "dostawa": ["delivery"], "dostarczyc": ["delivery"], "przesylka": ["delivery", "shipment", "parcel"], "paczka": ["delivery", "parcel"], "kurier": ["carrier", "delivery"],
+    "przewoznik": ["carrier"], "termin": ["date", "window", "reschedule"], "przelozyc": ["reschedule"], "zmiana": ["change"], "zmienic": ["change"], "adres": ["address"], "montaz": ["installation", "assembly"],
+    "monter": ["installer", "installation", "appointment"], "faktura": ["invoice"], "platnosc": ["payment"], "karta": ["card"], "karty": ["card"], "raty": ["instalments", "payment"], "bon": ["voucher", "credit", "goodwill"],
+    "rekompensata": ["compensation", "goodwill", "credit"], "odszkodowanie": ["compensation", "goodwill"], "opoznienie": ["delay", "delayed", "late"], "opozniony": ["delay", "delayed", "late"],
+    "dane": ["data", "personal"], "rodo": ["gdpr", "data", "privacy", "deletion"], "usunac": ["deletion", "delete", "data"], "usuniecie": ["deletion", "delete", "data"], "nagrywanie": ["recording", "record"],
+    "nagrywana": ["recording", "record"], "weryfikacja": ["verification", "identity", "otp"], "godziny": ["hours", "opening"], "odbior": ["pickup", "collection"], "bezplatny": ["free"], "bezplatnie": ["free"],
+    "materac": ["mattress"], "sofa": ["sofa"], "kanapa": ["sofa"], "pralka": ["washing", "machine"], "zmywarka": ["dishwasher"], "lodowka": ["fridge"], "szafa": ["wardrobe"], "piekarnik": ["oven"],
+    "gaz": ["gas", "smell", "safety"], "gazu": ["gas", "smell", "safety"], "dym": ["smoke", "safety"], "iskry": ["sparks", "safety"], "pozar": ["fire", "safety"], "skarga": ["complaint", "complaints"],
+    "rzecznik": ["ombudsman", "consumer"], "czyszczenie": ["cleaning", "care"], "pielegnacja": ["care", "cleaning"], "okres": ["period", "days"], "dni": ["days"], "czas": ["time", "days"], "kosztuje": ["cost", "price"],
+    "cena": ["price", "cost"], "metody": ["methods"], "tracking": ["tracking"], "sledzenie": ["tracking", "status"], "odstapienie": ["withdrawal", "return"], "umowy": ["return"],
+}  # fmt: skip
+
+
+@lru_cache(maxsize=1)
+def _syn_pl() -> dict[str, list[str]]:
+    return {_stem_pl(k): v for k, v in _SYN_PL_WORDS.items()}
+
+
+def expand_pl(text: str) -> list[str]:
+    """English words that stand for the Polish concepts in `text` (stem lookup)."""
+    syn = _syn_pl()
+    out: list[str] = []
+    for tok in _TOK.findall(fold(text)):
+        out.extend(syn.get(_stem_pl(tok), []))
+    return list(dict.fromkeys(out))
+
+
+# "how long / how much time" questions are answered by the article's term ("termin") and number of days: Polish stand-ins appended to the Polish query tokens
+_SYN_PL_PL: dict[str, list[str]] = {"czas": ["termin", "dni"], "dlugo": ["termin", "dni"], "kiedy": ["termin"], "terminie": ["dni"]}
+
+
+def expand_pl_pl(text: str) -> list[str]:
+    out: list[str] = []
+    for tok in _TOK.findall(fold(text)):
+        out.extend(_SYN_PL_PL.get(_stem_pl(tok), _SYN_PL_PL.get(tok, [])))
+    return list(dict.fromkeys(out))
+
+
 def expand(text: str) -> str:
     extra: list[str] = []
     for tok in _TOK.findall(fold(text)):
@@ -56,7 +101,33 @@ def expand(text: str) -> str:
     return text + " " + " ".join(extra) if extra else text
 
 
-def tokens(text: str) -> list[str]:
+# ---- Polish: light stemming (the endings of the Polish cases / genders are stripped, the stem is cut to six letters) and stop words - applied to Polish chunks and queries only
+_STOP_PL = frozenset(["i", "w", "na", "z", "ze", "do", "nie", "to", "sie", "jest", "sa", "a", "o", "od", "po", "za", "dla", "czy", "jak", "co", "ale", "lub", "oraz", "przez", "przy", "ten", "ta", "te", "tym", "tego", "tej", "moze", "moga", "mozna", "mam", "ma", "mamy", "masz", "byl", "byla", "bylo", "bedzie", "tak", "juz", "tylko", "wiec", "bardzo", "tez", "ktory", "ktora", "ktore", "ktorzy", "gdy", "gdyby", "zeby", "aby", "by", "jesli", "bo", "pan", "pani", "panstwo", "panstwa", "prosze", "chce", "chcialbym", "chcialabym", "moj", "moja", "moje", "mojego", "mojej"])
+_PL_ENDING = re.compile(r"(?:ami|ach|owi|ego|emu|ymi|imi|iem|ie|ia|ii|iu|om|ow|e|y|i|a|u|o)$")
+
+
+def _stem_pl(t: str) -> str:
+    if len(t) > 4:
+        t = _PL_ENDING.sub("", t) if len(_PL_ENDING.sub("", t)) >= 4 else t
+    return t[:6]
+
+
+def is_polish(text: str) -> bool:
+    lang, conf = detect_language(text, default="en")
+    return lang == "pl" and conf >= 0.5
+
+
+_EN_KEYWORDS = re.compile(r"(?im)^keywords \(en\):.*$")
+
+
+def tokens(text: str, lang: str | None = None) -> list[str]:
+    """Search tokens. `lang="pl"` (a Polish chunk or query) uses Polish stop words and stemming - except the `Keywords (en):` line of a Polish article, which is
+    English and keeps the English stemmer so that English questions can reach the article; every other language keeps the historic English / German stemmer."""
+    if lang == "pl":
+        keywords = " ".join(m.group(0) for m in _EN_KEYWORDS.finditer(text))
+        body = _EN_KEYWORDS.sub(" ", text)
+        polish = [_stem_pl(t) for t in _TOK.findall(fold(body)) if t not in _STOP_PL and len(t) > 1]
+        return polish + [_stem(t) for t in _TOK.findall(fold(keywords)) if t not in _STOP and len(t) > 1]
     return [_stem(t) for t in _TOK.findall(fold(text)) if t not in _STOP and len(t) > 1]
 
 
@@ -159,6 +230,36 @@ class BM25:
         return out
 
 
+class GroupedBM25:
+    """BM25 statistics are kept per language group (Polish chunks / every other chunk), so adding the Polish articles does not change a single score of the
+    English and German ones; the per-group scores are merged into one array aligned with the chunk list."""
+
+    def __init__(self, chunks: list[dict[str, Any]]) -> None:
+        self.n = len(chunks)
+        by_group: dict[str, list[int]] = {"pl": [], "other": []}
+        doc_keywords: dict[str, str] = {}  # the `Keywords (en):` line sits in one chunk of a Polish article; every chunk of that article shares it
+        for i, c in enumerate(chunks):
+            by_group["pl" if c.get("lang") == "pl" else "other"].append(i)
+            if c.get("lang") == "pl" and (line := _EN_KEYWORDS.search(c["text"])):
+                doc_keywords[c["doc_id"]] = line.group(0)
+
+        def doc_text(c: dict[str, Any]) -> str:
+            text = f"{c['title']} {c['heading']} {c['text']}"
+            kw = doc_keywords.get(c["doc_id"]) if c.get("lang") == "pl" else None
+            return text if not kw or kw in text else f"{text}\n{kw}"
+
+        self.groups = [
+            (np.array(idx), BM25([tokens(doc_text(chunks[i]), chunks[i].get("lang")) for i in idx]))
+            for idx in by_group.values() if idx
+        ]  # fmt: skip
+
+    def scores(self, query: list[str]) -> np.ndarray:
+        out = np.zeros(self.n)
+        for idx, bm in self.groups:
+            out[idx] = bm.scores(query)
+        return out
+
+
 class KnowledgeBase:
     def __init__(self, repo: Repository, llm: Any, audit: AuditLog, guard: Any | None = None) -> None:
         self.repo = repo
@@ -167,7 +268,7 @@ class KnowledgeBase:
         self.guard = guard
         self.chunks: list[dict[str, Any]] = []
         self._emb: np.ndarray = np.zeros((0, 512))
-        self._bm25: BM25 | None = None
+        self._bm25: GroupedBM25 | None = None
         self.embedder_id = "hash:512" if getattr(llm, "deterministic", True) else "azure:text-embedding-3-small:512"
         self.min_cosine = 0.17 if self.embedder_id.startswith("hash") else 0.30
         self.min_bm25 = 7.5
@@ -186,7 +287,7 @@ class KnowledgeBase:
         rows.sort(key=lambda r: (r["doc_id"], r["n"]))
         self.chunks = rows
         self._emb = np.array([r["embedding"] for r in rows], dtype=np.float64) if rows else np.zeros((0, 512))
-        self._bm25 = BM25([tokens(f"{r['title']} {r['heading']} {r['text']}") for r in rows]) if rows else None
+        self._bm25 = GroupedBM25(rows) if rows else None
         self.version += 1
         return {"chunks": len(rows), "re_embedded": len(stale)}
 
@@ -292,7 +393,7 @@ class KnowledgeBase:
         return {k: v for k, v in row.items() if k != "embedding"} if row else None
 
     # ------------------------------------------------------------------ retrieval
-    async def search(self, query: str, k: int = 4, category: str | None = None, include_drafts: bool = False) -> dict[str, Any]:
+    async def search(self, query: str, k: int = 4, category: str | None = None, include_drafts: bool = False, prefer_lang: str | None = None) -> dict[str, Any]:
         pool_chunks, pool_emb, pool_bm = self.chunks, self._emb, self._bm25
         if include_drafts:
             drafts = []
@@ -308,15 +409,24 @@ class KnowledgeBase:
                     c["embedding"] = v
                 pool_chunks = self.chunks + drafts
                 pool_emb = np.vstack([self._emb, np.array([c["embedding"] for c in drafts])]) if len(self._emb) else np.array([c["embedding"] for c in drafts])
-                pool_bm = BM25([tokens(f"{r['title']} {r['heading']} {r['text']}") for r in pool_chunks])
+                pool_bm = GroupedBM25(pool_chunks)
         if not pool_chunks or pool_bm is None:
             return {"hits": [], "answerable": False, "best_cosine": 0.0, "best_bm25": 0.0, "embedder": self.embedder_id}
-        q = expand(query) if self.embedder_id.startswith("hash") else query
+        polish = prefer_lang == "pl" or is_polish(query)
+        if polish:
+            extras = expand_pl(query) if self.embedder_id.startswith("hash") else []
+            q = f"{query} {' '.join(extras)}".strip()
+            q_tokens = tokens(query + " " + " ".join(expand_pl_pl(query)), "pl") + tokens(" ".join(extras), "en")  # the Polish words are stemmed the Polish way, their English stand-ins the English way
+        else:
+            q = expand(query) if self.embedder_id.startswith("hash") else query
+            q_tokens = tokens(q)
         qv = np.array((await self.llm.embed([q], feature="kb_query"))[0], dtype=np.float64)
         cos = cosine_matrix(qv, pool_emb)
-        bm = pool_bm.scores(tokens(q))
+        bm = pool_bm.scores(q_tokens)
         bm_n = bm / (bm.max() or 1.0)
         fused = 0.6 * np.clip(cos, 0, 1) + 0.4 * bm_n
+        if prefer_lang:
+            fused = fused + np.array([0.08 if c.get("lang") == prefer_lang else 0.0 for c in pool_chunks])  # answer a Polish question from the Polish article when both exist
         order = np.argsort(-fused)
         hits: list[dict[str, Any]] = []
         for idx in order:
@@ -338,10 +448,11 @@ class KnowledgeBase:
     async def seed(self, force: bool = False) -> dict[str, Any]:
         """Idempotent and self-repairing: unchanged published documents are skipped; documents left half-published by an interrupted start are completed."""
         from .kb_seed import KB_DOCS
+        from .kb_seed_pl import KB_DOCS_PL
 
         created = 0
-        for d in KB_DOCS:
+        for d in [*KB_DOCS, *KB_DOCS_PL]:
             res = await self.ingest(doc_id=d["id"], title=d["title"], text=d["text"], category=d["category"], lang=d["lang"], tags=d["tags"], source="seed", author="seed", publish=True, reindex=False)
             created += 0 if res.get("unchanged") and res.get("published") else 1
         stats = await self.load_index()
-        return {"documents": len(KB_DOCS), "created": created, **stats}
+        return {"documents": len(KB_DOCS) + len(KB_DOCS_PL), "created": created, "polish_documents": len(KB_DOCS_PL), **stats}

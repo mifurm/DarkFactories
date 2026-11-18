@@ -6,7 +6,9 @@ import time
 import uuid
 from typing import Any
 
+from ..core import i18n
 from ..core.redaction import mask_email, mask_phone, redact_text
+from . import localize, plain_text, plan_text
 from .models import Citation, Conversation, now
 from .routing import Trigger, route, select_worker
 
@@ -17,12 +19,16 @@ NOTICE = {
     "es": "Voy a pasar la conversación a un compañero que ya ve todo lo hablado, no tendrá que repetir nada. {wait}",
     "it": "Passo la conversazione a un collega che vede già tutto, non dovrà ripetere nulla. {wait}",
     "nl": "Ik schakel een collega in die ons gesprek al kan zien, u hoeft niets te herhalen. {wait}",
-    "pl": "Przekazuję rozmowę koledze, który widzi już naszą rozmowę - nie musi Pan/Pani niczego powtarzać. {wait}",
+    "pl": "Łączę z konsultantem, który widzi już naszą rozmowę, więc nie trzeba niczego powtarzać. {wait}",
     "pt": "Vou chamar um colega que já vê a nossa conversa, por isso não precisa de repetir nada. {wait}",
     "sv": "Jag kopplar in en kollega som redan ser vårt samtal, du behöver inte upprepa något. {wait}",
 }
 WAIT = {"en": "Estimated wait: about {m} min.", "de": "Voraussichtliche Wartezeit: ca. {m} Min.", "fr": "Attente estimée : environ {m} min.", "es": "Espera estimada: unos {m} min.", "it": "Attesa stimata: circa {m} min.", "nl": "Geschatte wachttijd: ca. {m} min.", "pl": "Szacowany czas oczekiwania: ok. {m} min.", "pt": "Espera estimada: cerca de {m} min.", "sv": "Beräknad väntetid: ca {m} min."}
-CALLBACK = {"en": "No colleague is available right now - I can arrange a callback instead and attach everything we discussed.", "de": "Gerade ist niemand verfügbar - ich kann stattdessen einen Rückruf vereinbaren und alles Besprochene anhängen."}
+CALLBACK = {
+    "en": "No colleague is available right now - I can arrange a callback instead and attach everything we discussed.",
+    "de": "Gerade ist niemand verfügbar - ich kann stattdessen einen Rückruf vereinbaren und alles Besprochene anhängen.",
+    "pl": "Obecnie żaden konsultant nie jest dostępny — mogę umówić oddzwonienie i dołączyć wszystko, co ustaliliśmy.",
+}
 
 SUGGESTED = {
     "legal_threat": "Acknowledge the frustration and the seriousness of the complaint; do not admit liability or promise outcomes. Review the order history, offer the policy remedy and (within limits) goodwill, open a complaint ticket and notify the legal/complaints desk.",
@@ -36,21 +42,32 @@ SUGGESTED = {
     "loop": "Re-state the customer's problem in your own words, confirm understanding, then resolve directly.",
     "knowledge_gap": "Answer from the policy library or create a knowledge-gap ticket; confirm with the customer.",
 }
+INTENT_QUERY_PL = {"damaged_item": "uszkodzony towar przy dostawie wymiana zwrot środków odbiór", "return_request": "zwrot towaru 30 dni", "refund_status": "termin i sposób zwrotu środków", "delivery_change": "zmiana terminu dostawy", "order_status": "śledzenie przesyłki status dostawy", "warranty_claim": "reklamacja gwarancja rękojmia", "complaint": "procedura reklamacyjna skargi", "goodwill_request": "rekompensata za opóźnienie bon", "billing_question": "podwójne obciążenie blokada środków", "installation_info": "montaż nieobecność montera", "address_change": "zmiana adresu dostawy"}
 INTENT_QUERY = {"damaged_item": "damaged on delivery replacement refund pickup", "return_request": "returns policy 30 days", "refund_status": "refund timing method", "delivery_change": "rescheduling a delivery", "order_status": "tracking delivery status", "warranty_claim": "warranty claim", "complaint": "complaints procedure", "goodwill_request": "goodwill gestures delay compensation", "billing_question": "double charges authorisation holds", "installation_info": "installation missed appointments", "address_change": "changing the delivery address"}
 
 
-def _extractive_summary(conv: Conversation) -> str:
+def doc_lang(conv: Conversation) -> str:
+    """Language of the generated operator-facing text of a conversation: Polish for Polish conversations, English otherwise."""
+    return "pl" if conv.language == "pl" else "en"
+
+
+def _extractive_summary(conv: Conversation, lang: str = "en") -> str:
     u = conv.understanding
-    cust = conv.customer_label or "an unverified customer"
-    intent = (u.intent if u else "other").replace("_", " ")
+    cust = conv.customer_label or i18n.msg("ho.summary.unverified_customer", lang)
+    intent = i18n.label("intent", u.intent if u else "other", lang, (u.intent if u else "other").replace("_", " "))
     first = next((m.text for m in conv.messages if m.role == "customer"), "")
-    done = [s["summary"] for s in conv.steps if s["status"] == "ok" and s["tool"] in ("initiate_return", "schedule_pickup", "issue_refund", "reschedule_delivery", "update_address", "goodwill_credit", "warranty_claim")]
-    bits = [f"{cust} contacted us via {conv.channel.replace('_', ' ')} in {conv.language.upper()} about: {intent}.", f"Opening message: \"{redact_text(first)[:160]}\"."]
+    done = [plan_text.done_text(lang, s["summary"]) for s in conv.steps if s["status"] == "ok" and s["tool"] in ("initiate_return", "schedule_pickup", "issue_refund", "reschedule_delivery", "update_address", "goodwill_credit", "warranty_claim")]
+    channel = i18n.label("channel", conv.channel, lang, conv.channel.replace("_", " "))
+    quoted = redact_text(first)[:160]
+    opening = i18n.msg("ho.summary.opening", lang, text=quoted)
+    if lang == "pl" and not quoted.rstrip().endswith((".", "!", "?", "…")):
+        opening += "."  # the Polish template has no full stop after the closing quote: a quoted sentence ends with its own punctuation
+    bits = [i18n.msg("ho.summary.contact", lang, cust=cust, channel=channel, lang=conv.language.upper(), intent=intent), opening]
     if conv.entities.get("order_id"):
-        bits.append(f"Order {conv.entities['order_id']} is involved.")
-    bits.append("Identity: " + (f"verified (level L{conv.identity.level}, {conv.identity.method})." if conv.identity.verified else "NOT verified."))
+        bits.append(i18n.msg("ho.summary.order", lang, order=conv.entities["order_id"]))
+    bits.append(i18n.msg("ho.summary.verified", lang, level=conv.identity.level, method=conv.identity.method) if conv.identity.verified else i18n.msg("ho.summary.not_verified", lang))
     if done:
-        bits.append("Completed by the assistant: " + "; ".join(done[:4]) + ".")
+        bits.append(i18n.msg("ho.summary.done", lang, steps="; ".join(done[:4])))
     return " ".join(bits)
 
 
@@ -58,32 +75,36 @@ async def build_package(svc: Any, conv: Conversation, trigger: Trigger | dict[st
     t = trigger.to_dict() if hasattr(trigger, "to_dict") else dict(trigger)
     u = conv.understanding
     cust = await svc.oms.get_customer(conv.identity.customer_id) if conv.identity.customer_id else None
-    summary = _extractive_summary(conv)
-    suggested = SUGGESTED.get(t["code"], SUGGESTED["explicit_request"])
+    lang = doc_lang(conv)
+    summary = _extractive_summary(conv, lang)
+    suggested = i18n.msg(f"ho.suggested.{t['code']}", lang) if i18n.has(f"ho.suggested.{t['code']}") else i18n.msg("ho.suggested.explicit_request", lang)
     llm_used = False
     if not svc.llm.deterministic:
         try:
-            convo = "\n".join(f"{m.role}: {m.text}" for m in conv.messages[-14:] if m.visible_to_customer)[:3500]
-            steps = "; ".join(f"{s['tool']}:{s['status']}" for s in conv.steps[-8:])
+            convo = "\n".join(f"{plain_text.role_label(m.role, lang)}: {m.text}" for m in conv.messages[-14:] if m.visible_to_customer)[:3500]
+            steps = plain_text.steps_for_prompt(conv.steps[-8:], lang)
+            no_codes = " Never write internal codes or identifiers (snake_case such as legal_threat or initiate_return): describe the situation in plain Polish words." if lang == "pl" else ""
+            trigger = f"Powód eskalacji: {localize.trigger_reason(t['code'], t['reason'], 'pl')}.\nPodjęte kroki" if lang == "pl" else f"Escalation trigger: {t['code']} ({t['reason']}).\nSteps tried"  # Polish prompts carry words, never the codes the model would echo
+            label = "Rozmowa" if lang == "pl" else "Conversation"
             res = await svc.llm.chat(
-                [{"role": "system", "content": "You write handoff notes for human contact-center agents. Be factual, 3-4 sentences, no PII beyond first names. Return JSON {\"summary\": str, \"suggested_resolution\": str}."},
-                 {"role": "user", "content": f"Escalation trigger: {t['code']} ({t['reason']}).\nSteps tried: {steps}\nConversation:\n{convo}"}],
+                [{"role": "system", "content": "You write handoff notes for human contact-center agents. Be factual, 3-4 sentences, no PII beyond first names. Write in " + ("Polish" if lang == "pl" else "English") + ". Amounts with their currency exactly as in the conversation. Return JSON {\"summary\": str, \"suggested_resolution\": str}." + no_codes},
+                 {"role": "user", "content": f"{trigger}: {steps}\n{label}:\n{convo}"}],
                 role="nano", max_tokens=420, reasoning_effort="minimal", json_mode=True, feature="handoff", conv_id=conv.id,
             )  # fmt: skip
             import json as _json
 
             data = _json.loads(res.text or "{}")
             if data.get("summary"):
-                summary, llm_used = str(data["summary"])[:900], True
+                summary, llm_used = plain_text.plain(str(data["summary"])[:900], lang), True
             if data.get("suggested_resolution"):
-                suggested = str(data["suggested_resolution"])[:700]
+                suggested = plain_text.plain(str(data["suggested_resolution"])[:700], lang)
         except Exception:
             llm_used = False
     cites: list[dict[str, Any]] = []
     try:
-        q = INTENT_QUERY.get(u.intent if u else "other", "returns policy")
+        q = (INTENT_QUERY_PL if lang == "pl" else INTENT_QUERY).get(u.intent if u else "other", "zasady zwrotów 30 dni" if lang == "pl" else "returns policy")
         if t["code"] == "legal_threat":
-            q = "complaints procedure escalation"
+            q = "procedura reklamacyjna eskalacja skargi" if lang == "pl" else "complaints procedure escalation"
         res = await svc.kb.search(q, k=3)
         cites = [Citation(ref=f"K{i}", doc_id=h["doc_id"], title=h["title"], chunk_id=h["chunk_id"], snippet=h["text"][:200], score=h["score"], version=h["version"]).model_dump() for i, h in enumerate(res["hits"], 1)]
     except Exception:
@@ -94,13 +115,13 @@ async def build_package(svc: Any, conv: Conversation, trigger: Trigger | dict[st
         "conversation_id": conv.id, "created_at": now(), "trigger": t, "language": conv.language, "channel": conv.channel,
         "customer": {"id_masked": (conv.identity.customer_id or "")[:3] + "•••" if conv.identity.customer_id else None, "first_name": cust["first_name"] if cust else conv.customer_label, "tier": cust["tier"] if cust else None, "market": cust["market"] if cust else None, "phone_masked": mask_phone(cust["phone"]) if cust else None, "email_masked": mask_email(cust["email"]) if cust else None, "vulnerable": bool(cust and cust.get("vulnerable"))},
         "verification": {"verified": conv.identity.verified, "level": conv.identity.level, "method": conv.identity.method},
-        "summary": summary, "summary_source": "llm" if llm_used else "extractive",
+        "summary": summary, "summary_source": "llm" if llm_used else "extractive", "text_lang": lang,
         "intent": u.intent if u else "other", "entities": conv.entities | (u.entities if u else {}),
         "steps_tried": [{"tool": s["tool"], "status": s["status"], "summary": s["summary"], "ts": s["ts"]} for s in conv.steps],
         "sentiment": {"current": traj[-1] if traj else 0.0, "trajectory": traj, "emotion": u.emotion if u else "neutral"},
         "risk_flags": sorted(set(conv.risk_flags) | set(u.risk_flags if u else [])),
         "suggested_resolution": suggested, "policy_citations": cites,
-        "pending_approvals": [{"id": a["id"], "kind": a["kind"], "amount": a["amount"], "status": a["status"]} for a in approvals],
+        "pending_approvals": [{"id": a["id"], "kind": a["kind"], "amount": a["amount"], "currency": a.get("currency") or "EUR", "status": a["status"]} for a in approvals],
         "routing": decision.to_dict(), "sla_s": decision.sla_s,
         "transcript_tail": [{"role": m.role, "text": m.text, "ts": m.ts} for m in conv.messages[-12:] if m.visible_to_customer],
         "transcript_link": f"/agent?conversation={conv.id}", "pii_minimised": True,
@@ -155,6 +176,8 @@ async def initiate(svc: Any, conv: Conversation, trigger: Trigger | dict[str, An
         text = NOTICE[lang].format(wait=WAIT.get(lang, WAIT["en"]).format(m=est_min))
         if not worker:
             text += " " + CALLBACK.get(lang, CALLBACK["en"])
+        if lang == "pl":
+            text = i18n.nbsp_pl(text)
         conv.add("agent_ai", text, lang=conv.language, flags=["handoff_notice"], meta={"handoff_id": handoff_id})
     conv.active_agent = "escalation"
     conv.agent_trace.append({"ts": now(), "agent": "escalation", "event": "handoff", "trigger": t.code})
@@ -180,8 +203,7 @@ async def accept(svc: Any, conv: Conversation, agent_id: str, agent_name: str | 
         w["active"].append(conv.id)
         w["last_assigned_at"] = now()
     lang = conv.language
-    notice = {"en": f"{name} has joined the conversation and can see everything we discussed.", "de": f"{name} ist jetzt im Gespräch und sieht alles, was wir besprochen haben."}.get(lang, f"{name} has joined the conversation and can see everything we discussed.")
-    conv.add("system_notice", notice, lang=lang, author=agent_id, flags=["agent_joined"])
+    conv.add("system_notice", plan_text.agent_joined(lang, name), lang=lang, author=agent_id, flags=["agent_joined"])
     conv.agent_trace.append({"ts": now(), "agent": "human", "event": "accepted", "agent_id": agent_id})
     await svc.audit.log("handoff.accepted", actor=f"human:{agent_id}", resource=conv.id, conv_id=conv.id, detail={"wait_s": conv.handoff.get("wait_s") if conv.handoff else None})
     return conv.handoff or {}

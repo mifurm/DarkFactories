@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { useState } from 'react'
+import { useI18n } from '../i18n'
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ')
 
@@ -96,15 +97,17 @@ export function Button({ variant = 'secondary', size = 'md', busy, icon: Icon, c
   )
 }
 
-export function Spinner({ label = 'Loading…' }: { label?: string }) {
+export function Spinner({ label }: { label?: string }) {
+  const { t } = useI18n()
   return (
     <div role="status" className="flex items-center gap-2 p-6 text-sm text-slate-500">
-      <Loader2 className="animate-spin" size={16} aria-hidden /> {label}
+      <Loader2 className="animate-spin" size={16} aria-hidden /> {label ?? t('Loading…')}
     </div>
   )
 }
 
 export function ErrorBox({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const { t } = useI18n()
   const msg = error instanceof Error ? error.message : String(error)
   return (
     <div role="alert" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
@@ -112,7 +115,7 @@ export function ErrorBox({ error, onRetry }: { error: unknown; onRetry?: () => v
       <div className="flex-1">{msg}</div>
       {onRetry && (
         <Button size="sm" onClick={onRetry}>
-          Retry
+          {t('Retry')}
         </Button>
       )}
     </div>
@@ -152,8 +155,9 @@ export interface Col<T> {
   className?: string
   align?: 'right' | 'left' | 'center'
 }
-export function DataTable<T>({ rows, cols, rowKey, onRowClick, empty = 'No data', selected, dense }: { rows: T[]; cols: Col<T>[]; rowKey: (r: T) => string; onRowClick?: (r: T) => void; empty?: ReactNode; selected?: string | null; dense?: boolean }) {
-  if (!rows.length) return <Empty>{empty}</Empty>
+export function DataTable<T>({ rows, cols, rowKey, onRowClick, empty, selected, dense }: { rows: T[]; cols: Col<T>[]; rowKey: (r: T) => string; onRowClick?: (r: T) => void; empty?: ReactNode; selected?: string | null; dense?: boolean }) {
+  const { t } = useI18n()
+  if (!rows.length) return <Empty>{empty ?? t('No data')}</Empty>
   return (
     <div className="scroll-thin overflow-x-auto">
       <table className="w-full text-left text-sm">
@@ -189,11 +193,12 @@ export function DataTable<T>({ rows, cols, rowKey, onRowClick, empty = 'No data'
   )
 }
 
-export function Progress({ value, max = 1, tone = 'blue', label = 'Progress' }: { value: number; max?: number; tone?: string; label?: string }) {
+export function Progress({ value, max = 1, tone = 'blue', label }: { value: number; max?: number; tone?: string; label?: string }) {
+  const { t } = useI18n()
   const pct = Math.max(0, Math.min(100, (value / (max || 1)) * 100))
   const bar = { blue: 'bg-blue-600', green: 'bg-emerald-500', amber: 'bg-amber-500', red: 'bg-rose-500' }[tone] ?? 'bg-blue-600'
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label={label} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label={label ?? t('Progress')} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
       <div className={cx('h-full rounded-full', bar)} style={{ width: `${pct}%` }} />
     </div>
   )
@@ -225,7 +230,7 @@ export function Slider({ label, value, min, max, step = 1, onChange, format }: {
 
 export function Json({ data, max = 360 }: { data: unknown; max?: number }) {
   return (
-    <pre className="scroll-thin overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-relaxed text-slate-100" style={{ maxHeight: max }}>
+    <pre data-i18n-skip className="scroll-thin overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-relaxed text-slate-100" style={{ maxHeight: max }}>
       {JSON.stringify(data, null, 2)}
     </pre>
   )

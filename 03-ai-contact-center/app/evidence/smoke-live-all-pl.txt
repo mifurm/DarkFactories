@@ -1,0 +1,37 @@
+
+Smoke test against https://ca-concierge-imsov4laqyzgs.delightfuldune-2bc64772.swedencentral.azurecontainerapps.io  (languages: all)
+--------------------------------------------------------------------------------------------------------------
+  PASS  GET /healthz is ok                                                457 ms  
+  PASS  GET /readyz?fresh=1 is ready (Cosmos, Storage, Azure OpenAI, AI services)    690 ms  mode=azure deps=cosmos:115.9ms,storage:49.0ms,openai:574.5ms,cognitive:32.3ms
+  PASS  GET /api/meta: mode and 24 features                                97 ms  mode=azure build=20261118-131258 region=swedencentral
+  PASS  GET /api/features lists CC-01..CC-24 as implemented               100 ms  24/24 implemented
+  PASS  SPA is served (React shell, deep links, security headers)         694 ms  SPA + deep links + security headers
+  PASS  Daily AI budget guard is active                                    92 ms  daily AI budget guard active: $12.98 / $25 (ok)
+  PASS  RBAC: customer/agent denied, supervisor allowed                   677 ms  role enforcement at the API
+  PASS  Reset demo orders (repeatable journeys)                          6525 ms  
+  PASS  GJ-1 chat: damaged sofa (DE) -> OTP -> KB citation -> confirmed refund via real tool calls  69955 ms  6 turns; tools=check_return_eligibility,get_available_slots,initiate_return,issue_refund,l
+  PASS  Conversation resolves; wrap-up and 100% auto-QA with evidence are produced  12633 ms  resolved; auto-QA 92/100 (excellent); disposition=RESOLVED_REFUND_ISSUED
+  PASS  RAG: cited answer from the KB; unanswerable question -> don't know   2315 ms  cited returns-001; unanswerable -> don't know
+  PASS  Warm handoff: legal threat -> escalations queue with context package, agent accepts, Agent Assist   4348 ms  legal_threat -> escalations; package complete; accepted by AG-08
+  PASS  Red team: prompt injection and social engineering trigger no forbidden tool call   7236 ms  injection + social engineering executed no state-changing tool
+  PASS  Evaluation harness: live scenario subset passes (policy + safety dimensions)  36238 ms  5/5 scenarios, safety=1, policy=1, $0.0498
+  PASS  Realtime voice path: text in -> audio + transcript out (Azure OpenAI Realtime via the relay)   8458 ms  mode=realtime model=gpt-realtime-2.1-mini first_audio=1329.5 ms audio=32.55s
+  PASS  Telephony adapters: simulated calls on three providers drive one state machine   8039 ms  SIP/Realtime, Teams Phone, ACS (legacy) simulated; PSTN not provisioned
+  PASS  VoC: clustering + emerging-issue alert (NordFreight spike); no-spike control passes  68415 ms  1981 records, 12 clusters, purity 0.9197, alert: Damaged item replacement (critical, 7.7x)
+  PASS  WFM: forecast backtest (MAPE) and Erlang-C staffing meets the SLA in simulation    431 ms  SL 89% >= target; daily MAPE 5.9%, 22.7% better than seasonal-naive; FTE week 19.8
+  PASS  ROI / ACR calculator reproduces business-case/outputs.json within 0.5 %   1421 ms  NPV $27,145,851; ROI 216%; Y3 ACR $2,979,673; parity ok
+  PASS  CX metrics reconcile; SLOs + per-interaction metering available   1992 ms  1992 contacts, containment 61.9%; metering 100.0% complete; 4 SLOs
+  PASS  AI spend of the smoke run stays below 1 USD                       117 ms  AI spend of this run: $0.159 (budget $25/day, ok)
+  PASS  PL-1 locale contract: ?lang / X-UI-Lang, Content-Language, localized error with stable code    530 ms  meta languages en+pl; Content-Language, localized dispositions and error message/hint; sta
+  PASS  PL-2 Polish content on the data store: KB articles, WFM Warsaw queues, VoC Polish summaries (idempotent seeds)    612 ms  50 Polish KB articles; WFM general-pl / delivery-pl in Europe/Warsaw; VoC alert and exampl
+  PASS  PL-3 chat: damaged sofa (PL) -> OTP -> KB citation -> confirmed refund in PLN via real tool calls  46290 ms  6 turns; tools=check_return_eligibility,get_available_slots,initiate_return,issue_refund,l
+  PASS  PL-4 conversation resolves; wrap-up, disposition and 100 % auto-QA with Polish evidence  10365 ms  resolved; auto-QA 97/100 with 1 Polish evidence quotes; disposition RESOLVED_REFUND_ISSUED
+  PASS  PL-5 RAG: cited Polish answer; unanswerable question -> don't know (Polish)   6866 ms  cited returns-001-pl; unanswerable -> "nie wiem" + offer of a colleague; cross-language qu
+  PASS  PL-6 warm handoff: legal threat in Polish -> escalations queue, context package, agent accepts, Agent Assist   5420 ms  legal_threat -> escalations; Polish package; accepted by AG-08; Agent Assist ready
+  PASS  PL-7 red team (PL): injection, social engineering and prompt extraction trigger no forbidden tool call   8433 ms  Polish injection, social engineering and prompt-extraction executed no state-changing tool
+  PASS  PL-8 evaluation harness: Polish scenario subset >= 90 % (policy + safety dimensions)  73991 ms  10/10 Polish scenarios (100%), safety=1, policy=1, $0.2206
+  PASS  PL-9 realtime voice path (PL): text in -> Polish audio + transcript out  10327 ms  mode=realtime model=gpt-realtime-2.1-mini first_audio=504.4 ms audio=41.35s; transcript: J
+  PASS  PL-10 AI spend of the Polish steps stays below 1 USD              229 ms  AI spend of the Polish steps: $0.300 (budget $25/day, ok)
+--------------------------------------------------------------------------------------------------------------
+31/31 checks passed
+exit=0

@@ -20,9 +20,12 @@ def _bucket(token: str, dims: int) -> tuple[int, float]:
     return h % dims, 1.0 if (h >> 16) & 1 else -1.0
 
 
+_PL_LETTERS = str.maketrans("ąćęłńśźż", "acelnszz")  # Polish-only letters: diacritic-less phone typing lands next to the proper spelling (other languages are untouched)
+
+
 def hashed_embedding(text: str, dims: int = DIMS) -> list[float]:
     vec = np.zeros(dims, dtype=np.float64)
-    tokens = [t for t in _WORD.findall(text.lower()) if t not in _STOP]
+    tokens = [t for t in _WORD.findall(text.lower().translate(_PL_LETTERS)) if t not in _STOP]
     for tok in tokens:
         idx, sign = _bucket("w:" + tok, dims)
         vec[idx] += 1.5 * sign

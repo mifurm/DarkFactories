@@ -9,6 +9,8 @@ import time
 from collections import defaultdict
 from typing import Any
 
+from ..core import i18n
+from ..core.money import BASE_CURRENCY, format_money, parse_money, pick_eur
 from .guard import DISCLOSURE_MARKERS, find_risky_promises
 from .models import Conversation, Message, now
 from .understanding import fold
@@ -20,43 +22,71 @@ EMPATHY_RX = re.compile(r"\b(sorry|apolog\w*|understand|regret|unfortunate\w*|fr
 GREETING_RX = re.compile(r"\b(hello|hi|good (?:morning|afternoon|evening)|welcome|hallo|guten (?:tag|morgen|abend)|bonjour|hola|ciao|how can i help|wie kann ich)\b", re.IGNORECASE)
 HELP_RX = re.compile(r"\b(help|assist|how can i|what can i|wie kann ich|worum geht|besoin|ayudar|aiutare)\b", re.IGNORECASE)
 MONEY_RX = re.compile(r"(?:€|eur\s?)\s?(\d+(?:[.,]\d{1,2})?)|(\d+(?:[.,]\d{1,2})?)\s?(?:€|eur\b)", re.IGNORECASE)
+EMPATHY_PL_RX = re.compile(r"\b(przepraszam\w*|przykro|rozumiem|wspolczuj\w*|niestety|ubolewam|wybacz\w*|niedogodnos\w+|zrozumial\w+|doceniam|dziekuje za cierpliwosc)\b")
+GREETING_PL_RX = re.compile(r"\b(dzien dobry|dobry wieczor|witam\w*|czesc|w czym moge|jak moge pomoc|milo mi)\b")
+HELP_PL_RX = re.compile(r"\b(w czym moge|jak moge|czym moge|moge pomoc|pomoge|w czym pomoc)\b")
+NAME_PL_RX = re.compile(r"\b(nazywam sie|mam na imie|z tej strony|jestem \w+)\b")
+TIMEFRAME_RX = re.compile(r"\b(\d+)[- ](?:day|days|tage|jours|días)\b", re.IGNORECASE)
+TIMEFRAME_PL_RX = re.compile(r"\b(\d+)[- ](?:dni|dzien|dnia|dob|doby)\b")
 STATE_TOOLS = {"initiate_return", "schedule_pickup", "reschedule_delivery", "update_address", "issue_refund", "goodwill_credit", "warranty_claim"}
-RECOMMENDATIONS = {
-    "greeting": ("Open with a warm greeting, state who you are (AI or human) and ask how you can help.", "Keep the disclosure + greeting template in the first message; add the customer's name once known."),
-    "empathy": ("Acknowledge the customer's situation in the first reply after they express frustration or a problem.", "Add a rule to the resolution prompt: 'Start with a short apology/acknowledgement when the customer reports damage, delay or frustration.'"),
-    "accuracy": ("Only state policy facts that you can cite; verify amounts against the system before saying them.", "Tighten KB retrieval (more specific documents) and keep groundedness enforcement on; review ungrounded answers in the QA workbench."),
-    "policy": ("Read back the plan and wait for an explicit yes before any state-changing action; respect caps and approval rules.", "Review tool allow-lists and confirmation behaviour in the config; keep confirmations enforced in code."),
-    "resolution": ("Close the loop: confirm the outcome, next steps and timeline before ending the conversation.", "Improve the end-to-end flow prompts (offer concrete options, book the follow-up in the same conversation)."),
-    "compliance": ("Always give the AI/recording disclosure, never promise outcomes, never handle card data.", "Keep the guard layer on; extend the red-team pack with the observed violations."),
-    "clarity": ("Use short sentences and one question at a time; avoid jargon.", "Shorten the reply-length rule in the prompt (max 4 short sentences) and avoid lists in voice."),
-}  # fmt: skip
+RECOMMENDATIONS = {d: (i18n.msg(f"qa.rec.{d}.human", "en"), i18n.msg(f"qa.rec.{d}.ai", "en")) for d in DIMENSIONS}  # English source texts; localized at read time via the catalog
 
 
 def quote(m: Message, n: int = 150) -> str:
     return re.sub(r"\s+", " ", m.text).strip()[:n]
 
 
-def _ev(dim: str, m: Message | None, note: str, q: str | None = None) -> dict[str, Any]:
-    return {"dimension": dim, "turn": m.idx if m else None, "role": m.role if m else None, "quote": (q if q is not None else (quote(m) if m else "")), "note": note}
+def _empathic(text: str) -> bool:
+    return bool(EMPATHY_RX.search(text) or EMPATHY_PL_RX.search(fold(text)))
+
+
+def _greets(text: str) -> bool:
+    return bool(GREETING_RX.search(text) or GREETING_PL_RX.search(fold(text)))
+
+
+def _offers_help(text: str) -> bool:
+    return bool(HELP_RX.search(text) or HELP_PL_RX.search(fold(text)))
+
+
+def _introduces(text: str) -> bool:
+    return bool(re.search(r"\b(my name is|i'm|ich bin|mein name|je suis|soy)\b", text, re.IGNORECASE) or NAME_PL_RX.search(fold(text)))
+
+
+def render_note(code: str, params: dict[str, Any], lang: str | None = None) -> str:
+    """Catalog text of an evidence code in `lang` (default: request locale); money and disposition parameters are formatted for that language."""
+    lang = i18n.normalize(lang) or i18n.current_locale()
+    p = dict(params)
+    if "amount" in p:
+        p["money"] = format_money(float(p["amount"]), p.get("currency", BASE_CURRENCY), lang)
+    if "disposition" in p and lang != "en":
+        p["disposition"] = i18n.label("disposition", str(p["disposition"]), lang)
+    if "avg" in p and not isinstance(p["avg"], str):
+        p["avg"] = f"{p['avg']:.0f}"
+    return i18n.msg(code, lang, **p)
+
+
+def _ev(dim: str, m: Message | None, code: str, q: str | None = None, **params: Any) -> dict[str, Any]:
+    """Evidence item: stable `code` + `params` are persisted; `note` is the English rendering (the API re-renders it in the request locale)."""
+    return {"dimension": dim, "turn": m.idx if m else None, "role": m.role if m else None, "quote": (q if q is not None else (quote(m) if m else "")), "code": code, "params": params, "note": render_note(code, params, "en")}
 
 
 def _score_greeting(msgs: list[Message], human: bool) -> tuple[int, list[dict[str, Any]]]:
     first = next((m for m in msgs if m.role in AGENT_ROLES), None)
     if first is None:
-        return 1, [_ev("greeting", None, "no agent message")]
+        return 1, [_ev("greeting", None, "qa.ev.greeting_none")]
     score = 1
     ev = []
     if human:
-        score += 2 if GREETING_RX.search(first.text) else 0
-        score += 1 if re.search(r"\b(my name is|i'm|ich bin|mein name|je suis|soy)\b", first.text, re.IGNORECASE) else 0
-        score += 1 if HELP_RX.search(first.text) else 0
+        score += 2 if _greets(first.text) else 0
+        score += 1 if _introduces(first.text) else 0
+        score += 1 if _offers_help(first.text) else 0
     else:
         score += 2 if (DISCLOSURE_MARKERS.search(first.text) or "disclosure" in first.flags) else 0
-        score += 1 if GREETING_RX.search(first.text) or "disclosure" in first.flags else 0
-        score += 1 if HELP_RX.search(first.text) or "disclosure" in first.flags else 0
+        score += 1 if _greets(first.text) or "disclosure" in first.flags else 0
+        score += 1 if _offers_help(first.text) or "disclosure" in first.flags else 0
     score = min(score, 5)
     if score < 5:
-        ev.append(_ev("greeting", first, "first agent message lacks " + ("a greeting / name / offer to help" if human else "disclosure, greeting or offer to help")))
+        ev.append(_ev("greeting", first, "qa.ev.greeting_human" if human else "qa.ev.greeting_ai"))
     return score, ev
 
 
@@ -64,15 +94,15 @@ def _score_empathy(conv: Conversation, roles: set[str]) -> tuple[int, list[dict[
     msgs = conv.messages
     need_idx = next((m.idx for m in msgs if m.role == "customer" and (m.meta.get("understanding", {}).get("sentiment", 0) <= -0.25 or m.meta.get("understanding", {}).get("intent") in ("damaged_item", "complaint") or m.meta.get("understanding", {}).get("emotion") in ("angry", "frustrated"))), None)
     replies = [m for m in msgs if m.role in roles and (need_idx is None or m.idx > need_idx)]
-    marked = [m for m in replies if EMPATHY_RX.search(m.text)]
+    marked = [m for m in replies if _empathic(m.text)]
     if need_idx is None:
         return (5, []) if marked else (4, [])
     if marked and replies and replies.index(marked[0]) <= 1:
         return 5, []
     if marked:
-        return 3, [_ev("empathy", marked[0], "empathy shown but not in the first reply after the customer raised a problem")]
+        return 3, [_ev("empathy", marked[0], "qa.ev.empathy_late")]
     first_reply = replies[0] if replies else None
-    return 1, [_ev("empathy", first_reply, "customer was frustrated / reported a problem but no acknowledgement or apology was given")]
+    return 1, [_ev("empathy", first_reply, "qa.ev.empathy_missing")]
 
 
 def _amount_set(conv: Conversation) -> set[float]:
@@ -83,8 +113,10 @@ def _amount_set(conv: Conversation) -> set[float]:
                 if isinstance(v, int | float) and not isinstance(v, bool):
                     out.add(round(float(v), 2))
             for i in t.result.get("items", []) if isinstance(t.result, dict) else []:
-                if isinstance(i, dict) and isinstance(i.get("unit_price_eur"), int | float):
-                    out.add(round(float(i["unit_price_eur"]), 2))
+                if isinstance(i, dict):
+                    for key in ("unit_price_eur", "unit_price"):
+                        if isinstance(i.get(key), int | float) and not isinstance(i.get(key), bool):
+                            out.add(round(float(i[key]), 2))
     return out
 
 
@@ -96,16 +128,17 @@ def _score_accuracy(conv: Conversation, roles: set[str]) -> tuple[int, list[dict
             continue
         if "ungrounded" in m.flags:
             score -= 2
-            ev.append(_ev("accuracy", m, "answer was flagged as not supported by the knowledge base"))
-        for g in MONEY_RX.findall(m.text):
-            val = round(float((g[0] or g[1]).replace(",", ".")), 2)
+            ev.append(_ev("accuracy", m, "qa.ev.ungrounded"))
+        stated = [(round(float((g[0] or g[1]).replace(",", ".")), 2), BASE_CURRENCY) for g in MONEY_RX.findall(m.text)]
+        stated += [(round(v, 2), c) for v, c in parse_money(m.text) if c != BASE_CURRENCY]  # PLN amounts: 379,00 zł / 1 599,00 PLN
+        for val, cur in stated:
             if amounts and val not in amounts and val > 0 and "handoff_notice" not in m.flags:
                 score -= 2
-                ev.append(_ev("accuracy", m, f"amount EUR {val:.2f} does not match any system value", q=quote(m)))
+                ev.append(_ev("accuracy", m, "qa.ev.amount_mismatch", q=quote(m), amount=val, currency=cur))
                 break
-        if re.search(r"\b(\d+)[- ](?:day|days|tage|jours|días)\b", m.text, re.IGNORECASE) and not m.citations and not m.tools and m.role == "agent_ai" and "disclosure" not in m.flags:
+        if (TIMEFRAME_RX.search(m.text) or TIMEFRAME_PL_RX.search(fold(m.text))) and not m.citations and not m.tools and m.role == "agent_ai" and "disclosure" not in m.flags:
             score -= 1
-            ev.append(_ev("accuracy", m, "policy time-frame stated without a citation"))
+            ev.append(_ev("accuracy", m, "qa.ev.timeframe_uncited"))
     return max(score, 1), ev
 
 
@@ -118,17 +151,18 @@ def _score_policy(conv: Conversation) -> tuple[int, list[dict[str, Any]]]:
             if t.name in STATE_TOOLS and t.status == "ok" and t.actor == "ai" and t.idempotency_key is not None:
                 if confirmed_at is None or confirmed_at > t.ts + 0.5:
                     score -= 3
-                    ev.append(_ev("policy", m, f"{t.name} executed without a prior customer confirmation"))
-                if t.name == "issue_refund" and isinstance(t.result.get("amount_eur"), int | float) and t.result["amount_eur"] > 500 and not t.result.get("approved_by"):
+                    ev.append(_ev("policy", m, "qa.ev.no_confirmation", tool=t.name))
+                refunded_eur = pick_eur(t.result, "amount") if t.name == "issue_refund" else None  # the cap is applied on the EUR-equivalent of PLN refunds too
+                if refunded_eur is not None and refunded_eur > 500 and not t.result.get("approved_by"):
                     score -= 5
-                    ev.append(_ev("policy", m, "refund above the autonomous cap executed without approval"))
+                    ev.append(_ev("policy", m, "qa.ev.refund_over_cap"))
             if t.status == "blocked" and t.error == "tool_not_allowed":
                 score -= 1
-                ev.append(_ev("policy", m, f"attempted a tool outside the allow-list: {t.name}"))
+                ev.append(_ev("policy", m, "qa.ev.tool_not_allowed", tool=t.name))
     if any(f.startswith("risky_promise") for m in msgs.values() for f in m.flags):
         score -= 2
         m = next(m for m in msgs.values() if any(f.startswith("risky_promise") for f in m.flags))
-        ev.append(_ev("policy", m, "tried to promise an outcome that policy does not guarantee (blocked by the guard)"))
+        ev.append(_ev("policy", m, "qa.ev.risky_promise_blocked"))
     return max(score, 1), ev
 
 
@@ -141,10 +175,10 @@ def _score_resolution(conv: Conversation, disposition: str) -> tuple[int, list[d
         ok_pkg = bool(conv.handoff and conv.handoff.get("package") and conv.handoff["package"].get("completeness", 0) >= 80)
         return (4 if ok_pkg else 3), []
     if disposition == "TICKET_CREATED":
-        return 3, [_ev("resolution", last_agent, "customer issue was deferred to a ticket")]
+        return 3, [_ev("resolution", last_agent, "qa.ev.ticket_deferred")]
     if disposition in ("VERIFICATION_FAILED", "OUT_OF_SCOPE"):
-        return 2, [_ev("resolution", last_agent, f"conversation ended with {disposition}")]
-    return 1, [_ev("resolution", last_agent, "no resolution reached")]
+        return 2, [_ev("resolution", last_agent, "qa.ev.ended_with", disposition=disposition)]
+    return 1, [_ev("resolution", last_agent, "qa.ev.no_resolution")]
 
 
 def _score_compliance(conv: Conversation) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
@@ -152,22 +186,22 @@ def _score_compliance(conv: Conversation) -> tuple[int, list[dict[str, Any]], li
     first_agent = next((m for m in conv.messages if m.role in AGENT_ROLES), None)
     early = [m for m in conv.messages if m.role in AGENT_ROLES][:2]
     if not any("disclosure" in m.flags or DISCLOSURE_MARKERS.search(m.text) for m in early):
-        fails.append({"rule": "missing_ai_disclosure", **_ev("compliance", first_agent, "no AI disclosure at the start of the conversation")})
+        fails.append({"rule": "missing_ai_disclosure", **_ev("compliance", first_agent, "qa.ev.no_disclosure_start")})
         score = 1
     for m in conv.messages:
         if m.role in AGENT_ROLES and find_risky_promises(m.text):
-            fails.append({"rule": "risky_promise", **_ev("compliance", m, "risky promise delivered to the customer")})
+            fails.append({"rule": "risky_promise", **_ev("compliance", m, "qa.ev.risky_promise_delivered")})
             score = min(score, 1)
         if m.role in AGENT_ROLES and re.search(r"\b(?:\d[ -]?){13,19}\b", m.text) and re.search(r"\d{4}[ -]?\d{4}[ -]?\d{4}", m.text):
-            fails.append({"rule": "pci_in_transcript", **_ev("compliance", m, "card-number-like digits in the transcript")})
+            fails.append({"rule": "pci_in_transcript", **_ev("compliance", m, "qa.ev.pci_digits")})
             score = 1
     if conv.consent.recording == "pending" and conv.channel == "voice":
         score = min(score, 4)
-        ev.append(_ev("compliance", first_agent, "recording consent was never captured"))
+        ev.append(_ev("compliance", first_agent, "qa.ev.consent_never"))
     redacted = [m for m in conv.messages if any(f.startswith("pii_in_output") for f in m.flags)]
     if redacted:
         score = min(score, 4)
-        ev.append(_ev("compliance", redacted[0], "agent output contained PII that had to be redacted"))
+        ev.append(_ev("compliance", redacted[0], "qa.ev.pii_redacted"))
     return score, ev, fails
 
 
@@ -178,10 +212,10 @@ def _score_clarity(conv: Conversation, roles: set[str]) -> tuple[int, list[dict[
     avg = sum(len(m.text.split()) for m in msgs) / len(msgs)
     longest = max(msgs, key=lambda m: len(m.text.split()))
     score = 5 if avg <= 55 else 4 if avg <= 85 else 3 if avg <= 125 else 2
-    ev = [] if score == 5 else [_ev("clarity", longest, f"replies average {avg:.0f} words; keep chat replies short and focused")]
-    if re.search(r"[A-Z]{12,}", " ".join(m.text for m in msgs)):
+    ev = [] if score == 5 else [_ev("clarity", longest, "qa.ev.long_replies", avg=avg)]
+    if re.search(r"[A-ZĄĆĘŁŃÓŚŹŻ]{12,}", " ".join(m.text for m in msgs)):
         score = min(score, 3)
-        ev.append(_ev("clarity", longest, "shouting / all-caps text"))
+        ev.append(_ev("clarity", longest, "qa.ev.allcaps"))
     return score, ev
 
 
@@ -256,7 +290,7 @@ async def score_conversation(svc: Any, conv: Conversation, *, use_llm: bool | No
                     dims[d] = round((dims[d] + s) / 2)
                     q = str(item.get("quote") or "")
                     if s < 5 and q and q[:60] in transcript:  # evidence must exist in the transcript
-                        res["evidence"].append({"dimension": d, "turn": item.get("turn"), "role": "agent", "quote": q[:200], "note": "LLM judge evidence", "source": "llm"})
+                        res["evidence"].append({"dimension": d, "turn": item.get("turn"), "role": "agent", "quote": q[:200], "code": "qa.ev.llm_judge", "params": {}, "note": render_note("qa.ev.llm_judge", {}, "en"), "source": "llm"})
             scorer = "rules+llm"
         except Exception:
             scorer = "rules"
@@ -339,7 +373,7 @@ async def agreement_report(svc: Any) -> dict[str, Any]:
     return {"overall": agreement(pairs), "by_dimension": per_dim, "calibrated_conversations": len(rows), "drift": drift}
 
 
-def coaching(dim_scores: list[dict[str, int]], evidence: list[dict[str, Any]], is_ai: bool) -> list[dict[str, Any]]:
+def coaching(dim_scores: list[dict[str, int]], evidence: list[dict[str, Any]], is_ai: bool, lang: str | None = None) -> list[dict[str, Any]]:
     """Top-3 coaching suggestions from recurring low-scoring dimensions."""
     if not dim_scores:
         return []
@@ -353,5 +387,29 @@ def coaching(dim_scores: list[dict[str, int]], evidence: list[dict[str, Any]], i
         if v >= 4.8:
             continue
         ex = next((e for e in evidence if e.get("dimension") == d and e.get("quote")), None)
-        out.append({"dimension": d, "avg_score": round(v, 2), "suggestion": RECOMMENDATIONS[d][1 if is_ai else 0], "example": ex.get("quote") if ex else None, "target": "prompt/knowledge (CC-17)" if is_ai else "agent coaching session"})
+        who = "ai" if is_ai else "human"
+        out.append({"dimension": d, "avg_score": round(v, 2), "suggestion": i18n.msg(f"qa.rec.{d}.{who}", lang), "example": ex.get("quote") if ex else None, "target": i18n.msg(f"qa.target.{who}", lang)})
+    return out
+
+
+def localize_review(rec: dict[str, Any], lang: str | None = None) -> dict[str, Any]:
+    """Copy of a stored QA review with the evidence notes and auto-fail rules rendered in `lang` (the request locale by default).
+    Quotes stay verbatim (they are transcript data); records written before evidence codes existed are returned unchanged."""
+    lang = i18n.normalize(lang) or i18n.current_locale()
+    out = dict(rec)
+
+    def render(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        res = []
+        for e in items:
+            e = dict(e)
+            if e.get("code") and i18n.has(e["code"]):
+                e["note"] = render_note(e["code"], e.get("params") or {}, lang)
+            if e.get("rule"):
+                e["rule_label"] = i18n.label("qa.rule", e["rule"], lang)
+            res.append(e)
+        return res
+
+    out["evidence"] = render(rec.get("evidence") or [])
+    out["auto_fail"] = render(rec.get("auto_fail") or [])
+    out["language_ui"] = lang
     return out

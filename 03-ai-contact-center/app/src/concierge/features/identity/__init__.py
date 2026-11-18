@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from ...core.redaction import luhn_ok
 from ...core.registry import EPIC_A, FeatureInfo
+from ...engine import plan_text
 from ...engine.models import now
 
 FEATURES = [
@@ -68,8 +69,7 @@ async def _complete(svc: Any, token: str, pan: str) -> dict[str, Any]:
     conv = await svc.store.get(pay["conv_id"])
     if conv:
         conv.payment = {"token": token, "status": "paid", "amount": pay.get("amount"), "brand": brand, "last4": last4}
-        amt = f" of EUR {pay['amount']:.2f}" if pay.get("amount") else ""
-        conv.add("system_notice", f"Secure payment{amt} received ({brand} ending {last4}). Card data was never shared with the assistant.", lang=conv.language, flags=["payment_completed"])
+        conv.add("system_notice", plan_text.payment_received(conv.language, amount=pay.get("amount"), brand=brand, last4=last4), lang=conv.language, flags=["payment_completed"])
         await svc.store.save(conv)
         await svc.bus.publish(f"conv:{conv.id}", {"type": "message", "message": conv.messages[-1].model_dump()})
     await svc.audit.log("payment.handoff_completed", actor="customer", resource=token, conv_id=pay["conv_id"], detail={"brand": brand, "last4": last4})

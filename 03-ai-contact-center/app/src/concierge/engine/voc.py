@@ -172,7 +172,7 @@ def detect_anomalies(
                 "id": f"voc-spike-{c}", "type": "volume_spike", "cluster": c, "label": names.get(c, f"cluster {c}"),
                 "severity": "critical" if z >= 8 or ratio >= 4 else "warning", "recent_per_day": round(mean_recent, 2), "baseline_per_day": round(m, 2),
                 "ratio": round(ratio, 1), "z": round(z, 1), "window_days": recent_days, "recent_total": total_recent, "carrier": attributed, "carriers": carriers[:3],
-                "first_seen": first_seen, "evidence": [e["id"] for e in evidence], "evidence_summaries": [e["summary"] for e in evidence[:3]],
+                "first_seen": first_seen, "evidence": [e["id"] for e in evidence], "evidence_summaries": [e["summary"] for e in evidence[:3]], "evidence_summaries_pl": [e.get("summary_pl") or e["summary"] for e in evidence[:3]],
                 "markets": [m_ for m_, _ in Counter(r["market"] for r in window).most_common(4)],
                 "message": (f"'{names.get(c, c)}' is running at {mean_recent:.1f}/day vs {m:.1f}/day baseline ({ratio:.1f}x)" + (f" - {attributed['name']} accounts for {round(100 * attributed['share_recent'])}% of the recent contacts (baseline {round(100 * attributed['share_baseline'])}%)." if attributed else ".")),
             }
@@ -254,7 +254,7 @@ def build_voc(records: list[dict[str, Any]], vectors: np.ndarray, *, k: int | No
                 "repeat_rate": round(sum(repeats[r["id"]] for r in recs) / n, 3), "churn_risk_avg": round(sum(churn) / n, 3), "churn_high_pct": round(100 * sum(1 for s in churn if s >= 0.5) / n, 1),
                 "human_minutes": round(sum(handled_minutes(r) for r in recs), 1), "cost_usd": round(cost, 2), "cost_per_contact_usd": round(cost / n, 2),
                 "dominant_driver": truth[0], "driver_purity": round(truth[1] / n, 3), "weekly": dict(sorted(weekly.items())),
-                "examples": [{"id": r["id"], "summary": r["summary"], "text": r["text"], "language": r["language"], "sentiment": r["sentiment_start"]} for r in sorted(recs, key=lambda r: r["sentiment_start"])[:4]],
+                "examples": [{"id": r["id"], "summary": r["summary"], "text": r["text"], "language": r["language"], "sentiment": r["sentiment_start"], **({"summary_pl": r["summary_pl"]} if r.get("summary_pl") else {})} for r in sorted(recs, key=lambda r: r["sentiment_start"])[:4]],
                 "carriers": dict(Counter(r["carrier"] for r in recs if r.get("carrier")).most_common(3)),
             }
         )  # fmt: skip

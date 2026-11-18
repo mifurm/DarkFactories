@@ -3,6 +3,8 @@
 
     python scripts/eval_gate.py                         # candidate == active configuration -> exit 0
     python scripts/eval_gate.py --broken remove_refund_cap   # deliberately broken candidate -> exit 1 (the gate blocks it)
+    python scripts/eval_gate.py --suite pl-gate              # the Polish pack (PLN orders, Polish customers) -> exit 0
+    python scripts/eval_gate.py --suite pl-gate --broken no_citations   # Polish pack, broken prompt -> exit 1
     python scripts/eval_gate.py --base-url https://<app>...  # same, against a deployed instance (uses its model deployments)
 
 Exit code 0 = gate passed, 1 = blocked. In-process mode uses the deterministic offline engine (no Azure needed); run it from the repository root
@@ -76,7 +78,7 @@ def remote(args: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--suite", default="core", choices=["core", "redteam", "all"])
+    ap.add_argument("--suite", default="core", choices=["core", "redteam", "all", "gate", "smoke", "pl", "pl-gate", "pl-smoke", "pl-redteam"], help="pl* = the Polish pack (e.g. --suite pl-gate --broken remove_refund_cap)")
     ap.add_argument("--broken", help="inject a deliberately broken configuration: remove_refund_cap | no_tools | always_escalate | no_citations")
     ap.add_argument("--base-url", help="run the gate on a deployed instance instead of in-process")
     ap.add_argument("--markdown", help="write the markdown report to this file")

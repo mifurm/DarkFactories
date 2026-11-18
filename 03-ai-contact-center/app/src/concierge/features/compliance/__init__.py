@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from ...core import i18n
 from ...core.rbac import Actor, require
 from ...core.redaction import redact
 from ...core.registry import EPIC_C, FeatureInfo
@@ -41,6 +42,7 @@ RETENTION = [
 
 class TextBody(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
+    language: str | None = Field(None, max_length=8, description="Language of the text (the safe replacement is returned in it); omitted = the request locale")
 
 
 class RedTeamBody(BaseModel):
@@ -63,7 +65,7 @@ async def inspect(body: TextBody, request: Request) -> dict[str, Any]:
 @router.post("/output-check")
 async def output_check(body: TextBody, request: Request) -> dict[str, Any]:
     svc = request.app.state.services
-    o = svc.guard.inspect_output(body.text)
+    o = svc.guard.inspect_output(body.text, lang=body.language or i18n.current_locale())
     return {"text": o.text, "issues": o.issues, "risky_promises": find_risky_promises(body.text), "has_ai_disclosure": bool(DISCLOSURE_MARKERS.search(body.text))}
 
 

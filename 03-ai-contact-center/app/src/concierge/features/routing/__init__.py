@@ -8,8 +8,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ...core import i18n
 from ...core.rbac import Actor, require
 from ...core.registry import EPIC_B, FeatureInfo
+from ...engine import localize
 from ...engine.models import Conversation, Understanding
 from ...engine.routing import QUEUES, ROUTING_RULES, evaluate_triggers, route
 from ...engine.understanding import analyze
@@ -74,7 +76,8 @@ async def analyze_text(body: AnalyzeBody) -> dict[str, Any]:
 @router.post("/route")
 async def route_job(body: RouteBody) -> dict[str, Any]:
     u = Understanding(intent=body.intent, risk_flags=body.risk_flags, sentiment=body.sentiment, urgency=body.urgency, language=body.language)
-    return route(u, vip=body.vip, vulnerable=body.vulnerable, language=body.language, channel=body.channel, wait_s=body.wait_s).to_dict()
+    decision = route(u, vip=body.vip, vulnerable=body.vulnerable, language=body.language, channel=body.channel, wait_s=body.wait_s).to_dict()
+    return localize.localize_routing(decision) or decision
 
 
 @router.get("/queues")
@@ -84,7 +87,9 @@ async def queues(request: Request) -> dict[str, Any]:
     depth = defaultdict(int)
     for c in live:
         depth[c.queue or "general"] += 1
-    return {"queues": [{"id": k, **v, "waiting": depth.get(k, 0)} for k, v in QUEUES.items()], "rules": ROUTING_RULES, "semantics": "Provider-neutral, in-process router with Job-Router-style semantics (an ACS Job Router dependency would not be strategic: it retires 30 Sep 2028): classification policy -> queue + priority + worker selectors; distribution policy (longest-idle / best-worker); exception policy (SLA at 80 % raises priority)."}
+    lang = i18n.current_locale()
+    rules = [{**r, "when": i18n.msg(f"route.rule.{r['id']}", lang)} for r in ROUTING_RULES] if lang != "en" else ROUTING_RULES
+    return {"queues": [{"id": k, **v, "name": localize.queue_name(k, lang), "waiting": depth.get(k, 0)} for k, v in QUEUES.items()], "rules": rules, "semantics": i18n.msg("route.semantics", lang)}
 
 
 @router.get("/workers")
@@ -120,7 +125,7 @@ async def simulate_triggers(body: SimulateBody) -> dict[str, Any]:
         trig = evaluate_triggers(conv, u, explicit_request=bool(EXPLICIT_HUMAN.search(text)), fired=fired)
         for t in trig:
             fired.add(t.code)
-        timeline.append({"text": text, "intent": u.intent, "sentiment": u.sentiment, "emotion": u.emotion, "risk_flags": u.risk_flags, "fired": [t.to_dict() for t in trig]})
+        timeline.append({"text": text, "intent": u.intent, "sentiment": u.sentiment, "emotion": u.emotion, "risk_flags": u.risk_flags, "fired": [localize.localize_trigger(t.to_dict()) for t in trig]})
     return {"timeline": timeline, "fired_once": sorted(fired)}
 
 

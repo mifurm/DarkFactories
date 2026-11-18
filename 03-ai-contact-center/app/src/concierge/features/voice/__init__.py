@@ -15,7 +15,9 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, W
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
+from ...core import i18n
 from ...core.ai.base import BudgetExceededError
+from ...core.money import speakable_pl
 from ...core.registry import EPIC_A, FeatureInfo
 from ...core.security import ws_origin_ok
 from .session import VoiceSession
@@ -28,6 +30,7 @@ from .telephony import (
     acs_media_to_pcm,
     acs_metadata_frame,
     adapter_for,
+    caller_language,
     pcm_to_acs_media,
     sip_event,
     teams_event,
@@ -52,14 +55,14 @@ def upstream_factory(svc: Any, conv_id: str):
 
 
 class VoiceStart(BaseModel):
-    language: str = Field("en", max_length=8)
+    language: str | None = Field(None, max_length=8, description="Conversation language; omitted = the request locale")
     recording_consent: str = Field("granted", pattern="^(pending|granted|declined)$")
 
 
 class TextTurn(BaseModel):
     text: str = Field(min_length=1, max_length=600)
     conversation_id: str | None = None
-    language: str = Field("en", max_length=8)
+    language: str | None = Field(None, max_length=8, description="Conversation language; omitted = the request locale")
     mode: str = Field("auto", pattern="^(auto|realtime|pipeline)$")
     wait_s: float = Field(40, ge=5, le=60)
 
@@ -80,7 +83,7 @@ async def voice_config(request: Request) -> dict[str, Any]:
 @router.post("/api/voice/sessions")
 async def start(body: VoiceStart, request: Request) -> dict[str, Any]:
     svc = request.app.state.services
-    conv = await svc.orchestrator.start(channel="voice", language=body.language, recording_consent=body.recording_consent)
+    conv = await svc.orchestrator.start(channel="voice", language=body.language or i18n.current_locale(), recording_consent=body.recording_consent)
     return {"conversation_id": conv.id, "ws": f"/ws/voice/{conv.id}", "language": conv.language}
 
 
@@ -123,7 +126,7 @@ async def text_turn(body: TextTurn, request: Request) -> dict[str, Any]:
         raise HTTPException(503, {"error": "voice_busy", "message": "All demo voice lines are busy; try again in a moment."})
     conv_id = body.conversation_id
     if conv_id is None:
-        conv_id = (await svc.orchestrator.start(channel="voice", language=body.language, recording_consent="granted")).id
+        conv_id = (await svc.orchestrator.start(channel="voice", language=body.language or i18n.current_locale(), recording_consent="granted")).id
     sink = _Sink()
     session = VoiceSession(svc, conv_id, sink.json, sink.bytes, upstream_factory=upstream_factory(svc, conv_id), mode=body.mode)
     svc.ext["voice_active"] = svc.ext.get("voice_active", 0) + 1
@@ -165,7 +168,8 @@ async def pipeline_audio(request: Request, file: UploadFile = File(...), convers
         raise HTTPException(422, {"error": "no_speech", "message": "No speech was recognised."})
     res = await svc.orchestrator.handle_message(conversation_id, stt.text, source="voice-pipeline")
     reply = (res.get("message") or {}).get("text", "")
-    audio, mime = await svc.speech.synthesize(reply.replace("[K1]", ""), language=language)
+    spoken = reply.replace("[K1]", "")
+    audio, mime = await svc.speech.synthesize(speakable_pl(spoken) if language == "pl" else spoken, language=language)
     return {"transcript": stt.text, "reply": reply, "audio_b64": base64.b64encode(audio).decode(), "mime": mime, "status": res.get("status")}
 
 
@@ -240,6 +244,11 @@ def _machines(svc: Any) -> dict[str, CallMachine]:
     return svc.ext.setdefault("calls", {})
 
 
+def _caller_language(caller: str | None) -> str:
+    """Conversation language of an inbound call: Polish for Polish numbers (+48 / 0048, any provider notation), English otherwise (as before)."""
+    return caller_language(caller)
+
+
 async def apply_event(svc: Any, adapter: Any, ev: TelephonyEvent, base_url: str = "") -> dict[str, Any]:
     """Neutral event -> state machine -> native commands (rendered by the adapter) -> side effects on the conversation."""
     machines = _machines(svc)
@@ -252,7 +261,7 @@ async def apply_event(svc: Any, adapter: Any, ev: TelephonyEvent, base_url: str 
     svc.ext.setdefault("call_control", SimulatedCallControl()).execute(commands)
     for a in actions:
         if a.kind == "bind_voice_session":
-            conv = await svc.orchestrator.start(channel="voice", language="en", recording_consent="pending", tags=["telephony", adapter.provider])
+            conv = await svc.orchestrator.start(channel="voice", language=_caller_language(machine.caller), recording_consent="pending", tags=["telephony", adapter.provider])
             machine.conv_id = conv.id
         elif a.kind == "record_consent" and machine.conv_id:
             await svc.orchestrator.set_consent(machine.conv_id, a.params["recording"] == "granted")
@@ -303,11 +312,19 @@ class SimulateBody(BaseModel):
     scenario: str = Field("damaged_sofa", pattern="^(damaged_sofa|decline_consent|hangup_early|silent_consent|transfer)$")
     provider: str = Field("sip", pattern="^(sip|teams|acs)$")
     consent_digit: str | None = None
+    language: str = Field("en", pattern="^(en|pl)$", description="pl simulates a Polish caller (+48 number): the call is answered in Polish")
 
 
-def _script(provider: str, call_id: str, digit: str | None) -> list[tuple[str, dict[str, Any]]]:
+SIM_CALLERS = {"en": ("+4915550001234", "+49305550000"), "pl": ("+48225550190", "+48225550000")}
+SIM_UTTERANCES = {
+    "en": ("Hello, my sofa arrived damaged, order CH-100231.", "What is your return policy?"),
+    "pl": ("Dzień dobry, moja sofa dotarła uszkodzona, zamówienie CH-100350.", "Jakie są zasady zwrotów?"),
+}
+
+
+def _script(provider: str, call_id: str, digit: str | None, language: str = "en") -> list[tuple[str, dict[str, Any]]]:
     """(label, native event) sequence for the first four steps of a simulated inbound call; the fourth is the consent answer."""
-    caller, callee = "+4915550001234", "+49305550000"
+    caller, callee = SIM_CALLERS.get(language, SIM_CALLERS["en"])
     if provider == "acs":
         steps = [("IncomingCall", acs_event("IncomingCall", call_id, **{"from": {"rawId": f"4:{caller}"}, "to": {"rawId": f"4:{callee}"}, "incomingCallContext": "ctx-" + call_id})), ("CallConnected", acs_event("CallConnected", call_id)), ("PlayCompleted", acs_event("PlayCompleted", call_id))]
         steps.append(("RecognizeCompleted", acs_event("RecognizeCompleted", call_id, dtmfResult={"tones": [digit]})) if digit else ("RecognizeFailed", acs_event("RecognizeFailed", call_id)))
@@ -353,7 +370,7 @@ async def simulate_call(body: SimulateBody, request: Request) -> dict[str, Any]:
         return await feed(label, adapter.translate(raw))
 
     digit = body.consent_digit or {"decline_consent": "2", "silent_consent": None}.get(body.scenario, "1")
-    script = _script(body.provider, call_id, digit)
+    script = _script(body.provider, call_id, digit, body.language)
     for label, raw in script[:3]:
         await fire(label, raw)
     if body.scenario == "hangup_early":
@@ -368,7 +385,8 @@ async def simulate_call(body: SimulateBody, request: Request) -> dict[str, Any]:
             await session.start()
             await asyncio.wait_for(sink.done.wait(), timeout=40)
             sink.done.clear()
-            await session.feed_text("Hello, my sofa arrived damaged, order CH-100231." if body.scenario in ("damaged_sofa", "transfer") else "What is your return policy?")
+            damaged, policy = SIM_UTTERANCES.get(body.language, SIM_UTTERANCES["en"])
+            await session.feed_text(damaged if body.scenario in ("damaged_sofa", "transfer") else policy)
             await asyncio.wait_for(sink.done.wait(), timeout=40)
         except (TimeoutError, BudgetExceededError):
             pass

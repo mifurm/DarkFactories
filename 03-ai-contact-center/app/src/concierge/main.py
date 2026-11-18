@@ -10,11 +10,15 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .core import i18n
 from .core.ai.base import BudgetExceededError
 from .core.config import APP_NAME, APP_VERSION, STARTED_AT, Settings, load_settings
+from .core.errors import error_body, error_fields
 from .core.rbac import require
 from .core.registry import discover_features
 from .core.security import SecurityMiddleware
@@ -73,6 +77,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
 
     app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan, docs_url="/docs", redoc_url=None)
     app.add_middleware(SecurityMiddleware, settings=settings)
+    app.add_middleware(i18n.LocaleMiddleware)  # outermost: the request locale (?lang= > X-UI-Lang > Accept-Language > en) is known to every layer below
     # tests build the app without running lifespan; keep a handle either way
     if services is not None:
         services.registry = registry
@@ -80,12 +85,24 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
 
     @app.exception_handler(BudgetExceededError)
     async def _budget(_: Request, exc: BudgetExceededError) -> JSONResponse:
-        return JSONResponse(status_code=429, content={"error": "daily_ai_budget_exceeded", "message": str(exc), "cap_usd": exc.cap, "spent_usd": round(exc.spent, 4)})
+        fields = error_fields("daily_ai_budget_exceeded", fallback=str(exc))
+        return JSONResponse(status_code=429, content={"error": "daily_ai_budget_exceeded", **fields, "cap_usd": exc.cap, "spent_usd": round(exc.spent, 4)})
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        body = error_body(exc.status_code, exc.detail, request_id=getattr(request.state, "request_id", None))
+        return JSONResponse(status_code=exc.status_code, content=body, headers=getattr(exc, "headers", None))
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        problems = [{"field": ".".join(str(p) for p in e.get("loc", ()) if p != "body"), "message": str(e.get("msg", ""))[:200], "type": e.get("type", "")} for e in exc.errors()][:20]
+        body = {**error_body(422, {"error": "validation_error"}, request_id=getattr(request.state, "request_id", None)), "detail": jsonable_errors(exc), "errors": problems}
+        return JSONResponse(status_code=422, content=body)
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
         log.exception("unhandled error", extra={"path": request.url.path})
-        return JSONResponse(status_code=500, content={"error": "internal_error", "request_id": getattr(request.state, "request_id", "-")})
+        return JSONResponse(status_code=500, content={"error": "internal_error", **error_fields("internal_error"), "request_id": getattr(request.state, "request_id", "-")})
 
     def svc_of(request: Request) -> Services:
         return request.app.state.services
@@ -146,6 +163,10 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
             "features": len(svc.registry.features) if svc.registry else 0,
             "seed": {"status": svc.seed_state.get("status"), "finished": svc.seed_state.get("finished")},
             "daily_budget_usd": s.daily_budget_usd,
+            "languages": list(i18n.SUPPORTED),
+            "default_language": i18n.DEFAULT,
+            "language": i18n.current_locale(),
+            "language_names": i18n.NATIVE_NAMES,
             "synthetic_data": True,
             "simulated": ["PSTN telephony (no number, carrier or ACS resource: adapters for SIP to Realtime, Teams Phone Extensibility and ACS Call Automation (legacy) sit behind one interface and are exercised by a simulator)", "SMS/e-mail/WhatsApp delivery", "back-office (CRM/OMS) systems"],
         }
@@ -185,6 +206,11 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
 
 async def _noop_ping() -> dict[str, Any]:
     return {"ok": True}
+
+
+def jsonable_errors(exc: RequestValidationError) -> list[dict[str, Any]]:
+    """FastAPI's own `detail` list for validation errors (kept for backward compatibility), made JSON-safe."""
+    return [{"loc": list(e.get("loc", ())), "msg": str(e.get("msg", "")), "type": e.get("type", "")} for e in exc.errors()]
 
 
 async def _flusher(svc: Services) -> None:

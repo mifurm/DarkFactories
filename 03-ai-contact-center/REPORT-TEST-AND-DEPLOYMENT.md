@@ -28,6 +28,7 @@ Everything below was measured on 17–18 Nov 2026; numbers marked *(estimate)* a
 | Governance tags on the RG and **all 14 resources**; no setting changed by governance | verified (§3) |
 | Estimated idle cost | **≈ US$28 / month** (§10) |
 | PSTN telephony | **not provisioned** — simulated (§9) |
+| Polish localization (`pl`, deployed 18 Nov 2026) | backend suite **1,138 passed** (212 English + 926 Polish); real-model Polish pack **29 / 31 = 93.5 %** twice, **0 safety failures**; **live smoke 31 / 31** (21 English + `PL-1…PL-10`), live Polish eval subset **10 / 10**; details in §14 |
 
 ## 2. What was deployed (all keyless; one resource group)
 
@@ -215,3 +216,111 @@ app/.venv/bin/python scripts/capture_screens.py --base-url <live>            # -
 ```
 
 Screenshots (21 files, live app, synthetic data): `deck/assets/screens/01-customer-widget-chat.png` … `18-compliance-guard.png`.
+
+## 14. Polish localization (pl)
+
+Phase 1 adds **Polish** next to English (default stays English; every change is additive and the English output is byte-identical — proven by tests, see §14.2). The web part (UI dictionary,
+plural forms, formats, Polish E2E, screenshots in `deck/assets/screens-pl/`) is described in `app/web/src/i18n/README.md` and `app/PHASE1-fe-*.md`; this section covers the backend, content and AI behaviour.
+**Deployed to Azure and verified live** (build `20261118-131258`, Container Apps revision `ca-concierge-imsov4laqyzgs--0000006`, code-only redeploy, idempotent data upgrade) — the live results are in §14.4. §14.1–§14.3 describe the work as it was verified locally and on real models before the deployment.
+
+### 14.1 What is Polish
+
+| Area | Polish behaviour (all in `app/src/concierge`) |
+|---|---|
+| Locale contract | `?lang=` → `X-UI-Lang` → `Accept-Language` → `en`; `Content-Language`; SSE / WebSocket `?lang=`; error bodies keep `error` / `code` and localize `message` / `hint`; omitted conversation language follows the locale; message catalogs `en` = `pl` (382 keys, placeholder parity tested) |
+| Understanding / safety | Polish intents, sentiment, risk flags (with and without diacritics, ł/Ł-aware `fold`), language detection (pl vs cs/sk/ru/uk/en), PII: PESEL, NIP, REGON-9/14, dowód osobisty, NRB/IBAN (checksums, valid and invalid, inside sentences), Polish phones (+48, 0048, spaced, spoken digits), card/CVV; redaction before LLM, transcript, store, audit |
+| Conversation | AI disclosure + recording notice in Polish (chat greeting, voice, telephony prompt for +48 callers), formal register (Pan/Pani/Państwo), tool confirmations read back in PLN, OTP SMS, wrap-up / disposition / CRM note, e-mail, handoff package, Agent Assist, escalation reasons |
+| Back office | Polish-market customers CU-1009 … CU-1013 and orders CH-1003xx in **PLN** (InPost, DPD Polska, DHL), caps on the **EUR equivalent at the fixed demo rate 1 EUR = 4.30 PLN** (refund cap EUR 500 = 2 150,00 zł exactly OK, 2 150,01 zł → approval; step-up 1 720 zł; goodwill 215 zł; 90-day goodwill 430 zł), idempotent refunds; golden persona *Anna Kowalska, Warszawa — uszkodzona kanapa* |
+| Knowledge | 50 Polish articles (`<id>-pl`, same rules as the English ones), cross-language retrieval both ways, citations, "nie wiem → eskaluj" (knowledge-gap handoff), Polish-aware groundedness (stems; numbers, dates, slot lists, offers of the agent) |
+| Quality / compliance | Auto-QA in Polish with verified quotes as evidence, compliance guard for Polish promises („gwarantujemy zwrot 100 %”; 16 positive / 12 negative cases), Polish red-team pack (28 attacks, 0 false positives on benign Polish) |
+| Evaluation | Polish pack **31 scenarios** (22 scripted, 3 persona-simulated, 6 red-team); the regression gate fails for four deliberately broken prompts on `pl-gate`; `POST /api/kb/evalset/run?lang=pl` |
+| Voice | Realtime session with Polish instructions, `input_audio_transcription.language = "pl"`, strict word-for-word Polish opening (disclosure + "W czym mogę dziś pomóc?") and a relay check that repeats the disclosure once if the model skipped it; fallback STT → LLM → TTS with `pl-PL-ZofiaNeural` and amounts spoken as words |
+| Analytics / outbound | Idempotent Polish slice for VoC (Polish summaries and labels), supervisor (queue names, SLA reasons), WFM queues `general-pl` / `delivery-pl` in `Europe/Warsaw` with Polish public holidays; Polish outbound templates, `STOP` / `REZYGNUJĘ` opt-out (`POST /api/outbound/replies`), quiet hours 21:00–08:00 Warsaw time incl. DST |
+
+### 14.2 Local evidence (offline engine, no network)
+
+| Check | Result |
+|---|---|
+| `cd app && .venv/bin/python -m pytest --ignore=tests/e2e` | **1,138 passed** (212 English baseline unchanged + **926 new**: understanding 371, guard 173, PII / money / dates 143, knowledge / quality 121, voice / outbound 39, conversation 33, FE⇄BE contract 30, plain-text guard for LLM notes 12, voice source-marker regression 4). The first 443 were the build; the rest came from the independent linguistic QA — an adversarial corpus of 820 hand-written Polish utterances (+ 386 no-diacritics variants) that failed 31.6 % of its checks before the fixes (110 missed risks, 50 false positives, 92 sentiment errors, 57 PII leaks …) and passed 1,191 / 1,206 after the NLP fixes; the 15 remaining failures were guard-level (injection, human-handoff phrasings, masked profanity) and were then fixed in `engine/guard.py` (`test_pl_guard.py`), plus a Scunthorpe audit of ≈ 460 k words against the profanity / threat stems |
+| `.venv/bin/ruff check src tests` | clean (All checks passed) |
+| English regression | English history / WFM seed data byte-identical to the original generator (sha256 digests in `test_pl_contract`); English output of every localized endpoint unchanged; seeds idempotent, including the **upgrade of an already seeded repository** (Polish fields merged, no wipe, `HISTORY_VERSION` still `h4`) |
+| `scripts/eval_gate.py --suite pl-gate` (offline engine) | pack **31 / 31**, gate PASSED; `--broken remove_refund_cap`, `no_tools`, `always_escalate`, `no_citations` → BLOCKED (exit 1) |
+| Polish red-team pack (guard level) | 28 / 28 attacks blocked, 0 / 20 benign Polish messages blocked |
+
+### 14.3 Real-model verification — hybrid harness (`scripts/dev_hybrid.py`: real Azure AI, **in-memory** data, never the live Cosmos / Blob)
+
+| Check | Result |
+|---|---|
+| `dev_hybrid.py --check` | Entra token ok · `gpt-5.4-mini` answers in Polish · embeddings 512 d · **Language detection: `pl` 1.00** · **PII (`pl`): categories Email, PLNationalID (PESEL), Person** · Speech: `pl-PL-ZofiaNeural` TTS → fast transcription heard "Dzień dobry, tu concierge. Zwrot wynosi 1599 złotych." |
+| Polish evaluation pack, `gpt-5.4-mini` (31 scenarios) | run 1: **29 / 31 = 93.5 %** (resolution 0.968, accuracy 0.984, **policy 1.00, safety 1.00**, US$0.55); run 2 (after the first fixes): **29 / 31 = 93.5 %** (resolution 0.977, accuracy 0.952, **policy 1.00, safety 1.00**, US$0.55). Reports: `app/evidence/eval-pl-hybrid.json`, `eval-pl-hybrid-report.md` |
+| Subsets after the fixes | 6 / 6 (the previously failing scenarios and neighbours); the 10-scenario smoke subset 10 / 10 in three runs |
+| Smoke test (`--lang all`, hybrid) | **31 / 31**: 21 English / platform checks + 10 Polish steps; AI spend US$0.166 (English) + US$0.319 (Polish); `app/evidence/smoke-hybrid-all.md` |
+| Polish chat with a real refund | OTP → KB citation → confirmed refund through real tool calls, **1 599,00 zł** in the back-office timeline, exactly one refund; wrap-up in Polish, Auto-QA 78–92 / 100 with verified Polish quotes |
+| Polish red team (real model) | 6 red-team scenarios + persona injection + 3 live attacks (injection, "kierownik regionalny", prompt extraction): no state-changing tool, no prompt leak — **0 safety failures in every run** |
+| Polish realtime voice (text in → audio + transcript) | `gpt-realtime-2.1-mini`; first audio 0.43–1.13 s; after the final opening instruction the disclosure + formal question were spoken word for word in 8 of 8 runs (before: disclosure skipped in 1 of 5 runs, informal or garbled question in 4 of 5); Polish filler phrase in 5 of 5 runs after the language lock (English "Let me check." in 2 of 3 before) |
+
+Defects found **only** by the real models and fixed at the root cause (none by changing the evaluator):
+
+| Symptom (real model) | Root cause | Fix | Test |
+|---|---|---|---|
+| Correct answers replaced by "nie mogę tego potwierdzić…" (PL-19, PL-20, PL-10) and the conversation escalated | Groundedness: slot lists copied from tool results had mostly 2-digit numbers (dropped as tokens); "Nie mogę … / Mogę też …" sentences describe the agent, not policy; Azure Content Safety groundedness (English-tuned) agreed with the strict local word check | numbers of any length count as support; agent-capability / offer sentences are exempt from the *soft* word check; numbers, dates, absolutes ("bezpłatnie", "zawsze") are still verified; invented facts still caught | `test_pl_knowledge_quality` (real outputs as fixtures, invented facts still flagged) |
+| Wrap-up summary contained the English label "Outcome:" | English prompt wording | Polish prompt forbids English labels | read in the evidence run |
+| Realtime greeting without the AI disclosure, or "Cześć … dla Ciebie"; "Panie/Panie" | the model improvised the greeting; "Pan/Pani" was read literally | fixed word-for-word Polish opening, language lock, formal voice guide, **disclosure verified and repeated once if missing (all languages, audited as `voice.disclosure_enforced`)** | `test_pl_voice_outbound` (fake realtime server) |
+| Informal Polish in fallbacks ("Spróbuj…", "kolegę") | pre-existing strings | formal, gender-neutral wording | catalog / orchestrator tests |
+| PL-01 once escalated instead of booking the pickup after "Pierwszy termin mi pasuje." | later turns only see the texts, not the slot ids of the previous turn | Polish conversations get a prompt note with the slot ids last offered (until a booking happened) | `test_pl_conversation` — **not re-measured on the real model (AI budget spent)** |
+| LLM-written Polish hand-off note ended with the trigger code, "… kroków prawnych (legal_threat)" (found by the FE's Polish E2E on the live app) | the prompt carried `legal_threat`, `lookup_order:ok`, `agent_ai`; the model echoed them | Polish prompts carry the localized reason, noun phrases and speaker labels, forbid internal codes, and the answer is cleaned by `engine/plain_text.py` (hand-off and wrap-up; English untouched) | `test_pl_plain_text` (12); real `gpt-5.4-nano`: 5 / 5 notes without a code (US$0.002) |
+| The live Realtime model **read citation markers aloud** — English "this is based on [K1]" / "reference K3" (2 of 5 manual English calls), Polish "według artykułu [K1]" (PL-9 failed on it). Found only on the deployed app; the English smoke step failed in the same run for a different reason — its check looked for the literal "30 days" and the model said "30-day window" (check now accepts both) | rule 3 of the global prompt, the Polish language guide ("keep the citation markers [K1]") and the `search_knowledge` result note ("Cite as [K1]") all told the voice model to cite | voice calls get a final override instruction (`VOICE_NO_MARKERS`) and the voice variant of `search_knowledge` carries no `ref` keys and no "Cite as" note (chat keeps its citations) | `test_voice_no_markers` (4); live: **12 / 12** calls (6 English, 6 Polish) without a spoken marker, then smoke 31 / 31 |
+
+AI spend of the backend verification on real models: **≈ US$2.9** (cap US$3); the app's budget guard (`--budget`) was the hard limit of every process.
+
+### 14.4 Live (deployed) results
+
+Deployed with a code-only redeploy (`az acr build` + `az containerapp update`; no infrastructure change; `SEED_ON_START=1` ran the idempotent data upgrades on the live Cosmos DB in ≈ 90 s, nothing wiped). Final build `20261118-131258`, revision `ca-concierge-imsov4laqyzgs--0000006`.
+Final live run: `app/.venv/bin/python scripts/smoke_test.py --base-url <live> --expect-mode azure --lang all` → **31 / 31 PASS** (`app/evidence/smoke-live-all-pl.txt`, `.json`).
+
+| Step | Local hybrid | Live (Cosmos DB, final deployed build) |
+|---|---|---|
+| English smoke (21 checks, unchanged) | 21 / 21 | **21 / 21** — AI spend US$0.159 |
+| PL-1 locale contract, localized errors | PASS | **PASS** — `en` + `pl`, `Content-Language`, localized message / hint with stable codes |
+| PL-2 Polish content on the data store (idempotent upgrade of the live data) | PASS | **PASS** — 50 Polish KB articles; WFM queues `general-pl` / `delivery-pl` in `Europe/Warsaw`; VoC alert and examples in Polish |
+| PL-3 chat: damaged sofa → confirmed refund in PLN through real tool calls | PASS | **PASS** — 6 turns, real tools, refund PLN 1 599,00 |
+| PL-4 wrap-up, disposition, Auto-QA with Polish evidence | PASS | **PASS** — Auto-QA 97 / 100 with a verified Polish quote; disposition „Rozwiązano — zwrot środków zrealizowany” |
+| PL-5 RAG: citation + "nie wiem" | PASS | **PASS** — cites `returns-001-pl`; unanswerable → "nie wiem" + offer of a colleague; cross-language question answered |
+| PL-6 legal-threat warm handoff | PASS | **PASS** — `legal_threat` → escalations queue, Polish context package, accepted by AG-08, Agent Assist ready |
+| PL-7 Polish red team | PASS | **PASS** — injection, social engineering and prompt extraction executed no state-changing tool |
+| PL-8 Polish eval subset ≥ 90 % | 10 / 10 | **10 / 10 (100 %)** — policy 1.00, safety 1.00, US$0.22 |
+| PL-9 Polish realtime voice | PASS | **PASS** — `gpt-realtime-2.1-mini`, first audio 0.50 s, Polish transcript, no spoken source markers |
+| PL-10 AI spend of the Polish steps < US$1 | US$0.32 | **US$0.300** |
+
+A first live run (before the voice fix of §14.3) was 29 / 31 — exactly the two voice steps (the English voice path on a brittle "30 days" check, PL-9 on a spoken source marker) — and is not counted; every other step passed. Live chat time to first token: English 4.4 s, Polish 4.8 s (tool-calling turns; the known p95 limit of the English release applies).
+
+The UI is verified on the deployed app by the Polish Playwright journeys (`tests/e2e/test_journeys_pl.py`, `E2E_BASE_URL=<live>`): see §14.6.
+
+### 14.5 Known limits
+
+* The EUR ⇄ PLN rate is a **fixed demo constant** (4.30), not a market rate; caps are defined in EUR.
+* Static descriptive API texts (identity levels, metric definitions, SLO notes, tool descriptions, retention text) remain English in the API; the web dictionary translates them.
+* Real-model runs vary: two runs of the same pack failed two *different* scenarios each (≈ 6 %); the last two root-cause fixes were verified by unit tests only (AI budget of the verification was used up).
+* Polish voice quality depends on `gpt-realtime-2.1-mini` (occasionally generic answers, "Pan/Pani" read literally); the relay enforces the disclosure and the language, not the model's wording.
+* Offline retrieval (hashed embeddings) misses one Polish question of the 26-question retrieval set (25 / 26 citation accuracy); cross-language retrieval on real embeddings is exercised by the smoke step PL-5 and the eval pack, not measured as a separate recall figure.
+* Polish legal / consumer-law content in the KB is demo-grade, not legal advice. PSTN remains simulated (a +48 caller number selects the Polish prompt in the simulator).
+
+### 14.6 Polish Playwright journeys on the deployed app
+
+`E2E_BASE_URL=https://ca-concierge-imsov4laqyzgs… E2E_RESET_BACKOFFICE=1 .venv/bin/python -m pytest tests/e2e/test_journeys_pl.py -o addopts="" -q` against the deployed build `20261118-131258` → **54 passed** in 10 min 43 s, AI spend ≈ US$0.6.
+They cover the widget chat with a refund and a handoff, the voice page (text path, Polish disclosure and RODO notice in the caption), supervisor, QA workbench, VoC, WFM, evaluation harness (Polish smoke subset and a gate that must block a broken prompt), KB admin and the ROI / ACR calculator,
+and on every route and tab: no English leftovers (text, `placeholder`, `aria-label`, `title`, chart text), no raw identifiers, `window.__i18nMissing` empty, no overflow or clipping, `pl-PL` formats, console clean. The 22 Polish screenshots in `deck/assets/screens-pl/` were captured in this run (badge „tryb: azure”).
+The English journeys (27) pass on the offline server; the English behaviour on Azure is the 21 / 21 live smoke.
+
+What running them against the real app found (offline never shows it): identifiers that only azure mode sends (`azure_prompt_shields`, summary source `template`, QA scorer `rules+llm`, readiness-check names, provider ids …) are now in the Polish dictionary, guarded by a unit test that parses the backend registries (`backend-enums.test.ts`);
+a typed question that reaches the live Realtime model while it is still speaking the opening disclosure is **dropped** (the journey now waits for the disclosure caption and for the *listening* state, then asks, and asks once more if no answer caption follows); a refund can need several confirmation cards on the real model (the journey loops until the refund exists on the CRM timeline).
+The suites take one timeout knob, `E2E_AI_TIMEOUT_MS` (30 s offline, 120 s when `E2E_BASE_URL` is set), and assert model-written text by pattern, never by exact sentence.
+
+### 14.7 Reproduce
+
+```bash
+cd app && .venv/bin/ruff check src tests && .venv/bin/python -m pytest --ignore=tests/e2e                    # 1,138 tests
+.venv/bin/python ../scripts/eval_gate.py --suite pl-gate && .venv/bin/python ../scripts/eval_gate.py --suite pl-gate --broken no_citations   # exit 0 / exit 1
+.venv/bin/python ../scripts/dev_hybrid.py --check                                                           # real AI probes (a few cents)
+.venv/bin/python ../scripts/dev_hybrid.py &   &&   .venv/bin/python ../scripts/smoke_test.py --base-url http://127.0.0.1:8103 --expect-mode hybrid --lang all
+```

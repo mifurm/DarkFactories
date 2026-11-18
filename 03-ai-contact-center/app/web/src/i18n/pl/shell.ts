@@ -1,0 +1,57 @@
+import type { Dict } from '../types'
+
+/** App shell, shared UI kit, API client messages. */
+const shell: Partial<Dict> = {
+  t: {
+    '{page} is not available to the “{role}” role': 'Strona „{page}” nie jest dostępna dla roli „{role}”',
+    'Use the role switcher in the header to act as {roles} (demo role switcher; API enforcement is covered by CC-21).': 'Użyj przełącznika roli w\u00a0nagłówku, aby działać jako: {roles} (przełącznik ról służy wyłącznie do demonstracji; uprawnienia egzekwuje API — zob. CC-21).',
+    Main: 'Nawigacja główna',
+    'AI Contact Center · Contoso Home': 'Centrum kontaktu AI · Contoso Home',
+    'Skip to content': 'Przejdź do treści',
+    Navigation: 'Nawigacja',
+    'Close navigation': 'Zamknij nawigację',
+    'Open navigation': 'Otwórz nawigację',
+    'Contoso Home Retail is fictional; all data is synthetic; PSTN telephony and SMS/e-mail delivery are simulated.': 'Contoso Home Retail to firma fikcyjna; wszystkie dane są syntetyczne, a\u00a0telefonia PSTN oraz wysyłka SMS i\u00a0e-maili są symulowane.',
+    'Synthetic data · simulated environment': 'Dane syntetyczne · środowisko symulowane',
+    'LLM: {llm} · store: {store} · region {region}': 'LLM: {llm} · magazyn danych: {store} · region {region}',
+    'mode: {mode}': 'tryb: {mode}',
+    'Daily AI budget (fails closed when exhausted)': 'Dzienny budżet AI (po jego wyczerpaniu wywołania są blokowane)',
+    'AI spend today': 'Wydatki na AI dziś',
+    'Interface language': 'Język interfejsu',
+    'Acting as': 'Działam jako',
+    'Demo role': 'Rola demonstracyjna',
+    'Synthetic data only — “Contoso Home Retail” is fictional. PSTN telephony and SMS/e-mail/WhatsApp delivery are simulated; Azure OpenAI, Speech, Language, Content Safety and Cosmos DB are real in azure mode.': 'Wyłącznie dane syntetyczne — „Contoso Home Retail” to firma fikcyjna. Telefonia PSTN oraz wysyłka SMS, e-maili i\u00a0wiadomości WhatsApp są symulowane; Azure OpenAI, Speech, Language, Content Safety i\u00a0Cosmos DB są rzeczywiste w\u00a0trybie azure.',
+    'v{version} · build {build}': 'v{version} · kompilacja {build}',
+    'Page not found.': 'Nie znaleziono strony.',
+    'Loading…': 'Ładowanie…',
+    Retry: 'Ponów',
+    'No data': 'Brak danych',
+    Progress: 'Postęp',
+    'Concierge · AI Contact Center': 'Concierge · Centrum kontaktu AI',
+    'Concierge - AI-first contact center on Azure (synthetic-data reference implementation)': 'Concierge — centrum kontaktu oparte na AI w\u00a0Azure (implementacja referencyjna na danych syntetycznych)',
+    'Invalid request ({fields})': 'Nieprawidłowe żądanie ({fields})',
+    'Request failed (HTTP {status})': 'Żądanie nie powiodło się (HTTP {status})',
+    'Start': 'Start',
+    'Customer experience': 'Obsługa klienta',
+    'Human collaboration': 'Współpraca z konsultantami',
+    'Quality & compliance': 'Jakość i zgodność',
+    Insights: 'Analizy',
+    Operations: 'Operacje',
+    LLMOps: 'LLMOps',
+    Platform: 'Platforma',
+  },
+  k: {
+    role: { customer: 'klient', agent: 'konsultant', supervisor: 'supervisor', qa: 'QA', wfm: 'WFM', admin: 'administrator', auditor: 'audytor' },
+    mode: { azure: 'azure', offline: 'offline' },
+    budgetStatus: { ok: 'w normie', warning: 'ostrzeżenie', exhausted: 'wyczerpany' },
+    error: {
+      session_not_found: 'Nieznana lub wygasła sesja.',
+      conversation_closed: 'Ta rozmowa została zakończona.',
+      rate_limited: 'Zbyt wiele żądań — proszę zwolnić.',
+      payload_too_large: 'Wiadomość jest zbyt duża.',
+      internal_error: 'Wystąpił błąd po stronie serwera.',
+    },
+  },
+}
+
+export default shell

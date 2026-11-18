@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from ...core.rbac import Actor, require
 from ...core.registry import EPIC_A, FeatureInfo
+from ...engine import plan_text
 from ...engine.models import now
 from ...engine.tools import ToolContext
 
@@ -76,10 +77,11 @@ async def decide(approval_id: str, body: DecisionBody, request: Request, actor: 
             else:
                 out = await svc.tools.execute(ctx, "goodwill_credit", {"amount": appr["amount"], "reason": args.get("reason", "approved goodwill"), "order_id": appr["order_id"]})
             result = {"status": out.status, **out.data}
-            conv.add("system_notice", f"A specialist approved the {appr['kind']} of EUR {appr['amount']:.2f}." if out.status in ("ok", "replayed") else f"The approval could not be completed: {out.data.get('error')}", lang=conv.language, author=actor.user, flags=["approval"])
+            done = out.status in ("ok", "replayed")
+            conv.add("system_notice", plan_text.approval_notice(conv.language, approved=done, kind=appr["kind"], amount=appr["amount"], currency=appr.get("currency", "EUR"), error=None if done else str(out.data.get("error"))), lang=conv.language, author=actor.user, flags=["approval"])
             await svc.store.save(conv)
     elif conv is not None:
-        conv.add("system_notice", f"The {appr['kind']} request of EUR {appr['amount']:.2f} was declined by a specialist.", lang=conv.language, author=actor.user, flags=["approval"])
+        conv.add("system_notice", plan_text.approval_notice(conv.language, approved=False, kind=appr["kind"], amount=appr["amount"], currency=appr.get("currency", "EUR")), lang=conv.language, author=actor.user, flags=["approval"])
         await svc.store.save(conv)
     appr.update({"status": "approved" if body.approve else "rejected", "decided_by": actor.user, "decided_at": now(), "note": body.note, "result": result})
     await svc.repo.put("approvals", appr)

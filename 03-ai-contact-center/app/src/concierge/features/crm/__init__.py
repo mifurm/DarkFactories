@@ -9,6 +9,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from ...core import i18n
+from ...core.money import order_currency
 from ...core.rbac import Actor, require
 from ...core.redaction import mask_email, mask_phone
 from ...core.registry import EPIC_E, FeatureInfo
@@ -41,6 +43,12 @@ def _view(cust: dict[str, Any], actor: Actor) -> dict[str, Any]:
     keep = {k: cust.get(k) for k in ("id", "first_name", "last_name", "name", "email", "phone", "language", "market", "tier", "vulnerable", "address", "marketing_consent")}
     keep["name"] = keep.get("name") or f"{keep.get('first_name', '')} {keep.get('last_name', '')}".strip()
     return keep if actor.can("crm.read") else _mask(keep)
+
+
+def _note(cust: dict[str, Any]) -> str | None:
+    """The seeded demo-persona note is rendered in the request locale (stable key `crm.note.<customer id>`); any other note is shown as stored."""
+    key = f"crm.note.{cust['id']}"
+    return i18n.msg(key) if cust.get("demo") and i18n.has(key) else cust.get("note")
 
 
 @router.get("/connectors")
@@ -89,7 +97,7 @@ async def search(request: Request, q: str = "", actor: Actor = Depends(require("
         hay = f"{c['id']} {c.get('name', '')} {c['email']} {c['market']}".lower()
         if not needle or needle in hay or (len(digits) >= 4 and digits in "".join(ch for ch in c["phone"] if ch.isdigit())):
             v = _view(c, actor)
-            rows.append({"id": c["id"], "name": v["name"], "tier": c["tier"], "market": c["market"], "language": c["language"], "email": v["email"], "city": (c.get("address") or {}).get("city"), "vulnerable": bool(c.get("vulnerable")), "note": c.get("note")})
+            rows.append({"id": c["id"], "name": v["name"], "tier": c["tier"], "market": c["market"], "language": c["language"], "email": v["email"], "city": (c.get("address") or {}).get("city"), "vulnerable": bool(c.get("vulnerable")), "note": _note(c)})
         if len(rows) >= 25:
             break
     return rows
@@ -118,7 +126,7 @@ async def customer_360(customer_id: str, request: Request, reveal: str | None = 
     await svc.access_audit.log("crm.customer_viewed", actor=f"{actor.role}:{actor.user}", resource=customer_id, detail={"masked": bool(view.get("masked"))})
     sent = [i["sentiment"] for i in interactions]
     return {
-        "customer": view, "orders": [{"id": o["id"], "status": o["status"], "total": o.get("total"), "placed_at": o.get("placed_at"), "items": [i["name"] if isinstance(i, dict) else i for i in o.get("items", [])][:3]} for o in orders],
+        "customer": view, "orders": [{"id": o["id"], "status": o["status"], "total": o.get("total"), "currency": order_currency(o), "placed_at": o.get("placed_at"), "items": [i["name"] if isinstance(i, dict) else i for i in o.get("items", [])][:3]} for o in orders],
         "timeline": timeline[:120], "stats": {"orders": len(orders), "interactions": len(interactions), "ai_interactions": sum(1 for i in interactions if i["ai"]), "avg_sentiment": round(sum(sent) / len(sent), 2) if sent else None, "last_contact": interactions[0]["ts"] if interactions else None, "generated_at": time.time()},
         "connector": svc.ext["crm"].name, "masking": "full" if actor.can("crm.read") else "masked (role has no PII access)",
     }  # fmt: skip

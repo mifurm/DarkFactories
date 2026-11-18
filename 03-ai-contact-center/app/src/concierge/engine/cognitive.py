@@ -12,13 +12,14 @@ from typing import Any
 from ..core.ai.base import PiiEntity, TranscriptResult
 from ..core.langid import detect_language
 from ..core.redaction import redact
+from ..core.textutil import fold
 from .guard import detect_injection, toxicity_rules
 
 _TOKEN = re.compile(r"[\w€$%.,-]+", re.UNICODE)
 _STOP = frozenset(
     ["a", "an", "the", "and", "or", "of", "to", "in", "on", "at", "for", "with", "is", "are", "was", "were", "be", "been", "it", "this", "that", "these", "those", "i", "you", "we", "they", "he", "she", "my", "your", "our", "will", "can", "may", "would", "should", "please", "we'll", "i'll", "you'll", "it's", "that's", "there", "their", "them", "us", "as", "by", "from", "if", "so", "but", "not", "no", "yes", "do", "does", "did", "have", "has", "had", "more", "any", "all", "also", "just", "then", "than"]
 )
-_NUM = re.compile(r"\d+(?:[.,]\d+)?")
+_NUM = re.compile(r"\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?!\d)(?:[.,]\d+)?|\d+(?:[.,]\d+)?")  # 1 599,00 (Polish grouping) or 379.00
 _DATE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)|(?<![\d.])(\d{1,2})\.(\d{1,2})\.(?:\d{2,4})?(?!\d)")
 _TIME = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?!\d)")
 _WINDOW = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})\s*[-–—]\s*(\d{1,2}):(\d{2})(?!\d)")
@@ -49,8 +50,20 @@ def _without_dates_and_times(text: str) -> str:
 
 
 _ABSOLUTE = re.compile(r"\b(lifetime|free of charge|no questions asked|for all customers|unlimited|always|never|guaranteed|no matter what)\b", re.IGNORECASE)
+# Polish absolute claims, matched on diacritic-folded text and compared by their stem (gwarantowany / gwarantowanego)
+_ABSOLUTE_PL = re.compile(r"\b(gwarantow\w*|gwarantuj\w*|dozywotn\w*|bez zadnych pytan|bez wzgledu na wszystko|dla wszystkich klientow|bez ograniczen|za darmo|bezplatn\w*)")
+_FREE_SOURCE = re.compile(r"\bfree\b|no charge|no cost|kostenlos|gratuit|bezplatn|za darmo|bez oplat")
 # Apologies, thanks and "reply with ..." prompts carry no policy claim; their numbers and absolutes are still checked.
 _COURTESY = re.compile(r"^\W*(?:i['’]?m sorry|i am sorry|sorry|my apologies|i apologi[sz]e|thank|thanks|please|if you(?:['’]d| would)? (?:like|prefer|want|wish)|would you like|let me know|just (?:let|reply|tell)|reply with|feel free|of course|certainly)\b", re.IGNORECASE)
+# Polish counterpart, matched on diacritic-folded text: thanks, apologies, "please let me know", offers of further help, and what the agent itself
+# can or cannot do / will do next ("I can pass this to a colleague", "I can't delete that myself", "I'll check") - statements about the agent, not claims about policy
+_COURTESY_PL = re.compile(
+    r"^\W*(?:dziekuj\w*|dzieki|bardzo prosze|prosze\b|przepraszam|przykro mi|rozumiem|oczywiscie|chetnie|z przyjemnoscia|jesli (?:chce|pan|pani|mozna)|czy (?:chcialby|chcialaby|mam|moge|mozna|zyczy)|w czym jeszcze|milego dnia|do widzenia"
+    r"|(?:niestety )?nie moge\b|(?:(?:tez|takze|rowniez|od razu|chetnie|oczywiscie|natomiast|jednak) )*moge\b"
+    r"|(?:zaraz |od razu )?(?:przekaze|polacze|sprawdze|zapytam|zaloze|zarezerwuje|zlece|ustawie|poprosze|zglosze|zarejestruje|wysle))\b"
+)
+# Words that carry no fact in a Polish answer (connectives / fillers); only the groundedness check uses them, retrieval keeps its own stop list
+_GROUND_STOP_PL = frozenset(["albo", "oraz", "wiec", "jednak", "rowniez", "takze", "wtedy", "teraz", "zaraz", "razu", "moge", "mozemy", "prosze"])
 
 
 def _stem(tok: str) -> str:
@@ -64,28 +77,43 @@ def _content_tokens(text: str) -> list[str]:
     return [_stem(t.lower().strip(".,")) for t in _TOKEN.findall(text) if t.lower() not in _STOP and len(t) > 2]
 
 
+def _content_tokens_pl(text: str) -> list[str]:
+    """Polish content words, diacritic-folded and stemmed the way the Polish retrieval does it (roboczego / roboczych -> robocz); numbers of any
+    length count (a slot list "20.11 08:00-12:00" is as supported as the tool result it repeats - the number check verifies their values)."""
+    from .kb import _STOP_PL, _stem_pl
+
+    return [_stem_pl(t) for t in re.findall(r"[a-z0-9]+", fold(text)) if t not in _STOP_PL and t not in _GROUND_STOP_PL and (len(t) > 2 or t.isdigit())]
+
+
+def mostly_polish(texts: list[str]) -> bool:
+    lang, conf = detect_language(" ".join(texts)[:4000], default="en")
+    return lang == "pl" and conf >= 0.5
+
+
 def _num(n: str) -> float:
-    return round(float(n.replace(",", ".")), 2)
+    return round(float(re.sub(r"[ \u00a0\u202f]", "", n).replace(",", ".")), 2)
 
 
-def lexical_groundedness(answer: str, sources: list[str], check_words: bool = True) -> dict[str, Any]:
+def lexical_groundedness(answer: str, sources: list[str], check_words: bool = True, lang: str | None = None) -> dict[str, Any]:
     """Sentence-level support check: numbers must appear in sources (numerically) and >=55 % of content words must be supported
-    (the word check is skipped when answer and sources are in different languages)."""
+    (the word check is skipped when answer and sources are in different languages; `lang="pl"` compares Polish stems)."""
+    tokenize = _content_tokens_pl if lang == "pl" else _content_tokens
     src_text = " ".join(sources)
-    src_tokens = set(_content_tokens(src_text))
+    src_tokens = set(tokenize(src_text))
     src_numbers = {_num(n) for n in _NUM.findall(src_text)}
     for m in _WINDOW.finditer(src_text):  # the length of a time window (08:00-12:00 -> 4 hours) is a supported fact
         hours = (int(m.group(3)) * 60 + int(m.group(4)) - int(m.group(1)) * 60 - int(m.group(2))) / 60
         if hours > 0:
             src_numbers.add(round(hours, 2))
     src_dates, src_times = _dates(src_text), _times(src_text)
+    src_folded = fold(src_text)
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", answer) if s.strip()]
     ungrounded: list[dict[str, str]] = []
     checked = 0
     for s in sentences:
         if s.endswith("?"):
             continue
-        toks = _content_tokens(s)
+        toks = tokenize(s)
         nums = {_num(n) for n in _NUM.findall(_without_dates_and_times(s))}
         dates, times = _dates(s), _times(s)
         if len(toks) < 4 and not nums and not dates and not times:
@@ -96,7 +124,12 @@ def lexical_groundedness(answer: str, sources: list[str], check_words: bool = Tr
         bad_schedule = {d for d in dates if src_dates and d not in src_dates} | {t for t in times if src_times and t not in src_times}
         absolutes = {m.group(0).lower() for m in _ABSOLUTE.finditer(s)} if check_words else set()
         unsupported_absolute = {a for a in absolutes if a not in src_text.lower() and not (a == "free of charge" and re.search(r"\bfree\b|no charge|no cost|kostenlos|gratuit", src_text, re.IGNORECASE))}
-        weak = check_words and not _COURTESY.match(s) and support < 0.55
+        for m in _ABSOLUTE_PL.finditer(fold(s)):  # applied to every answer: a Polish promise must be backed by the sources whatever the check_words setting
+            claim = m.group(0)
+            root = claim if " " in claim else claim[:7]
+            if root not in src_folded and not (root in ("bezplat", "za darmo") and _FREE_SOURCE.search(src_folded)):
+                unsupported_absolute.add(claim)
+        weak = check_words and not _COURTESY.match(s) and not (lang == "pl" and _COURTESY_PL.match(fold(s))) and support < 0.55
         if bad_numbers or bad_schedule or unsupported_absolute or weak:
             ungrounded.append({"text": s, "hard": bool(bad_numbers or bad_schedule or unsupported_absolute)})
     pct = len(ungrounded) / checked if checked else 0.0
@@ -135,7 +168,8 @@ class OfflineCognitive:
         return toxicity_rules(text)
 
     async def groundedness(self, query: str, answer: str, sources: list[str], language: str = "en") -> dict[str, Any]:
-        return lexical_groundedness(answer, sources, check_words=language == "en")
+        polish = language == "pl" and mostly_polish(sources)  # a Polish answer is compared word by word only with Polish sources (a cross-language answer cannot be)
+        return lexical_groundedness(answer, sources, check_words=language == "en" or polish, lang="pl" if polish else None)
 
     async def ping(self) -> dict[str, Any]:
         return {"ok": True, "provider": "offline-rules"}

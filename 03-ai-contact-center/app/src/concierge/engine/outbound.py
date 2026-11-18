@@ -3,10 +3,14 @@ Pure functions: every decision returns a record with the reason and the consent 
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
+
+from ..core import i18n
+from ..core.textutil import fold
 
 TZ = {"DE": "Europe/Berlin", "UK": "Europe/London", "FR": "Europe/Paris", "ES": "Europe/Madrid", "IT": "Europe/Rome", "NL": "Europe/Amsterdam", "PL": "Europe/Warsaw", "PT": "Europe/Lisbon"}
 CHANNEL_ORDER = ["sms", "email", "voice"]
@@ -17,7 +21,7 @@ AI_NOTE = {
     "it": "Questo è un messaggio automatico di Concierge, l'assistente IA di Contoso Home.", "nl": "Dit is een automatisch bericht van Concierge, de AI-assistent van Contoso Home.",
     "pl": "To automatyczna wiadomość od Concierge, asystenta AI Contoso Home.", "pt": "Esta é uma mensagem automática do Concierge, o assistente de IA da Contoso Home.",
 }  # fmt: skip
-STOP = {"en": "Reply STOP to opt out.", "de": "Antworten Sie STOP zum Abmelden.", "fr": "Répondez STOP pour vous désabonner.", "es": "Responda STOP para darse de baja.", "it": "Rispondi STOP per annullare l'iscrizione.", "nl": "Antwoord STOP om u af te melden.", "pl": "Odpowiedz STOP, aby zrezygnować.", "pt": "Responda STOP para cancelar."}  # fmt: skip
+STOP = {"en": "Reply STOP to opt out.", "de": "Antworten Sie STOP zum Abmelden.", "fr": "Répondez STOP pour vous désabonner.", "es": "Responda STOP para darse de baja.", "it": "Rispondi STOP per annullare l'iscrizione.", "nl": "Antwoord STOP om u af te melden.", "pl": "Aby zrezygnować z powiadomień, prosimy o odpowiedź: STOP lub REZYGNUJĘ.", "pt": "Responda STOP para cancelar."}  # fmt: skip
 TEMPLATES = {
     "shipment_delayed": {
         "en": "Hello {first_name}, your order {order_id} is delayed at {carrier}. New estimated delivery: {eta}. Reply here to reschedule, ask a question or request a callback.",
@@ -26,7 +30,7 @@ TEMPLATES = {
         "es": "Hola {first_name}, su pedido {order_id} se retrasa en {carrier}. Nueva entrega estimada: {eta}. Responda aquí para reprogramar, preguntar o solicitar una llamada.",
         "it": "Ciao {first_name}, il tuo ordine {order_id} è in ritardo presso {carrier}. Nuova consegna stimata: {eta}. Rispondi qui per riprogrammare, fare una domanda o richiedere una chiamata.",
         "nl": "Hallo {first_name}, uw bestelling {order_id} is vertraagd bij {carrier}. Nieuwe verwachte levering: {eta}. Antwoord hier om te verplaatsen, een vraag te stellen of een terugbelverzoek te doen.",
-        "pl": "Dzień dobry {first_name}, Państwa zamówienie {order_id} jest opóźnione u przewoźnika {carrier}. Nowy przewidywany termin dostawy: {eta}. Odpowiedz tutaj, aby zmienić termin, zadać pytanie lub poprosić o telefon.",
+        "pl": "Dzień dobry, Państwa zamówienie {order_id} jest opóźnione u przewoźnika {carrier}. Nowy przewidywany termin dostawy: {eta}. Aby zmienić termin, zadać pytanie lub poprosić o oddzwonienie, wystarczy odpowiedzieć na tę wiadomość.",
         "pt": "Olá {first_name}, a sua encomenda {order_id} está atrasada na {carrier}. Nova entrega estimada: {eta}. Responda aqui para reagendar, colocar uma questão ou pedir que lhe liguemos.",
     },
     "appointment_reminder": {
@@ -36,7 +40,7 @@ TEMPLATES = {
         "es": "Hola {first_name}, recordatorio: su cita ({kind}) del pedido {order_id} es el {eta} ({window}). Responda aquí para cambiarla o solicitar una llamada.",
         "it": "Ciao {first_name}, promemoria: il tuo appuntamento ({kind}) per l'ordine {order_id} è il {eta} ({window}). Rispondi qui per modificarlo o richiedere una chiamata.",
         "nl": "Hallo {first_name}, herinnering: uw afspraak ({kind}) voor bestelling {order_id} is op {eta} ({window}). Antwoord hier om te wijzigen of een terugbelverzoek te doen.",
-        "pl": "Dzień dobry {first_name}, przypomnienie: wizyta ({kind}) dla zamówienia {order_id} odbędzie się {eta} ({window}). Odpowiedz tutaj, aby ją zmienić lub poprosić o telefon.",
+        "pl": "Dzień dobry, przypominamy: {kind} zamówienia {order_id} zaplanowano na {eta} ({window}). Aby zmienić termin lub poprosić o oddzwonienie, wystarczy odpowiedzieć na tę wiadomość.",
         "pt": "Olá {first_name}, lembrete: a sua marcação ({kind}) da encomenda {order_id} é a {eta} ({window}). Responda aqui para alterar ou pedir que lhe liguemos.",
     },
 }  # fmt: skip
@@ -87,45 +91,92 @@ class Decision:
     scheduled_for: float | None = None
     consent: dict[str, Any] | None = None
     checks: list[str] = field(default_factory=list)
+    code: str = ""  # stable reason code + params: the reason text is re-rendered in the request locale (reason_text)
+    params: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"decision": self.decision, "reason": self.reason, "channel": self.channel, "scheduled_for": self.scheduled_for, "consent_evidence": self.consent, "checks": self.checks}
+        return {"decision": self.decision, "reason": self.reason, "channel": self.channel, "scheduled_for": self.scheduled_for, "consent_evidence": self.consent, "checks": self.checks, "reason_code": self.code, "reason_params": self.params}
+
+
+def reason_text(code: str, params: dict[str, Any], lang: str | None = None) -> str:
+    return i18n.msg(f"ob.reason.{code}", lang, **params)
+
+
+def _decision(decision: str, code: str, params: dict[str, Any] | None = None, channel: str | None = None, **kw: Any) -> Decision:
+    p = params or {}
+    return Decision(decision, reason_text(code, p, "en"), channel, code=code, params=p, **kw)
+
+
+def localize_decision(doc: dict[str, Any], lang: str | None = None) -> dict[str, Any]:
+    """Outreach decision with the reason rendered in `lang` (records written before reason codes existed keep their text)."""
+    code = doc.get("reason_code")
+    if not code or not i18n.has(f"ob.reason.{code}"):
+        return doc
+    return {**doc, "reason": reason_text(code, doc.get("reason_params") or {}, lang)}
 
 
 def decide(*, market: str, prefs: dict[str, Any] | None, campaign: dict[str, Any], kill_switch: bool, now_ts: float, contacts_7d: int, sent_today: int) -> Decision:
     """Ordered checks; the first failing check decides. Every outcome carries the evidence used."""
     checks: list[str] = []
     if kill_switch:
-        return Decision("suppressed", "global outbound kill-switch is on", checks=["kill_switch:on"])
+        return _decision("suppressed", "kill_switch", checks=["kill_switch:on"])
     checks.append("kill_switch:off")
     if campaign.get("state") != "active":
-        return Decision("suppressed", f"campaign is {campaign.get('state')}", checks=[*checks, f"campaign:{campaign.get('state')}"])
+        return _decision("suppressed", "campaign_state", {"state": campaign.get("state")}, checks=[*checks, f"campaign:{campaign.get('state')}"])
     checks.append("campaign:active")
     if not prefs:
-        return Decision("suppressed", "no contact preferences on file (no consent)", checks=[*checks, "prefs:none"])
+        return _decision("suppressed", "no_prefs", checks=[*checks, "prefs:none"])
     opt = prefs.get("opt_out") or {}
     if opt.get("all"):
-        return Decision("suppressed", "customer opted out of all outbound contact", consent={"opt_out": opt}, checks=[*checks, "opt_out:all"])
+        return _decision("suppressed", "opt_out_all", consent={"opt_out": opt}, checks=[*checks, "opt_out:all"])
     checks.append("opt_out:none")
     channel, evidence = pick_channel(prefs)
     if channel is None:
-        return Decision("suppressed", "no valid consent for any outbound channel", checks=[*checks, "consent:none"])
+        return _decision("suppressed", "no_consent", checks=[*checks, "consent:none"])
     checks.append(f"consent:{channel}")
     caps = campaign.get("caps", {})
     if contacts_7d >= caps.get("per_customer_7d", 2):
-        return Decision("suppressed", f"frequency cap reached ({contacts_7d} outbound contacts in 7 days, cap {caps.get('per_customer_7d', 2)})", channel, consent=evidence, checks=[*checks, "frequency:cap"])
+        return _decision("suppressed", "frequency_cap", {"count": contacts_7d, "cap": caps.get("per_customer_7d", 2)}, channel, consent=evidence, checks=[*checks, "frequency:cap"])
     checks.append("frequency:ok")
     q = campaign.get("quiet_hours", {"start": 21, "end": 8})
     if in_quiet_hours(now_ts, market, q["start"], q["end"]):
         when = next_window(now_ts, market, q["start"], q["end"])
-        return Decision("deferred", f"quiet hours in the recipient's time zone ({TZ.get(market)}, {local_time(now_ts, market):%H:%M} local)", channel, scheduled_for=when, consent=evidence, checks=[*checks, "quiet_hours:deferred"])
+        return _decision("deferred", "quiet_hours", {"tz": TZ.get(market), "local": f"{local_time(now_ts, market):%H:%M}"}, channel, scheduled_for=when, consent=evidence, checks=[*checks, "quiet_hours:deferred"])
     checks.append("quiet_hours:ok")
     if sent_today >= caps.get("per_day", 150):
-        return Decision("deferred", "campaign daily cap reached", channel, scheduled_for=now_ts + 86400, consent=evidence, checks=[*checks, "daily_cap:deferred"])
-    return Decision("sent", "all checks passed", channel, consent=evidence, checks=[*checks, "daily_cap:ok"])
+        return _decision("deferred", "daily_cap", None, channel, scheduled_for=now_ts + 86400, consent=evidence, checks=[*checks, "daily_cap:deferred"])
+    return _decision("sent", "all_ok", None, channel, consent=evidence, checks=[*checks, "daily_cap:ok"])
 
 
 def render(trigger: str, lang: str, **slots: Any) -> str:
     lang = lang if lang in AI_NOTE else "en"
-    body = TEMPLATES[trigger][lang].format(**slots)
+    body = TEMPLATES[trigger][lang].format(**localize_slots(lang, slots))
     return f"{body} {AI_NOTE[lang]} {STOP[lang]}"
+
+
+def localize_slots(lang: str, slots: dict[str, Any]) -> dict[str, Any]:
+    """Slot values as they read in a message of `lang`: Polish gets `19.11.2026`, `08:00–12:00` and `montaż` instead of the ISO date, the hyphenated window and the English appointment kind."""
+    if lang != "pl":
+        return slots
+    out = dict(slots)
+    if isinstance(out.get("eta"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", out["eta"]):
+        out["eta"] = i18n.fmt_date(out["eta"], "pl")
+    if isinstance(out.get("window"), str):
+        out["window"] = i18n.fmt_window(out["window"], "pl")
+    if out.get("kind"):
+        out["kind"] = i18n.label("timeline.kind", str(out["kind"]), "pl", str(out["kind"])).lower()
+    return out
+
+
+# ---- inbound replies: SMS opt-out keywords (the whole message is the keyword; "I will not stop by" must not unsubscribe anybody)
+_OPT_OUT_RX = re.compile(r"^(?:stop(?:all)?|unsubscribe|quit|rezygnuj\w*|rezygnacja|wypisz\w*)(?:\s+(?:all|mnie|sms\w*|wiadomosci|wysylk\w*|wysylan\w*|prosze))?$")  # "cancel" is not a keyword: it may mean "cancel my order"
+OPT_OUT_CONFIRMATION = {
+    "en": "You are unsubscribed: Contoso Home will no longer send you proactive messages. You can contact us at any time.",
+    "pl": "Potwierdzamy rezygnację z powiadomień — Contoso Home nie będzie już wysyłać Państwu wiadomości z własnej inicjatywy. W każdej chwili można się z nami skontaktować.",
+}
+
+
+def is_opt_out_keyword(text: str) -> bool:
+    """`STOP`, `Stop.`, `REZYGNUJĘ`, `rezygnuje`, `wypisz mnie` ... (diacritics and punctuation do not matter)."""
+    t = re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", fold(text))).strip()
+    return bool(_OPT_OUT_RX.match(t))

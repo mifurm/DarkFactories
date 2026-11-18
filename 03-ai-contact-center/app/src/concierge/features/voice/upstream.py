@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import math
+import re
 import struct
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
@@ -142,6 +143,15 @@ async def brain_script(event: dict[str, Any], fake: FakeRealtimeUpstream) -> Non
     elif kind == "response.create":
         extra = (event.get("response") or {}).get("instructions")
         if extra and not state["history"]:
+            lang = state.get("lang", "en")
+            quoted = re.search(r'"([^"]{20,600})"', extra)
+            if lang != "en" and quoted:  # greet in the caller's language: the disclosure the relay asked for, then the opening question (unless the relay already quoted it)
+                from ...engine.guard import GREETING
+
+                opening = GREETING.get(lang, GREETING["en"])
+                spoken = quoted.group(1)
+                await fake.speak(spoken if spoken.endswith(opening) else f"{spoken} {opening}")
+                return
             await fake.speak(extra[:240] if len(extra) < 260 else "Hello, how can I help you today?")
             return
         tools = [{"function": {"name": n}} for n in state["tools"]]
@@ -166,6 +176,8 @@ def offline_script(svc: Any, conv_id: str) -> Script:
 
             conv = await svc.store.get(conv_id)
             last = next((m for m in reversed(conv.messages) if m.role == "customer"), None) if conv else None
+            if conv is not None:
+                fake.__dict__.setdefault("state", {"history": [], "n": 0, "tools": []})["lang"] = conv.language
             if conv is not None and last is not None:
                 u = analyze(last.text, lang_hint=conv.language, prior=conv.understanding)
                 verdict = svc.guard.inspect_input_fast(last.text, conv.language)

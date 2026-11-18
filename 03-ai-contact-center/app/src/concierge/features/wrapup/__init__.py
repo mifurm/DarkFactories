@@ -10,7 +10,14 @@ from pydantic import BaseModel, Field
 from ...core.rbac import Actor, require
 from ...core.registry import EPIC_B, FeatureInfo
 from ...engine.models import now
-from ...engine.wrapup import BASELINE_ACW_S, DISPOSITIONS, edit_ratio, generate_wrapup
+from ...engine.wrapup import (
+    BASELINE_ACW_S,
+    DISPOSITIONS,
+    disposition_label,
+    edit_ratio,
+    generate_wrapup,
+    localize_wrapup,
+)
 
 FEATURES = [
     FeatureInfo(
@@ -30,7 +37,8 @@ class SubmitBody(BaseModel):
 
 @router.get("/dispositions")
 async def dispositions() -> dict[str, str]:
-    return DISPOSITIONS
+    """Disposition code -> label in the request locale (codes are stable)."""
+    return {code: disposition_label(code) for code in DISPOSITIONS}
 
 
 @router.get("/stats")
@@ -60,7 +68,7 @@ async def get_wrapup(conv_id: str, request: Request, _: Actor = Depends(require(
         raise HTTPException(404, "conversation not found")
     if conv.wrapup is None:
         raise HTTPException(404, "wrap-up not generated yet")
-    return conv.wrapup
+    return localize_wrapup(conv.wrapup, conv)
 
 
 @router.post("/{conv_id}/regenerate")
@@ -71,7 +79,7 @@ async def regenerate(conv_id: str, request: Request, _: Actor = Depends(require(
         raise HTTPException(404, "conversation not found")
     conv.wrapup = await generate_wrapup(svc, conv)  # CRM note / task ids are deterministic -> idempotent
     await svc.store.save(conv)
-    return conv.wrapup
+    return localize_wrapup(conv.wrapup, conv)
 
 
 @router.post("/{conv_id}/submit")
@@ -86,7 +94,7 @@ async def submit(conv_id: str, body: SubmitBody, request: Request, actor: Actor 
     if body.disposition:
         if body.disposition not in DISPOSITIONS:
             raise HTTPException(422, "unknown disposition code")
-        w["disposition"], w["disposition_label"] = body.disposition, DISPOSITIONS[body.disposition]
+        w["disposition"], w["disposition_label"] = body.disposition, disposition_label(body.disposition, w.get("lang"))
     if body.summary:
         w["edit_ratio"] = edit_ratio(w["summary"], body.summary)
         w["summary"] = body.summary
@@ -95,4 +103,4 @@ async def submit(conv_id: str, body: SubmitBody, request: Request, actor: Actor 
     w.update({"submitted": True, "edited_by": actor.user, "acw_seconds_manual_review": body.seconds_on_screen, "submitted_at": now()})
     await svc.store.save(conv)
     await svc.audit.log("wrapup.submitted", actor=actor.user, resource=conv_id, conv_id=conv_id, detail={"edit_ratio": w["edit_ratio"], "disposition": w["disposition"]})
-    return w
+    return localize_wrapup(w, conv)

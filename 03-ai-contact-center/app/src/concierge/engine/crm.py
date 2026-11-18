@@ -20,6 +20,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from ..core import i18n
+
 TokenProvider = Callable[[], Awaitable[str]]
 Sleep = Callable[[float], Awaitable[None]]
 MAX_PAGES = 10
@@ -157,7 +159,7 @@ class MockCrmConnector:
         events = await self.bo.timeline(customer_id)
         notes = await self.bo.repo.query("bo_tickets", {"customer_id": customer_id, "kind": {"$in": ["note", "task"]}})
         for n in notes:
-            events.append({"ts": n["created_at"], "type": n["kind"], "id": n["id"], "title": ("CRM note" if n["kind"] == "note" else f"Task: {n['summary']}"), "detail": n.get("text") or n["summary"]})
+            events.append({"ts": n["created_at"], "type": n["kind"], "id": n["id"], "title": (i18n.msg("timeline.note") if n["kind"] == "note" else i18n.msg("timeline.task", title=n["summary"])), "detail": n.get("text") or n["summary"]})
         events.sort(key=lambda e: e["ts"], reverse=True)
         return events
 

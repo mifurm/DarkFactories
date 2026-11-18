@@ -9,7 +9,9 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from ..core import i18n
 from ..core.collections import BACKOFFICE_COLLECTIONS
+from ..core.money import FX_PER_EUR, format_money, order_currency
 from ..core.repo import Repository
 
 DAY = 86400.0
@@ -85,6 +87,95 @@ DEMO_ORDERS = [
     ("CH-100310", "CU-1008", ["SKU-DESK-TAG"], "processing", None, "BlueRoute", {"eta_days": 6}),
     ("CH-100340", "CU-1004", ["SKU-SOFA-SEC"], "delivered", 4, "NordFreight", {}),
 ]
+
+
+# ------------------------------------------------------------------------------------------------ Polish market (PLN, InPost / DPD Polska / DHL)
+PL_CARRIERS = ["InPost", "DPD Polska", "DHL"]
+# sku -> (Polish product name, price in PLN, warranty months). Polish orders are stored in PLN; the EUR-equivalent of a price is price / FX_PER_EUR["PLN"] (1 EUR = 4.30 PLN).
+PL_CATALOG: dict[str, tuple[str, float, int]] = {
+    "SKU-SOFA-2": ("Sofa 2-osobowa Nordby (szara)", 1599.0, 24),
+    "SKU-SOFA-3": ("Sofa 3-osobowa Fjord (piaskowa)", 3399.0, 24),
+    "SKU-MAT-160": ("Materac piankowy Luna 160x200", 3849.0, 36),
+    "SKU-WM-8": ("Pralka Vera 8 kg", 2799.0, 24),
+    "SKU-CH-LUND": ("Krzesła Lund (zestaw 4 szt.)", 1029.0, 24),
+    "SKU-LAMP-AURA": ("Lampa podłogowa Aura", 349.0, 24),
+    "SKU-WD-ARDEN": ("Szafa 3-drzwiowa Arden", 2279.0, 24),
+    "SKU-ARM-FJ": ("Fotel rozkładany Fjella", 1679.0, 24),
+    "SKU-DESK-TAG": ("Biurko z regulacją wysokości Tåg", 1499.0, 24),
+    "SKU-BL-MIXO": ("Blender Mixo Pro", 549.0, 24),
+}
+PL_DEMO_CUSTOMERS = [
+    {"id": "CU-1009", "name": "Anna Kowalska", "tier": "standard", "phone": "+48 22 555 01 90", "email": "anna.kowalska@example.com", "street": "ul. Marszałkowska 12/4", "postal_code": "00-001", "city": "Warszawa", "note": "Demo persona: damaged sofa (Polish)"},
+    {"id": "CU-1010", "name": "Tomasz Wiśniewski", "tier": "standard", "phone": "+48 12 555 02 31", "email": "tomasz.wisniewski@example.com", "street": "ul. Floriańska 18/7", "postal_code": "30-001", "city": "Kraków", "note": "Demo persona: damaged mattress above the refund cap (Polish)"},
+    {"id": "CU-1011", "name": "Katarzyna Nowicka", "tier": "standard", "phone": "+48 58 555 03 12", "email": "katarzyna.nowicka@example.com", "street": "ul. Długa 5/12", "postal_code": "80-001", "city": "Gdańsk", "vulnerable": True, "note": "Demo persona: visually impaired customer (Polish) - care queue, address change"},
+    {"id": "CU-1012", "name": "Piotr Zieliński", "tier": "standard", "phone": "+48 61 555 04 48", "email": "piotr.zielinski@example.com", "street": "ul. Półwiejska 20/3", "postal_code": "61-001", "city": "Poznań", "note": "Demo persona: delayed wardrobe (Polish) - goodwill credit"},
+    {"id": "CU-1013", "name": "Marek Lewandowski", "tier": "standard", "phone": "+48 71 555 05 77", "email": "marek.lewandowski@example.com", "street": "ul. Świdnicka 31/2", "postal_code": "50-001", "city": "Wrocław", "note": "Demo persona: two missed installations (Polish) - legal threat"},
+]
+PL_PERSONA_IDS = {c["id"] for c in PL_DEMO_CUSTOMERS}
+# (id, customer, sku, status, delivered_days_ago | None, carrier, extra, payment (brand, last4))
+PL_DEMO_ORDERS = [
+    ("CH-100350", "CU-1009", "SKU-SOFA-2", "delivered", 2, "DPD Polska", {}, ("Mastercard", "2245")),
+    ("CH-100351", "CU-1009", "SKU-LAMP-AURA", "shipped", None, "InPost", {"eta_days": 1}, ("Visa", "7788")),
+    ("CH-100352", "CU-1009", "SKU-CH-LUND", "delivered", 45, "DHL", {}, ("Visa", "1203")),
+    ("CH-100360", "CU-1010", "SKU-MAT-160", "delivered", 3, "DHL", {}, ("Mastercard", "5521")),
+    ("CH-100370", "CU-1011", "SKU-ARM-FJ", "out_for_delivery", None, "DPD Polska", {"eta_days": 0}, ("Visa", "3390")),
+    ("CH-100371", "CU-1011", "SKU-DESK-TAG", "processing", None, "InPost", {"eta_days": 6}, ("Visa", "3390")),
+    ("CH-100380", "CU-1012", "SKU-WD-ARDEN", "delayed", None, "DHL", {"eta_days": -3}, ("Mastercard", "8841")),
+    ("CH-100390", "CU-1013", "SKU-WM-8", "delivered", 5, "DPD Polska", {"installation": True, "missed_installs": 2}, ("Visa", "6107")),
+]
+PL_EVENT_NOTES = {"out_for_delivery": "Okno dostawy: 12:00–16:00", "delayed": "Ograniczona przepustowość huba przewoźnika — nowy termin w trakcie ustalania", "delivered": "Doręczono za potwierdzeniem odbioru"}
+
+
+def pln_order(order: dict[str, Any]) -> dict[str, Any]:
+    """Convert an EUR demo order to PLN in place (Polish product names and list prices); no random numbers are drawn."""
+    for it in order["items"]:
+        name, price, warranty = PL_CATALOG.get(it["sku"], (it["name"], round(it["unit_price"] * FX_PER_EUR["PLN"], 0), it["warranty_months"]))
+        it.update({"name": name, "unit_price": price, "warranty_months": warranty})
+    order["currency"] = "PLN"
+    order["total"] = round(sum(i["unit_price"] * i["qty"] for i in order["items"]), 2)
+    return order
+
+
+def generate_polish_personas(anchor: float, seed: int = 20260317) -> dict[str, list[dict[str, Any]]]:
+    """Polish demo customers and PLN orders (InPost / DPD Polska / DHL). Own RNG: the English synthetic data stays byte-identical."""
+    rng = random.Random(seed + 1009)
+    anchor = day_start(anchor)
+    customers = []
+    for c in PL_DEMO_CUSTOMERS:
+        first = c["name"].partition(" ")[0]
+        customers.append({
+            "id": c["id"], "name": c["name"], "first_name": first, "email": c["email"], "phone": c["phone"], "language": "pl", "market": "PL", "tier": c["tier"], "vulnerable": bool(c.get("vulnerable")),
+            "address": {"street": c["street"], "postal_code": c["postal_code"], "city": c["city"], "country": "PL"}, "marketing_consent": {"sms": True, "email": True, "voice": False},
+            "created_at": anchor - rng.randint(60, 900) * DAY, "note": c["note"], "demo": True,
+        })  # fmt: skip
+    cust_by_id = {c["id"]: c for c in customers}
+    orders, shipments, appointments = [], [], []
+    for oid, cid, sku, status, delivered_days, carrier, extra, (brand, last4) in PL_DEMO_ORDERS:
+        cust = cust_by_id[cid]
+        name, price, warranty = PL_CATALOG[sku]
+        placed = anchor - ((delivered_days or 0) + 6) * DAY if delivered_days is not None else anchor - 4 * DAY
+        delivered_at = anchor - delivered_days * DAY + 11 * 3600 if delivered_days is not None else None
+        eta = anchor + extra["eta_days"] * DAY if "eta_days" in extra else None
+        tracking = f"{''.join(w[0] for w in carrier.split()).upper()[:2]}{rng.randint(10**9, 10**10 - 1)}"
+        orders.append({
+            "id": oid, "customer_id": cid, "placed_at": placed, "status": status, "currency": "PLN", "total": price,
+            "items": [{"item_id": f"{oid}-L1", "sku": sku, "name": name, "category": BY_SKU[sku][2], "qty": 1, "unit_price": price, "warranty_months": warranty}],
+            "payment": {"method": "card", "brand": brand, "last4": last4}, "shipping_address": cust["address"], "delivered_at": delivered_at, "carrier": carrier, "tracking_id": tracking,
+            "installation_required": bool(extra.get("installation")), "dispatched": status in ("shipped", "out_for_delivery", "delivered", "delayed"),
+        })  # fmt: skip
+        events = [{"ts": placed + 3600, "status": "order_received", "location": "Contoso Home OMS", "note": ""}]
+        if status != "processing":
+            events += [{"ts": placed + DAY, "status": "label_created", "location": "Contoso DC Północ", "note": ""}, {"ts": placed + 2 * DAY, "status": "in_transit", "location": f"Hub {carrier}", "note": ""}]
+        if status == "out_for_delivery":
+            events.append({"ts": anchor + 6 * 3600, "status": "out_for_delivery", "location": cust["address"]["city"], "note": PL_EVENT_NOTES["out_for_delivery"]})
+        if status == "delayed":
+            events.append({"ts": anchor - 2 * DAY, "status": "delayed", "location": f"Hub {carrier}", "note": PL_EVENT_NOTES["delayed"]})
+        if status == "delivered" and delivered_at:
+            events.append({"ts": delivered_at, "status": "delivered", "location": cust["address"]["city"], "note": PL_EVENT_NOTES["delivered"]})
+        shipments.append({"id": f"SH-{oid[3:]}", "order_id": oid, "carrier": carrier, "tracking_id": tracking, "status": status, "eta": eta, "events": events})
+        for m in range(extra.get("missed_installs", 0)):
+            appointments.append({"id": f"AP-{oid[3:]}-M{m + 1}", "order_id": oid, "customer_id": cid, "kind": "installation", "slot_id": f"ins-missed-{m}", "date": iso(anchor - (4 - m) * DAY), "window": "08:00-12:00", "status": "missed", "created_at": anchor - 7 * DAY})
+    return {"bo_customers": customers, "bo_orders": orders, "bo_shipments": shipments, "bo_appointments": appointments}
 
 
 def iso(ts: float | None) -> str | None:
@@ -196,6 +287,14 @@ def generate_seed(anchor: float | None = None, seed: int = 20260317) -> dict[str
                 build_order(f"CH-{onum}", c["id"], [sku], "processing", None, rng.choice(CARRIERS), {"eta_days": rng.randint(3, 9)})
             else:
                 build_order(f"CH-{onum}", c["id"], [sku], "delayed", None, rng.choice(CARRIERS), {"eta_days": -rng.randint(1, 4)})
+    for o in orders:
+        if o["id"] == "CH-100300":  # the Polish warranty persona (CU-1007) buys in PLN too
+            pln_order(o)
+    pl = generate_polish_personas(anchor, seed)  # appended after the main generator: its random stream (and so every English record) is untouched
+    customers += pl["bo_customers"]
+    orders += pl["bo_orders"]
+    shipments += pl["bo_shipments"]
+    appointments += pl["bo_appointments"]
     return {"bo_customers": customers, "bo_orders": orders, "bo_shipments": shipments, "bo_appointments": appointments}
 
 
@@ -212,12 +311,25 @@ class BackOffice:
     async def seed(self, anchor: float | None = None, force: bool = False) -> dict[str, int]:
         existing = await self.repo.get("bo_customers", "CU-1001")
         if existing and not force:
-            return {"skipped": 1}
+            return await self._seed_polish_additions(anchor)
         data = generate_seed(anchor)
         counts = {}
         for coll, docs in data.items():
             counts[coll] = await self.repo.put_many(coll, docs)
         return counts
+
+    async def _seed_polish_additions(self, anchor: float | None = None) -> dict[str, int]:
+        """Already-seeded data (e.g. the deployed Cosmos DB, created before the Polish personas existed): upsert the Polish customers / PLN orders and
+        convert the Polish warranty persona's order to PLN. Nothing is wiped; unchanged data is skipped, so this is idempotent."""
+        counts: dict[str, int] = {}
+        if await self.repo.get("bo_customers", "CU-1009") is None:
+            for coll, docs in generate_polish_personas(anchor or time.time()).items():
+                counts[coll] = await self.repo.put_many(coll, docs)
+        o = await self.repo.get("bo_orders", "CH-100300")
+        if o is not None and order_currency(o) == "EUR" and not await self.refunds_for("CH-100300"):
+            await self.repo.put("bo_orders", pln_order(o))
+            counts["bo_orders_converted"] = 1
+        return counts or {"skipped": 1}
 
     async def reset(self, anchor: float | None = None) -> dict[str, int]:
         for coll in BACKOFFICE_COLLECTIONS:
@@ -293,8 +405,10 @@ class BackOffice:
         if kind == "delivery":
             sh = await self.shipment(order["id"])
             if sh:
+                polish = order_currency(order) == "PLN"  # Polish-market orders (PLN) carry Polish carrier notes
+                note = f"Nowy termin dostawy: {i18n.fmt_date(slot['date'], 'pl')}, {i18n.fmt_window(slot['window'], 'pl')}" if polish else f"New delivery slot {slot['date']} {slot['window']}"
                 sh["eta"] = datetime.strptime(slot["date"], "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
-                sh["events"].append({"ts": time.time(), "status": "rescheduled", "location": "Customer service", "note": f"New delivery slot {slot['date']} {slot['window']}"})
+                sh["events"].append({"ts": time.time(), "status": "rescheduled", "location": "Obsługa klienta" if polish else "Customer service", "note": note})
                 await self.repo.put("bo_shipments", sh)
         return doc
 
@@ -348,21 +462,27 @@ class BackOffice:
         return [r for r in rows if r.get("kind", "ticket") == "ticket"]
 
     async def timeline(self, customer_id: str) -> list[dict[str, Any]]:
-        """Unified customer timeline (orders, shipments, returns, refunds, credits, tickets)."""
+        """Unified customer timeline (orders, shipments, returns, refunds, credits, tickets); titles are rendered in the request locale."""
+        lang = i18n.current_locale()
+
+        def money(amount: float, cur: str | None) -> str:
+            return f"€{amount:.2f}" if lang == "en" and order_currency({"currency": cur}) == "EUR" else format_money(amount, cur, lang)
+
         events: list[dict[str, Any]] = []
         for o in await self.list_orders(customer_id):
-            events.append({"ts": o["placed_at"], "type": "order", "id": o["id"], "title": f"Order {o['id']} placed", "detail": f"{', '.join(i['name'] for i in o['items'])} - €{o['total']:.2f}"})
+            cur = order_currency(o)
+            events.append({"ts": o["placed_at"], "type": "order", "id": o["id"], "title": i18n.msg("timeline.order_placed", lang, id=o["id"]), "detail": f"{', '.join(i['name'] for i in o['items'])} - {money(o['total'], cur)}"})
             if o.get("delivered_at"):
-                events.append({"ts": o["delivered_at"], "type": "delivery", "id": o["id"], "title": f"Order {o['id']} delivered", "detail": o["carrier"]})
+                events.append({"ts": o["delivered_at"], "type": "delivery", "id": o["id"], "title": i18n.msg("timeline.order_delivered", lang, id=o["id"]), "detail": o["carrier"]})
             for r in await self.returns_for(o["id"]):
-                events.append({"ts": r["created_at"], "type": "return", "id": r["id"], "title": f"Return {r['id']} ({r['resolution']})", "detail": r["reason"]})
+                events.append({"ts": r["created_at"], "type": "return", "id": r["id"], "title": i18n.msg("timeline.return", lang, id=r["id"], resolution=i18n.label("timeline.resolution", r["resolution"], lang, r["resolution"])), "detail": r["reason"]})
             for rf in await self.refunds_for(o["id"]):
-                events.append({"ts": rf["created_at"], "type": "refund", "id": rf["id"], "title": f"Refund €{rf['amount']:.2f} {rf['status']}", "detail": rf.get("reason", "")})
+                events.append({"ts": rf["created_at"], "type": "refund", "id": rf["id"], "title": i18n.msg("timeline.refund", lang, money=money(rf["amount"], rf.get("currency")), status=i18n.label("timeline.status", rf["status"], lang, rf["status"])), "detail": rf.get("reason", "")})
             for a in await self.appointments(o["id"]):
-                events.append({"ts": a["created_at"], "type": "appointment", "id": a["id"], "title": f"{a['kind'].title()} {a['status']} {a['date']} {a['window']}", "detail": o["id"]})
+                events.append({"ts": a["created_at"], "type": "appointment", "id": a["id"], "title": i18n.msg("timeline.appointment", lang, kind=i18n.label("timeline.kind", a["kind"], lang, a["kind"].title()), status=i18n.label("timeline.status", a["status"], lang, a["status"]), date=a["date"] if lang == "en" else i18n.fmt_date(a["date"], lang), window=a["window"]), "detail": o["id"]})
         for c in await self.credits_for(customer_id):
-            events.append({"ts": c["created_at"], "type": "credit", "id": c["id"], "title": f"Goodwill credit €{c['amount']:.2f}", "detail": c["reason"]})
+            events.append({"ts": c["created_at"], "type": "credit", "id": c["id"], "title": i18n.msg("timeline.credit", lang, money=money(c["amount"], c.get("currency"))), "detail": c["reason"]})
         for t in await self.tickets_for(customer_id):
-            events.append({"ts": t["created_at"], "type": "ticket", "id": t["id"], "title": f"Ticket {t['id']} {t['status']}", "detail": t["summary"]})
+            events.append({"ts": t["created_at"], "type": "ticket", "id": t["id"], "title": i18n.msg("timeline.ticket", lang, id=t["id"], status=i18n.label("timeline.status", t["status"], lang, t["status"])), "detail": t["summary"]})
         events.sort(key=lambda e: e["ts"], reverse=True)
         return events

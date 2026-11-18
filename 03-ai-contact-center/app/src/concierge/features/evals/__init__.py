@@ -17,7 +17,7 @@ from ...engine.models import AgentConfig
 FEATURES = [
     FeatureInfo(
         "CC-16", "Evaluation & simulation harness", EPIC_D, "P0", "/evals", "/api/evals",
-        "42 scripted + persona-driven scenarios, 44-case red-team pack, sandboxed end-to-end runner, resolution/accuracy/policy/safety scoring, regression CI gate (fails on a broken prompt), comparison reports, CLI + UI.",
+        "42 scripted + persona-driven scenarios and a 44-case red-team pack in English, plus a Polish pack (22 scripted + 3 persona + 6 red-team scenarios, 28-case Polish red-team pack), sandboxed end-to-end runner, resolution/accuracy/policy/safety scoring, regression CI gate (fails on a broken prompt, in both languages), comparison reports, CLI + UI.",
     ),
 ]  # fmt: skip
 
@@ -36,7 +36,7 @@ BROKEN_VARIANTS: dict[str, dict[str, Any]] = {
 
 
 class RunBody(BaseModel):
-    suite: str = Field("core", pattern="^(core|gate|smoke|redteam|all)$")
+    suite: str = Field("core", pattern="^(core|gate|smoke|redteam|all|pl|pl-gate|pl-smoke|pl-redteam)$")
     config_id: str | None = None
     stress: bool = False
     only: list[str] | None = None
@@ -46,7 +46,7 @@ class RunBody(BaseModel):
 class GateBody(BaseModel):
     candidate_config_id: str | None = None
     broken_variant: str | None = None
-    suite: str = Field("gate", pattern="^(core|gate|smoke|all)$")
+    suite: str = Field("gate", pattern="^(core|gate|smoke|all|pl|pl-gate|pl-smoke)$")
 
 
 class PlayBody(BaseModel):
@@ -174,7 +174,7 @@ async def run_gate(body: GateBody, request: Request, actor: Actor = Depends(requ
 async def play(body: PlayBody, request: Request, _: Actor = Depends(require("evals.run"))) -> dict[str, Any]:
     """Play a scripted customer scenario against the LIVE app (conversation shows up in agent/supervisor/QA views)."""
     svc = request.app.state.services
-    sc = next((s for s in evalrun.suite_scenarios("all") if s.id == body.scenario_id), None)
+    sc = next((s for s in [*evalrun.suite_scenarios("all"), *evalrun.suite_scenarios("pl")] if s.id == body.scenario_id), None)
     if sc is None:
         raise HTTPException(404, "unknown scenario")
     state = {"status": "running", "scenario": sc.id}

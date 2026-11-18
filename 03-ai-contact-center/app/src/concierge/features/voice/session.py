@@ -14,10 +14,11 @@ from typing import Any
 
 from ...core.ai.azure_cognitive import wav_from_pcm16
 from ...core.ai.base import Usage
+from ...core.money import speakable_pl
 from ...engine import handoff as handoff_mod
-from ...engine.guard import AI_DISCLOSURE
+from ...engine.guard import AI_DISCLOSURE, DISCLOSURE_MARKERS, GREETING
 from ...engine.models import Conversation, ToolRecord, now
-from ...engine.prompts import build_system_prompt
+from ...engine.prompts import VOICE_LANGUAGE_LOCK, VOICE_OPENING, build_system_prompt
 from ...engine.routing import Trigger
 from ...engine.tools import ToolContext
 from .upstream import SAMPLE_RATE, RealtimeUpstream
@@ -71,6 +72,9 @@ class VoiceSession:
         self._silence_ms = 0.0
         self._speech_ms = 0.0
         self._pipeline_busy = False
+        self._greeting_open = False  # the first response of a realtime call must contain the AI disclosure
+        self._greeting_said = ""
+        self.disclosure_enforced = 0
 
     # ------------------------------------------------------------------ setup
     def _voice_cfg(self) -> Any:
@@ -82,6 +86,8 @@ class VoiceSession:
         assert self.conv is not None
         auth = self.cfg.prompts.get("authentication", "")
         sys = build_system_prompt(self.cfg, self.conv, "resolution", voice=True) + "\n\nAUTHENTICATION (also yours on this call):\n" + auth
+        if self.conv.language in VOICE_LANGUAGE_LOCK:
+            sys = VOICE_LANGUAGE_LOCK[self.conv.language] + "\n\n" + sys
         tools = self.svc.tools.schemas(self._voice_cfg().tools["voice"], realtime=True)
         transcription: dict[str, Any] = {"model": "gpt-4o-mini-transcribe"}
         if self.conv.language and len(self.conv.language) == 2:
@@ -130,10 +136,13 @@ class VoiceSession:
         disclosure = AI_DISCLOSURE.get(self.conv.language, AI_DISCLOSURE["en"])
         if self.mode == "realtime":
             self._mark_turn()
-            await self.up.send({"type": "response.create", "response": {"instructions": f"Begin the call. First say exactly this disclosure in the caller's language: \"{disclosure}\" Then greet warmly and ask how you can help. Keep it to 3 short sentences."}})  # type: ignore[union-attr]
+            self._greeting_open = True
+            opening = VOICE_OPENING.get(self.conv.language)
+            instructions = opening.format(disclosure=disclosure, greeting=GREETING.get(self.conv.language, GREETING["en"])) if opening else f"Begin the call. First say exactly this disclosure in the caller's language ({self.conv.language}): \"{disclosure}\" Then greet warmly and ask how you can help. Keep it to 3 short sentences."
+            await self.up.send({"type": "response.create", "response": {"instructions": instructions}})  # type: ignore[union-attr]
             await self.send_json({"type": "state", "state": "thinking"})
         else:
-            await self._pipeline_speak(disclosure + " " + {"de": "Wie kann ich helfen?", "en": "How can I help you today?"}.get(self.conv.language, "How can I help you today?"))
+            await self._pipeline_speak(disclosure + " " + GREETING.get(self.conv.language, GREETING["en"]))
 
     async def _watchdog(self) -> None:
         while not self.closed.is_set():
@@ -291,6 +300,8 @@ class VoiceSession:
         elif t in ("response.output_audio_transcript.done", "response.audio_transcript.done"):
             text = (ev.get("transcript") or self.agent_buf).strip()
             if text:
+                if self._greeting_open:
+                    self._greeting_said += " " + text
                 msg = await self.svc.orchestrator.record_agent_utterance(self.conv_id, text, tools=list(self.records), meta={"mode": "realtime", "model": self.model_used})
                 self.records.clear()
                 await self.send_json({"type": "transcript", "role": "agent", "text": msg.text, "final": True, "flags": msg.flags})
@@ -301,6 +312,11 @@ class VoiceSession:
             self.speaking = False
             resp = ev.get("response", {})
             self._meter(resp.get("usage") or {})
+            if self._greeting_open and not self.tool_outputs_pending and self.up is not None:
+                self._greeting_open = False
+                if self.up.name != "fake-realtime" and not DISCLOSURE_MARKERS.search(self._greeting_said) and self.disclosure_enforced < 1:  # (the offline demo model is a script, not a model that can skip it)
+                    await self._enforce_disclosure()  # the model skipped the mandatory AI disclosure: say it now, word for word, before the caller can talk
+                    return
             if self.tool_outputs_pending and self.up is not None:
                 self.tool_outputs_pending = False
                 self._mark_turn()
@@ -314,6 +330,18 @@ class VoiceSession:
             if err.get("code") in ("response_cancel_not_active", "conversation_already_has_active_response"):
                 return
             await self.send_json({"type": "error", "error": err.get("code") or err.get("type") or "upstream_error", "message": str(err.get("message", ""))[:200]})
+
+    async def _enforce_disclosure(self) -> None:
+        """Realtime models occasionally open the call without the mandatory AI disclosure: say it (once more), word for word, before the caller can talk."""
+        assert self.conv is not None and self.up is not None
+        self.disclosure_enforced += 1
+        lang = self.conv.language
+        text = f"{AI_DISCLOSURE.get(lang, AI_DISCLOSURE['en'])} {GREETING.get(lang, GREETING['en'])}"
+        instruction = f'Powiedz teraz po polsku, dokładnie słowo w słowo i nic poza tym: "{text}"' if lang == "pl" else f"Say now, in the caller's language ({lang}), exactly these words and nothing else: \"{text}\""
+        await self.svc.audit.log("voice.disclosure_enforced", actor="platform", resource=self.conv_id, conv_id=self.conv_id, detail={"heard": self._greeting_said.strip()[:200]})
+        self._mark_turn()
+        await self.up.send({"type": "response.create", "response": {"instructions": instruction}})
+        await self.send_json({"type": "state", "state": "thinking"})
 
     def _meter(self, usage: dict[str, Any]) -> None:
         if not usage:
@@ -405,7 +433,8 @@ class VoiceSession:
 
     async def _pipeline_speak(self, text: str) -> None:
         clean = text.replace("[K1]", "").replace("[K2]", "").replace("[K3]", "")
-        audio, _mime = await self.svc.speech.synthesize(clean, language=self.conv.language if self.conv else "en")
+        lang = self.conv.language if self.conv else "en"
+        audio, _mime = await self.svc.speech.synthesize(speakable_pl(clean) if lang == "pl" else clean, language=lang)
         pcm = audio[44:] if audio[:4] == b"RIFF" else audio
         if self.t_ref is not None and not self.first_audio_done:
             self.first_audio_done = True

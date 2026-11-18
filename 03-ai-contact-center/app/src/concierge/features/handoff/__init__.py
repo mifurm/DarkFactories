@@ -9,9 +9,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ...core import i18n
 from ...core.rbac import Actor, require
 from ...core.registry import EPIC_B, FeatureInfo
 from ...engine import handoff as ho
+from ...engine import localize, plan_text
 from ...engine.models import now
 
 FEATURES = [
@@ -34,11 +36,11 @@ class CallbackBody(BaseModel):
 
 def queue_item(svc: Any, c: Any) -> dict[str, Any]:
     h = c.handoff or {}
-    pkg = h.get("package") or {}
+    pkg = localize.localize_package(h.get("package"), c) or {}  # trigger reason, routing text and machine-written summary in the request locale
     return {
-        "conversation_id": c.id, "queue": c.queue, "priority": c.priority, "language": c.language, "channel": c.channel, "status": c.status,
+        "conversation_id": c.id, "queue": c.queue, "queue_name": localize.queue_name(c.queue or "general"), "priority": c.priority, "language": c.language, "channel": c.channel, "status": c.status,
         "waiting_s": round(now() - h.get("created_at", now()), 1) if c.handler == "queue" else None, "sla_s": h.get("routing", {}).get("sla_s"),
-        "trigger": h.get("trigger"), "offered_to": h.get("offered_to"), "customer": pkg.get("customer", {}).get("first_name") or c.customer_label,
+        "trigger": localize.localize_trigger(h.get("trigger")), "offered_to": h.get("offered_to"), "customer": pkg.get("customer", {}).get("first_name") or c.customer_label,
         "summary": pkg.get("summary"), "sentiment": pkg.get("sentiment", {}).get("current"), "emotion": pkg.get("sentiment", {}).get("emotion"),
         "risk_flags": pkg.get("risk_flags", []), "completeness": pkg.get("completeness"), "assigned_agent": c.assigned_agent, "state": h.get("state"),
     }  # fmt: skip
@@ -58,7 +60,7 @@ async def package(conv_id: str, request: Request, reveal: str | None = None, act
     conv = await svc.store.get(conv_id)
     if conv is None or not conv.handoff:
         raise HTTPException(404, "no handoff for this conversation")
-    pkg = dict(conv.handoff["package"])
+    pkg = dict(localize.localize_package(conv.handoff["package"], conv))
     out: dict[str, Any] = {**pkg, "handoff_id": conv.handoff["id"], "state": conv.handoff["state"], "package_ms": conv.handoff.get("package_ms")}
     if reveal in ("phone", "email") and conv.identity.customer_id:
         cust = await svc.oms.get_customer(conv.identity.customer_id)
@@ -91,8 +93,10 @@ async def callback(conv_id: str, body: CallbackBody, request: Request, _: Actor 
         raise HTTPException(404, "conversation not found")
     cb = {"id": f"cb_{uuid.uuid4().hex[:8]}", "conv_id": conv_id, "window": body.window, "language": conv.language, "package": (conv.handoff or {}).get("package"), "status": "scheduled", "created_at": time.time()}
     await svc.repo.put("callbacks", cb)
-    ticket = await svc.oms.create_ticket(conv.identity.customer_id, f"Callback requested ({body.window})", "other", "high", conv_id, conv.entities.get("order_id"), [f"Callback {cb['id']}: package attached"])
-    conv.add("system_notice", f"A callback has been scheduled ({body.window}). Everything we discussed is attached - you won't need to repeat it.", lang=conv.language, flags=["callback"])
+    lang = ho.doc_lang(conv)  # ticket text for the operators and the customer notice are written in the conversation's language
+    window = i18n.msg("ho.callback.window_default", lang) if body.window == i18n.msg("ho.callback.window_default", "en") else body.window
+    ticket = await svc.oms.create_ticket(conv.identity.customer_id, i18n.msg("ho.callback.ticket", lang, window=window), "other", "high", conv_id, conv.entities.get("order_id"), [i18n.msg("ho.callback.note", lang, id=cb["id"])])
+    conv.add("system_notice", plan_text.callback_scheduled(conv.language, window), lang=conv.language, flags=["callback"])
     await svc.store.save(conv)
     return {"callback": {k: v for k, v in cb.items() if k != "package"}, "ticket": ticket["id"]}
 

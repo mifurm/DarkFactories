@@ -1,11 +1,13 @@
 import type { LucideIcon } from 'lucide-react'
 import type { ComponentType } from 'react'
+import { N_ } from '../i18n/mark'
 import type { Role } from './api'
 
 export interface PageMeta {
   /** Feature ids (CC-xx) whose UI surface this page is. */
   features: string[]
   route: string
+  /** English source text (marked with N_ in meta.ts); render with tr(). */
   title: string
   nav?: { group: string; order: number; icon: LucideIcon }
   roles?: Role[]
@@ -13,7 +15,7 @@ export interface PageMeta {
   load: () => Promise<{ default: ComponentType }>
 }
 
-export const NAV_GROUPS = ['Start', 'Customer experience', 'Human collaboration', 'Quality & compliance', 'Insights', 'Operations', 'LLMOps', 'Platform']
+export const NAV_GROUPS = [N_('Start'), N_('Customer experience'), N_('Human collaboration'), N_('Quality & compliance'), N_('Insights'), N_('Operations'), N_('LLMOps'), N_('Platform')]
 
 type Mod = { pages?: PageMeta[] }
 

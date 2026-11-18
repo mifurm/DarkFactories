@@ -10,9 +10,10 @@ from typing import Any
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from ...core import i18n
 from ...core.rbac import Actor, require
 from ...core.registry import EPIC_C, FeatureInfo
-from ...engine import synth, voc
+from ...engine import localize, synth, voc
 from ...engine.history_seed import load_history, seed_history
 
 FEATURES = [
@@ -22,7 +23,7 @@ FEATURES = [
     ),
 ]  # fmt: skip
 SEED_ORDER = 60
-VOC_VERSION = "v2"
+VOC_VERSION = "v4"  # v4: reviewed Polish wording of the summaries / topic labels (pl2 slice); v3 also carried `summary_pl` in examples / alerts. A stored aggregate of an older version is recomputed once on start-up
 
 router = APIRouter(prefix="/api/voc", tags=["voc (CC-12)"])
 
@@ -99,34 +100,34 @@ async def stored(svc: Any) -> dict[str, Any]:
 
 @router.get("/summary")
 async def summary(request: Request, _: Actor = Depends(require("voc.read"))) -> dict[str, Any]:
-    """Stored aggregates (no recomputation): topics, Pareto, trends, alerts."""
-    doc = await stored(request.app.state.services)
+    """Stored aggregates (no recomputation): topics, Pareto, trends, alerts - labels and alert texts in the request locale."""
+    doc = localize.localize_voc(await stored(request.app.state.services))
     return {k: v for k, v in doc.items() if k != "assignments"}
 
 
 @router.get("/topics/{cluster_id}")
 async def topic(cluster_id: int, request: Request, _: Actor = Depends(require("voc.read"))) -> dict[str, Any]:
     svc = request.app.state.services
-    doc = await stored(svc)
+    doc = localize.localize_voc(await stored(svc))
     cluster = next((c for c in doc["clusters"] if c["id"] == cluster_id), None)
     if cluster is None:
         raise HTTPException(404, "topic not found")
     ids = [h for h, c in doc["assignments"].items() if c == cluster_id]
-    rows = await svc.repo.query("history", {"id": {"$in": ids[:400]}}, order_by="sentiment_start", limit=400)
+    rows = localize.localize_history_rows(await svc.repo.query("history", {"id": {"$in": ids[:400]}}, order_by="sentiment_start", limit=400))
     return {**cluster, "conversations": [{k: r[k] for k in ("id", "date", "market", "language", "channel", "summary", "text", "sentiment_start", "sentiment_end", "carrier", "handled_by", "resolved")} for r in rows[:25]]}
 
 
 @router.get("/alerts")
 async def alerts(request: Request, _: Actor = Depends(require("voc.read"))) -> dict[str, Any]:
-    doc = await stored(request.app.state.services)
-    return {"alerts": doc["alerts"], "as_of": doc["as_of"], "method": "median/MAD z-score over the last 7 days vs the preceding 60-day baseline, per topic cluster, with carrier attribution by share lift"}
+    doc = localize.localize_voc(await stored(request.app.state.services))
+    return {"alerts": doc["alerts"], "as_of": doc["as_of"], "method": i18n.msg("voc.method")}
 
 
 @router.get("/evidence")
 async def evidence(request: Request, ids: str, _: Actor = Depends(require("voc.read"))) -> list[dict[str, Any]]:
     svc = request.app.state.services
     wanted = [i for i in ids.split(",") if i][:20]
-    rows = await svc.repo.query("history", {"id": {"$in": wanted}})
+    rows = localize.localize_history_rows(await svc.repo.query("history", {"id": {"$in": wanted}}))
     return [{k: r[k] for k in ("id", "date", "market", "language", "channel", "carrier", "product", "summary", "text", "sentiment_start", "handled_by", "resolved")} for r in rows]
 
 
@@ -149,5 +150,5 @@ async def control(request: Request, _: Actor = Depends(require("voc.read"))) -> 
 
 @router.get("/repeat-churn")
 async def repeat_churn(request: Request, _: Actor = Depends(require("voc.read"))) -> dict[str, Any]:
-    doc = await stored(request.app.state.services)
-    return {"totals": doc["totals"], "topics": [{"id": c["id"], "label": c["label"], "volume": c["volume"], "repeat_rate": c["repeat_rate"], "churn_risk_avg": c["churn_risk_avg"], "churn_high_pct": c["churn_high_pct"]} for c in doc["clusters"]], "definition": {"repeat": "same customer + same intent within 7 days", "churn_risk": "0.30*unhappy ending + 0.25*unresolved + 0.20*repeat + 0.10*escalated + 0.10*angry start + 0.05*abandoned"}}
+    doc = localize.localize_voc(await stored(request.app.state.services))
+    return {"totals": doc["totals"], "topics": [{"id": c["id"], "label": c["label"], "volume": c["volume"], "repeat_rate": c["repeat_rate"], "churn_risk_avg": c["churn_risk_avg"], "churn_high_pct": c["churn_high_pct"]} for c in doc["clusters"]], "definition": {"repeat": i18n.msg("voc.def.repeat"), "churn_risk": i18n.msg("voc.def.churn")}}

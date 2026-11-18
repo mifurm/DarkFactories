@@ -12,9 +12,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 from pydantic import BaseModel, Field
 
+from ...core import i18n
 from ...core.rbac import PERMISSIONS, ROLES, Actor, actor_from_request, require
 from ...core.registry import EPIC_D, FeatureInfo
 from ...core.security import ws_origin_ok
+from ...engine import localize
 from ...engine.models import now
 from ...engine.routing import QUEUES
 
@@ -38,6 +40,13 @@ DEMO_SCRIPTS = [
     ("nl", "web_chat", "Ik wil graag een medewerker spreken over mijn bestelling."),
     ("pl", "web_chat", "Chcę rozmawiać z konsultantem, moja dostawa się opóźnia."),
     ("pt", "web_chat", "Quero falar com uma pessoa sobre a minha encomenda."),
+]  # fmt: skip
+# A Polish operator console (request locale pl) fills up with Polish customers only
+DEMO_SCRIPTS_PL = [
+    ("pl", "web_chat", "Chcę rozmawiać z konsultantem, moja dostawa się opóźnia."),
+    ("pl", "web_chat", "To skandal, trzeci raz nikt nie przyjechał! Zgłoszę sprawę do UOKiK i do sądu."),
+    ("pl", "web_chat", "Dzień dobry, proszę o połączenie z konsultantem. Moja sofa dotarła uszkodzona."),
+    ("pl", "web_chat", "Proszę o rozmowę z człowiekiem w sprawie zwrotu pieniędzy za materac."),
 ]  # fmt: skip
 
 
@@ -90,6 +99,7 @@ def evaluate_alerts(svc: Any) -> list[dict[str, Any]]:
                 store["active"][row["queue"]] = {
                     "id": f"sla-{row['queue']}-{int(t)}", "queue": row["queue"], "name": row["name"], "severity": "critical" if row["state"] == "breach" else "warning", "raised_at": t, "cleared_at": None,
                     "reason": f"oldest wait {row['longest_wait_s']:.0f}s of {row['sla_s']}s SLA; projected wait {row['projected_wait_s']:.0f}s; {row['agents_available']} agent(s) available",
+                    "params": {"wait": f"{row['longest_wait_s']:.0f}", "sla": row["sla_s"], "projected": f"{row['projected_wait_s']:.0f}", "agents": row["agents_available"]},  # the reason is re-rendered in the request locale
                     "worst_wait_s": row["longest_wait_s"], "waiting": row["waiting"],
                 }  # fmt: skip
             else:
@@ -140,13 +150,18 @@ async def overview(svc: Any) -> dict[str, Any]:
 
 @router.get("/api/supervisor/overview")
 async def get_overview(request: Request, _: Actor = Depends(require("supervisor"))) -> dict[str, Any]:
-    return await overview(request.app.state.services)
+    return localize.localize_overview(await overview(request.app.state.services))
 
 
 @router.get("/api/supervisor/alerts")
 async def get_alerts(request: Request, _: Actor = Depends(require("supervisor"))) -> dict[str, Any]:
     svc = request.app.state.services
-    return {"active": evaluate_alerts(svc), "history": svc.ext.get("sla_alerts", {}).get("history", []), "rule": f"alert when the oldest waiter used >= {int(RISK_FRACTION * 100)} % of the queue SLA or the projected wait exceeds the SLA; clears when the queue is healthy"}
+    alerts = {"active": evaluate_alerts(svc), "history": svc.ext.get("sla_alerts", {}).get("history", [])}
+    lang = i18n.current_locale()
+    return {
+        "active": [localize.localize_sla_alert(a, lang) for a in alerts["active"]], "history": [localize.localize_sla_alert(a, lang) for a in alerts["history"]],
+        "rule": i18n.msg("sla.rule", lang, pct=int(RISK_FRACTION * 100)),
+    }
 
 
 class TakeoverBody(BaseModel):
@@ -190,7 +205,7 @@ async def monitor(conv_id: str, body: MonitorBody, request: Request, actor: Acto
     simulated = conv.channel == "voice"
     await svc.audit.log("supervisor.monitor", actor=f"{actor.role}:{actor.user}", resource=conv_id, conv_id=conv_id, detail={"mode": body.mode, "simulated": simulated})
     await svc.access_audit.log("transcript.viewed", actor=f"{actor.role}:{actor.user}", resource=conv_id, conv_id=conv_id, detail={"via": "supervisor.monitor"})
-    return {"ok": True, "mode": body.mode, "simulated": simulated, "feed": f"/ws/events?topics=conv:{conv_id}", "note": "voice monitor/barge is simulated in this reference build" if simulated else "live conversation feed"}
+    return {"ok": True, "mode": body.mode, "simulated": simulated, "feed": f"/ws/events?topics=conv:{conv_id}", "note": i18n.msg("sup.monitor.voice_sim") if simulated else i18n.msg("sup.monitor.live")}
 
 
 @router.post("/api/supervisor/workers/{worker_id}/presence")
@@ -209,8 +224,9 @@ async def demo_traffic(body: DemoBody, request: Request, actor: Actor = Depends(
     """Starts scripted customer conversations that ask for a human, so the console visibly fills up (no LLM call is needed for the handoff)."""
     svc = request.app.state.services
     started = []
+    pool = DEMO_SCRIPTS_PL if i18n.current_locale() == "pl" else DEMO_SCRIPTS
     for i in range(body.count):
-        lang, channel, text = DEMO_SCRIPTS[(int(time.time()) + i) % len(DEMO_SCRIPTS)]
+        lang, channel, text = pool[(int(time.time()) + i) % len(pool)]
         conv = await svc.orchestrator.start(channel=channel, language=lang, recording_consent="granted", sim=True, tags=["demo-traffic"])
         svc.spawn(svc.orchestrator.handle_message(conv.id, text))
         started.append({"conversation_id": conv.id, "language": lang})

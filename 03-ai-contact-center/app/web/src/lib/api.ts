@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { getLang, translate, translateKeyed } from '../i18n/core'
 
 export const ROLE_KEY = 'concierge.role'
 export const ROLES = ['customer', 'agent', 'supervisor', 'qa', 'wfm', 'admin', 'auditor'] as const
@@ -13,27 +14,52 @@ export function setRole(role: Role) {
   window.dispatchEvent(new CustomEvent('concierge:role', { detail: role }))
 }
 
+/** Human-readable error text: the server's (already localised) message, else a code-keyed UI text, else a generic one. */
+function errorText(status: number, body: unknown): string {
+  const lang = getLang()
+  const obj = (typeof body === 'object' && body ? (body as Record<string, unknown>) : {}) as Record<string, unknown>
+  const detail = obj.detail
+  const inner = typeof detail === 'object' && detail && !Array.isArray(detail) ? (detail as Record<string, unknown>) : obj
+  const code = typeof inner.error === 'string' ? inner.error : null
+  if (typeof inner.message === 'string' && inner.message) return inner.message
+  if (typeof detail === 'string' && detail) return detail
+  if (code) {
+    const known = translateKeyed(lang, 'error', code, '')
+    if (known) return known
+  }
+  if (Array.isArray(detail)) {
+    const fields = detail.map((d) => (Array.isArray((d as { loc?: unknown[] }).loc) ? String((d as { loc: unknown[] }).loc.slice(1).join('.')) : '')).filter(Boolean)
+    return translate(lang, 'Invalid request ({fields})', { fields: [...new Set(fields)].join(', ') || '?' })
+  }
+  return translate(lang, 'Request failed (HTTP {status})', { status })
+}
+
 export class ApiError extends Error {
   status: number
   body: unknown
   constructor(status: number, body: unknown) {
-    const msg =
-      typeof body === 'object' && body && 'message' in body
-        ? String((body as { message: unknown }).message)
-        : typeof body === 'object' && body && 'detail' in body
-          ? JSON.stringify((body as { detail: unknown }).detail)
-          : `HTTP ${status}`
-    super(msg)
+    super(errorText(status, body))
     this.status = status
     this.body = body
   }
+}
+
+/** The text to show for any caught error (never raw JSON). */
+export function describeError(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
 }
 
 export async function api<T = unknown>(
   path: string,
   opts: { method?: string; body?: unknown; signal?: AbortSignal; headers?: Record<string, string>; role?: Role } = {},
 ): Promise<T> {
-  const headers: Record<string, string> = { 'X-Demo-Role': opts.role ?? getRole(), ...(opts.headers ?? {}) }
+  const lang = getLang()
+  const headers: Record<string, string> = {
+    'X-Demo-Role': opts.role ?? getRole(),
+    'X-UI-Lang': lang,
+    'Accept-Language': lang === 'pl' ? 'pl-PL,pl;q=0.9' : 'en-US,en;q=0.9',
+    ...(opts.headers ?? {}),
+  }
   let body: BodyInit | undefined
   if (opts.body instanceof FormData) body = opts.body
   else if (opts.body !== undefined) {
@@ -62,9 +88,14 @@ export function useApi<T>(path: string | null, opts: { refreshMs?: number; deps?
   const depKey = JSON.stringify(opts.deps ?? [])
 
   useEffect(() => {
-    const onRole = () => reload()
-    window.addEventListener('concierge:role', onRole)
-    return () => window.removeEventListener('concierge:role', onRole)
+    // a role or language switch refetches everything so server-side text and permissions follow without a reload
+    const onSwitch = () => reload()
+    window.addEventListener('concierge:role', onSwitch)
+    window.addEventListener('concierge:lang', onSwitch)
+    return () => {
+      window.removeEventListener('concierge:role', onSwitch)
+      window.removeEventListener('concierge:lang', onSwitch)
+    }
   }, [reload])
 
   useEffect(() => {
@@ -97,9 +128,14 @@ export function useApi<T>(path: string | null, opts: { refreshMs?: number; deps?
   return { data, error, loading, reload, setData }
 }
 
+/** Adds ?lang= to a URL that cannot carry headers (WebSocket, downloads opened by a link). */
+export function withLang(path: string, lang: string = getLang()): string {
+  return `${path}${path.includes('?') ? '&' : '?'}lang=${encodeURIComponent(lang)}`
+}
+
 export function wsUrl(path: string): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${location.host}${path}`
+  return `${proto}://${location.host}${withLang(path)}`
 }
 
 /** Subscribe to the server event bus (/ws/events) with auto-reconnect. */
@@ -134,19 +170,4 @@ export function useEventStream(topics: string[], onEvent: (ev: Record<string, un
       ws?.close()
     }
   }, [key])
-}
-
-export const fmt = {
-  usd: (n: number | null | undefined, d = 2) => (n == null ? '—' : `$${n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`),
-  eur: (n: number | null | undefined, d = 2) => (n == null ? '—' : `€${n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`),
-  pct: (n: number | null | undefined, d = 1) => (n == null ? '—' : `${(n * 100).toFixed(d)}%`),
-  num: (n: number | null | undefined, d = 0) => (n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: d })),
-  ms: (n: number | null | undefined) => (n == null ? '—' : n >= 1000 ? `${(n / 1000).toFixed(1)} s` : `${Math.round(n)} ms`),
-  time: (ts: number | null | undefined) => (ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'),
-  dt: (ts: number | null | undefined) => (ts ? new Date(ts * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'),
-  dur: (s: number | null | undefined) => {
-    if (s == null) return '—'
-    const m = Math.floor(s / 60)
-    return m > 0 ? `${m}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`
-  },
 }

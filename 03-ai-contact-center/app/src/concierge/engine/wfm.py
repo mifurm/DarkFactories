@@ -192,10 +192,14 @@ def backtest(days: list[dict[str, Any]], *, origins: tuple[int, ...] = (35, 28, 
                 "wape_interval": float(sum(abs(x - y) for x, y in zip(inter_f, inter_a, strict=True)) / max(sum(inter_a), 1)),
             }  # fmt: skip
         folds.append(res)
+    def mean_of(method: str, k: str) -> float | None:
+        values = [f[method][k] for f in folds if f[method][k] is not None]
+        return round(float(np.mean(values)), 4) if values else None  # a low-volume queue has no interval with >= `interval_floor` contacts
+
     agg: dict[str, Any] = {}
     for method in ("hw", "naive"):
-        agg[method] = {k: round(float(np.mean([f[method][k] for f in folds if f[method][k] is not None])), 4) for k in ("mape_daily", "mape_interval", "wape_interval")} if folds else {}
-    imp = lambda k: round(100 * (1 - agg["hw"][k] / agg["naive"][k]), 1) if folds else None  # noqa: E731
+        agg[method] = {k: mean_of(method, k) for k in ("mape_daily", "mape_interval", "wape_interval")} if folds else {}
+    imp = lambda k: round(100 * (1 - agg["hw"][k] / agg["naive"][k]), 1) if folds and agg["hw"][k] is not None and agg["naive"][k] else None  # noqa: E731
     return {
         "folds": folds, "summary": agg, "interval_floor": interval_floor, "operating_window": "07:00-22:00", "improvement_pct": imp("wape_interval"),
         "improvement_daily_pct": imp("mape_daily"), "targets": {"mape_daily_max": 0.10, "min_improvement_vs_naive_pct": 15},

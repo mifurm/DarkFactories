@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from ...core import i18n
 from ...core.registry import EPIC_A, FeatureInfo
 from ...core.security import ws_origin_ok
 from ...engine.orchestrator import ConversationClosed
@@ -29,13 +30,14 @@ router = APIRouter(tags=["chat (CC-01)"])
 
 
 class StartBody(BaseModel):
-    language: str = Field("en", max_length=8)
+    language: str | None = Field(None, max_length=8, description="Conversation language; omitted = the request locale (?lang= > X-UI-Lang > Accept-Language > en)")
     channel: Literal["web_chat", "voice"] = "web_chat"
     recording_consent: Literal["pending", "granted", "declined"] = "pending"
 
 
 class MessageBody(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
+    language: str | None = Field(None, max_length=8, description="Optional language the customer picked in the widget (en, pl, ...); applied before the turn")
 
 
 class ConfirmBody(BaseModel):
@@ -67,7 +69,7 @@ async def _get(request: Request, conv_id: str) -> tuple[Any, Any]:
 @router.post("/api/chat/sessions")
 async def start_session(body: StartBody, request: Request) -> dict[str, Any]:
     svc = request.app.state.services
-    conv = await svc.orchestrator.start(channel=body.channel, language=body.language, recording_consent=body.recording_consent)
+    conv = await svc.orchestrator.start(channel=body.channel, language=body.language or i18n.current_locale(), recording_consent=body.recording_consent)
     return {"session": view(svc, conv)}
 
 
@@ -81,7 +83,7 @@ async def get_session(conv_id: str, request: Request) -> dict[str, Any]:
 async def post_message(conv_id: str, body: MessageBody, request: Request) -> dict[str, Any]:
     svc, conv = await _get(request, conv_id)
     try:
-        res = await svc.orchestrator.handle_message(conv_id, body.text)
+        res = await svc.orchestrator.handle_message(conv_id, body.text, language=body.language)
     except ConversationClosed:
         raise HTTPException(409, {"error": "conversation_closed", "message": "This conversation has ended."}) from None
     conv = await svc.store.get(conv_id)
@@ -102,7 +104,7 @@ async def stream_message(conv_id: str, body: MessageBody, request: Request) -> S
 
     async def run() -> None:
         try:
-            await svc.orchestrator.handle_message(conv_id, body.text, emit)
+            await svc.orchestrator.handle_message(conv_id, body.text, emit, language=body.language)
         except ConversationClosed:
             await queue.put({"type": "error", "error": "conversation_closed"})
         except Exception as exc:
@@ -255,7 +257,8 @@ async def ws_chat(ws: WebSocket, conv_id: str) -> None:
             elif kind == "message" and isinstance(msg.get("text"), str):
                 busy.set()
                 try:
-                    await svc.orchestrator.handle_message(conv_id, msg["text"][:2000], send)
+                    lang = msg.get("language") if isinstance(msg.get("language"), str) else None
+                    await svc.orchestrator.handle_message(conv_id, msg["text"][:2000], send, language=lang)
                 except ConversationClosed:
                     await send({"type": "error", "error": "conversation_closed"})
                 except Exception as exc:

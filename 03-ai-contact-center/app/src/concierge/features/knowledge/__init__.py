@@ -7,10 +7,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
+from ...core import i18n
 from ...core.rbac import Actor, require
 from ...core.registry import EPIC_A, FeatureInfo
 from ...engine.rag import answer_question
-from .evalset import FABRICATED, IN_SCOPE, UNANSWERABLE
+from .evalset import FABRICATED, FABRICATED_PL, IN_SCOPE, IN_SCOPE_PL, UNANSWERABLE, UNANSWERABLE_PL
 
 FEATURES = [
     FeatureInfo(
@@ -43,7 +44,7 @@ class PublishBody(BaseModel):
 
 class AskBody(BaseModel):
     question: str = Field(min_length=3, max_length=400)
-    language: str = Field("en", max_length=8)
+    language: str | None = Field(None, max_length=8, description="Answer language; omitted = the request locale")
 
 
 @router.get("/docs")
@@ -118,7 +119,7 @@ async def chunk(chunk_id: str, request: Request) -> dict[str, Any]:
 
 @router.post("/ask")
 async def ask(body: AskBody, request: Request) -> dict[str, Any]:
-    return await answer_question(request.app.state.services, body.question, body.language)
+    return await answer_question(request.app.state.services, body.question, body.language or i18n.current_locale())
 
 
 @router.get("/stats")
@@ -129,28 +130,31 @@ async def stats(request: Request) -> dict[str, Any]:
 
 
 @router.post("/evalset/run")
-async def run_evalset(request: Request, _: Actor = Depends(require("kb.read"))) -> dict[str, Any]:
-    """Retrieval + groundedness evaluation on the labelled set (citation accuracy, don't-know rate, fabricated-answer detection)."""
+async def run_evalset(request: Request, lang: str = "en", _: Actor = Depends(require("kb.read"))) -> dict[str, Any]:
+    """Retrieval + groundedness evaluation on the labelled set (citation accuracy, don't-know rate, fabricated-answer detection); `?lang=pl` runs the Polish set."""
     svc = request.app.state.services
+    polish = lang == "pl"
+    in_scope, unanswerable, fabricated = (IN_SCOPE_PL, UNANSWERABLE_PL, FABRICATED_PL) if polish else (IN_SCOPE, UNANSWERABLE, FABRICATED)
+    prefer = "pl" if polish else None
     hit = 0
     detail = []
-    for q, expected in IN_SCOPE:
-        res = await svc.kb.search(q, k=3)
+    for q, expected in in_scope:
+        res = await svc.kb.search(q, k=3, prefer_lang=prefer)
         ids = [h["doc_id"] for h in res["hits"]]
         ok = bool(set(ids) & set(expected)) and res["answerable"]
         hit += ok
         detail.append({"question": q, "expected": expected, "retrieved": ids, "ok": ok})
     dk = 0
-    for q in UNANSWERABLE:
-        res = await svc.kb.search(q, k=3)
+    for q in unanswerable:
+        res = await svc.kb.search(q, k=3, prefer_lang=prefer)
         dk += not res["answerable"]
     caught = 0
-    for q, fake, expect_ungrounded in FABRICATED:
-        res = await svc.kb.search(q, k=3)
-        g = await svc.cognitive.groundedness(q, fake, [h["text"] for h in res["hits"]], "en")
+    for q, fake, expect_ungrounded in fabricated:
+        res = await svc.kb.search(q, k=3, prefer_lang=prefer)
+        g = await svc.cognitive.groundedness(q, fake, [h["text"] for h in res["hits"]], "pl" if polish else "en")
         caught += bool(g.get("ungroundedDetected")) == expect_ungrounded
     return {
-        "citation_accuracy": round(hit / len(IN_SCOPE), 3), "in_scope": len(IN_SCOPE),
-        "dont_know_rate": round(dk / len(UNANSWERABLE), 3), "unanswerable": len(UNANSWERABLE),
-        "groundedness_accuracy": round(caught / len(FABRICATED), 3), "fabricated_cases": len(FABRICATED), "embedder": svc.kb.embedder_id, "detail": detail,
+        "lang": "pl" if polish else "en", "citation_accuracy": round(hit / len(in_scope), 3), "in_scope": len(in_scope),
+        "dont_know_rate": round(dk / len(unanswerable), 3), "unanswerable": len(unanswerable),
+        "groundedness_accuracy": round(caught / len(fabricated), 3), "fabricated_cases": len(fabricated), "embedder": svc.kb.embedder_id, "detail": detail,
     }

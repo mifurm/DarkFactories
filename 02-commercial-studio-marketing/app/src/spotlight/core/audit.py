@@ -7,14 +7,47 @@ from collections import defaultdict
 from typing import Any
 
 from ..errors import Conflict
+from ..i18n import DEFAULT, has
+from ..i18n import t as tr
 from ..util import canonical_json, now_iso, sha256_hex
 
 GENESIS = "0" * 64
 
 
+def _normalize_numbers(value: Any) -> Any:
+    """Cosmos DB hands an integral number written as ``0.0`` / ``15.0`` back as ``0`` / ``15``: hash both forms identically (bools stay bools).
+
+    Only the audit hash uses this; ``canonical_json`` itself is unchanged because signed provenance manifests depend on its exact output."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {k: _normalize_numbers(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_numbers(v) for v in value]
+    return value
+
+
 def entry_hash(entry: dict[str, Any]) -> str:
-    body = {k: v for k, v in entry.items() if k not in {"hash", "updated_at", "created_at"}}
+    body = {k: _normalize_numbers(v) for k, v in entry.items() if k not in {"hash", "updated_at", "created_at"}}
     return sha256_hex(canonical_json(body))
+
+
+def entry_message(entry: dict[str, Any], locale: str | None = None) -> str | None:
+    """One-line description of an audit entry's action in ``locale`` (None for an action without a catalog label). Display-only: never stored, never hashed."""
+    key = f"audit.{entry.get('action', '')}"
+    if not has(key, DEFAULT):
+        return None
+    msg = tr(key, locale)
+    stage = (entry.get("subject") or {}).get("stage")
+    return tr("audit.with_stage", locale, action=msg, stage=stage) if isinstance(stage, str) and has(f"label.gate.{stage}", DEFAULT) else msg
+
+
+def render_entry(entry: dict[str, Any], locale: str | None = None) -> dict[str, Any]:
+    """An audit entry for display: the stored record plus ``message`` in the viewer's language (the machine ``action`` code is unchanged)."""
+    msg = entry_message(entry, locale)
+    return {**entry, "message": msg} if msg else dict(entry)
 
 
 class AuditLog:

@@ -24,6 +24,21 @@ NEURAL = {
     "nl": [("nl-NL-ColetteNeural", "Colette", "female"), ("nl-NL-MaartenNeural", "Maarten", "male")],
 }
 LOCALES = {"en": "en-US", "de": "de-DE", "fr": "fr-FR", "es": "es-ES", "it": "it-IT", "pl": "pl-PL", "pt": "pt-PT", "nl": "nl-NL"}
+STYLE_PL = {
+    "warm, friendly": "ciepły, przyjazny", "bright, upbeat": "jasny, pogodny", "neutral, clear": "neutralny, wyraźny",
+    "expressive storyteller": "wyrazisty gawędziarz", "calm, composed": "spokojny, opanowany", "deep, authoritative": "głęboki, autorytatywny",
+}
+
+
+def display_name(voice: VoiceInfo, locale: str = "en") -> str:
+    """The label shown in the voice picker. English keeps the catalog name; Polish translates the style words ("Nova — ciepły, przyjazny")
+    and the neural-voice suffix ("Zofia (PL, głos neuronowy)")."""
+    if locale != "pl":
+        return voice.name
+    if voice.provider == "openai":
+        head, sep, style = voice.name.partition(" — ")
+        return f"{head} — {STYLE_PL.get(style, style)}" if sep else voice.name
+    return f"{voice.name.removesuffix(f' ({voice.lang.upper()} neural)')} ({voice.lang.upper()}, głos neuronowy)"
 
 
 def catalog() -> list[VoiceInfo]:

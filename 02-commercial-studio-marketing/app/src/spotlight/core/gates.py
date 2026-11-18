@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from ..i18n import label
+
 GATES: list[dict[str, Any]] = [
     {"id": "brief", "label": "Brief", "kind": "brief", "roles": ["brand_manager"], "sla_hours": 24},
     {"id": "concept", "label": "Concept (strategy)", "kind": "strategy", "roles": ["creative_director"], "sla_hours": 48},
@@ -29,7 +31,7 @@ async def stage_overview(st: Any, campaign_id: str) -> list[dict[str, Any]]:
         out.append(
             {
                 "gate": g["id"],
-                "label": g["label"],
+                "label": label("label.gate", g["id"]),
                 "roles": g["roles"],
                 "artifact_id": latest["id"] if latest else None,
                 "version": latest["version"] if latest else None,

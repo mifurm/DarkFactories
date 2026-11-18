@@ -20,6 +20,8 @@ from . import __version__
 from .api_core import router as core_router
 from .config import Settings, get_settings
 from .errors import AppError
+from .i18n import LocaleMiddleware, t
+from .i18n.validation import localize_validation_errors
 from .registry import CATALOG, discover
 from .security import SecurityMiddleware, request_id_var, setup_logging
 from .services import Services, build_services
@@ -133,16 +135,17 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
-        errs = [{"loc": ".".join(str(x) for x in e["loc"]), "msg": e["msg"]} for e in exc.errors()][:10]
-        return JSONResponse({"error": {"code": "validation_failed", "message": "Request validation failed", "details": errs, "request_id": request_id_var.get()}}, status_code=422)
+        errs = localize_validation_errors(list(exc.errors()))
+        return JSONResponse({"error": {"code": "validation_failed", "message": t("err.validation_failed"), "details": errs, "request_id": request_id_var.get()}}, status_code=422)
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception) -> JSONResponse:
         log.exception("unhandled error on %s %s", request.method, request.url.path)
-        return JSONResponse({"error": {"code": "internal_error", "message": "Unexpected server error", "request_id": request_id_var.get()}}, status_code=500)
+        return JSONResponse({"error": {"code": "internal_error", "message": t("err.internal_error"), "request_id": request_id_var.get()}}, status_code=500)
 
     app.add_middleware(MetricsMiddleware)
     app.add_middleware(SecurityMiddleware, max_body_bytes=settings.max_body_bytes)
+    app.add_middleware(LocaleMiddleware)  # outermost: every handler, error response and background job sees the request locale
 
     app.include_router(core_router)
     for feat in features.values():
@@ -160,7 +163,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
         @app.get("/{full_path:path}", include_in_schema=False)
         async def spa(full_path: str) -> Any:
             if full_path.startswith(("api/", "docs", "openapi", "healthz", "readyz", "redoc")):
-                return JSONResponse({"error": {"code": "not_found", "message": "Not found"}}, status_code=404)
+                return JSONResponse({"error": {"code": "not_found", "message": t("err.not_found")}}, status_code=404)
             target = (static / full_path).resolve()
             if full_path and target.is_file() and target.is_relative_to(static.resolve()):
                 return FileResponse(target)

@@ -12,13 +12,16 @@ import numpy as np
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
-from ...core.ai.voices import default_voice
+from ...core.ai.voices import default_voice, display_name
 from ...core.jobs import JobContext
-from ...core.studio import Studio
+from ...core.studio import Studio, campaign_lang
 from ...deps import mutate_limit, spend_limit, svc
+from ...domain.kit import localized_kit
+from ...domain.polish import spoken_text
 from ...domain.rights import RightsEntry, check_use, is_cleared
 from ...domain.timing import fit_line
 from ...errors import AppError, NotFound, ValidationFailed
+from ...i18n import current_locale, render_message, t
 from ...registry import Feature
 from ...roles import Actor, require
 from ...video import media
@@ -35,7 +38,8 @@ _PREVIEWS: dict[tuple[str, int], bytes] = {}
 @glob_router.get("/voices")
 async def voices(request: Request, lang: str | None = None) -> dict[str, Any]:
     vs = svc(request).speech.voices()
-    return {"voices": [v.__dict__ for v in vs if not lang or v.lang in (lang, "*")], "default_by_lang": {code: default_voice(code) for code in ("en", "de", "fr", "es", "it", "pl", "pt", "nl")}}
+    loc = current_locale()
+    return {"voices": [{**v.__dict__, "name": display_name(v, loc)} for v in vs if not lang or v.lang in (lang, "*")], "default_by_lang": {code: default_voice(code) for code in ("en", "de", "fr", "es", "it", "pl", "pt", "nl")}}
 
 
 class SampleIn(BaseModel):
@@ -58,7 +62,7 @@ def _rights(rows: list[dict[str, Any]]) -> list[RightsEntry]:
 async def music_preview(request: Request, rights_id: str, seconds: int = 10) -> Response:
     row = await studio(request).repo.get("rights", rights_id, pk="northwind")
     if not row or not row.get("library_track"):
-        raise NotFound("no library track with that id", code="track_not_found")
+        raise NotFound("no library track with that id", code="track_not_found", key="err.track_not_found.none")
     seconds = min(max(seconds, 3), 20)
     key = (rights_id, seconds)
     if key not in _PREVIEWS:
@@ -82,10 +86,13 @@ async def music_candidates(request: Request, campaign_id: str) -> dict[str, Any]
     script = await st.latest(campaign_id, "script")
     want = ((script or {}).get("music") or {}).get("mood")
     out = []
+    raw = {r["id"]: r for r in rows}
+    loc = current_locale()
     for e in _rights(rows):
         verdicts = check_use(e, camp.get("markets", ["US"]), camp.get("channels", []), camp.get("air_start"), camp.get("air_end"))
         out.append({
             "rights_id": e.id, "title": e.title, "licensor": e.licensor, "status": e.status, "library_track": e.library_track,
+            "licensor_label": ((raw.get(e.id, {}).get("i18n") or {}).get(loc) or {}).get("licensor") or e.licensor,
             "cleared": is_cleared(verdicts), "verdicts": [v.model_dump() for v in verdicts if v.severity != "info"],
             "mood_match": bool(want and e.library_track and e.library_track.get("mood") == want),
             "preview_url": f"/api/audio/music/{e.id}/preview.wav" if e.library_track else None,
@@ -104,10 +111,11 @@ async def select_music(request: Request, campaign_id: str, body: MusicSelect, ac
     camp = await st.campaign(campaign_id)
     row = await st.repo.get("rights", body.rights_id, pk=camp["brand_id"])
     if not row or row["kind"] != "music" or not row.get("library_track"):
-        raise NotFound("not a library music track", code="track_not_found")
+        raise NotFound("not a library music track", code="track_not_found", key="err.track_not_found.not_library")
     verdicts = check_use(_rights([row])[0], camp.get("markets", ["US"]), camp.get("channels", []), camp.get("air_start"), camp.get("air_end"))
     if not is_cleared(verdicts):
-        raise AppError("This track is not cleared for the campaign: " + "; ".join(v.message for v in verdicts if v.severity == "block"), code="rights_blocked", status=422)
+        reasons = "; ".join(v.message for v in verdicts if v.severity == "block")
+        raise AppError("This track is not cleared for the campaign: " + reasons, code="rights_blocked", status=422, params={"reasons": reasons})
     camp["music_rights_id"] = body.rights_id
     await st.save_campaign(camp)
     script = await st.latest(campaign_id, "script")
@@ -121,7 +129,7 @@ async def select_music(request: Request, campaign_id: str, body: MusicSelect, ac
 class VoiceIn(BaseModel):
     script_id: str | None = None
     voice: str | None = Field(default=None, max_length=80)
-    lang: str = Field(default="en", pattern="^(en|de|fr|es|it|pl|pt|nl)$")
+    lang: str | None = Field(default=None, pattern="^(en|de|fr|es|it|pl|pt|nl)$")  # default: the campaign language
     gender: str = Field(default="female", pattern="^(female|male)$")
     speed: float = Field(default=1.0, ge=0.7, le=1.3)
 
@@ -130,12 +138,12 @@ class VoiceIn(BaseModel):
 async def generate(request: Request, campaign_id: str, body: VoiceIn | None = None, wait: bool = False, actor: Actor = Depends(require("generate"))) -> dict[str, Any]:
     body = body or VoiceIn()
     st = studio(request)
-    await st.campaign(campaign_id)
+    lang = body.lang or campaign_lang(await st.campaign(campaign_id))
 
     async def run(job: JobContext) -> dict[str, Any]:
-        return await build_voice(request.app.state.services, campaign_id, body.script_id, body.lang, body.voice, body.gender, body.speed, actor, job)
+        return await build_voice(request.app.state.services, campaign_id, body.script_id, lang, body.voice, body.gender, body.speed, actor, job)
 
-    return await submit_job(request, "audio.voice", run, campaign_id, "Sound Designer: voice-over", "CS-09", wait, timeout=175)
+    return await submit_job(request, "audio.voice", run, campaign_id, "job.title.voice", "CS-09", wait, timeout=175)
 
 
 async def build_voice(s: Any, campaign_id: str, script_id: str | None, lang: str, voice: str | None, gender: str, speed: float, actor: Actor, job: JobContext, script_override: dict[str, Any] | None = None, label: str = "voice") -> dict[str, Any]:
@@ -148,6 +156,8 @@ async def build_voice(s: Any, campaign_id: str, script_id: str | None, lang: str
     beats = [b for b in script["beats"] if (b.get("vo") or "").strip()]
     if not beats:
         raise ValidationFailed("The script has no voice-over lines.", code="no_vo")
+    camp = await st.campaign(campaign_id)
+    pron = localized_kit((await st.brand_kit(camp["brand_id"]))["kit"], lang).get("voice", {}).get("pronunciations", {})
     sem = asyncio.Semaphore(3)
     lines: list[dict[str, Any]] = [{}] * len(beats)
     done = 0
@@ -156,33 +166,45 @@ async def build_voice(s: Any, campaign_id: str, script_id: str | None, lang: str
         nonlocal done
         async with sem:
             text = b["vo"].strip()
-            res = await s.speech.synthesize(text, voice=voice, lang=lang, speed=speed)
+            spoken = spoken_text(text, lang, pron)  # Polish: numbers/units/dates in words + brand respellings (captions keep ``text``)
+            res = await s.speech.synthesize(spoken, voice=voice, lang=lang, speed=speed)
             nat = await asyncio.to_thread(media.audio_duration, res.data)
             fit = fit_line(b["t_start"], b["t_end"], nat)
             if fit["speed"] > 1.03:
-                res = await s.speech.synthesize(text, voice=voice, lang=lang, speed=min(1.6, speed * fit["speed"]))
+                res = await s.speech.synthesize(spoken, voice=voice, lang=lang, speed=min(1.6, speed * fit["speed"]))
                 nat2 = await asyncio.to_thread(media.audio_duration, res.data)
             else:
                 nat2 = nat
             asset = await st.put_asset(campaign_id=campaign_id, name=f"{label}-{lang}-{b['id']}.{'wav' if res.mime == 'audio/wav' else 'mp3'}", data=res.data, mime=res.mime, kind="audio", actor=actor, tags=["voice-over", lang, "ai-generated"], description=text, meta={"voice": res.voice, "lang": lang, "chars": res.chars, "cached": res.cached, "cost_usd": res.cost_usd}, index=False)
-            lines[i] = {"id": f"v{i + 1}", "beat_id": b["id"], "text": text, "start": fit["start"], "duration": round(nat2, 3), "speed": fit["speed"], "natural_duration": round(nat, 3), "asset_id": asset["id"], "overflow": fit["overflow"], "voice": res.voice, "cost_usd": res.cost_usd}
+            lines[i] = {"id": f"v{i + 1}", "beat_id": b["id"], "text": text, "start": fit["start"], "duration": round(nat2, 3), "speed": fit["speed"], "natural_duration": round(nat, 3), "available": fit["avail"], "asset_id": asset["id"], "overflow": fit["overflow"], "voice": res.voice, "cost_usd": res.cost_usd, **({"spoken": spoken} if spoken != text else {})}
             done += 1
-            await job.progress(0.1 + 0.75 * done / len(beats), f"Line {done}/{len(beats)} voiced", step=f"line-{i + 1}")
+            await job.progress(0.1 + 0.75 * done / len(beats), step=f"line-{i + 1}", key="job.msg.voice.line", params={"done": done, "total": len(beats)})
 
-    await job.progress(0.05, f"Voicing {len(beats)} lines with {voice}", step="tts")
+    await job.progress(0.05, step="tts", key="job.msg.voice.start", params={"total": len(beats), "voice": voice})
     await asyncio.gather(*(one(i, b) for i, b in enumerate(beats)))
     vo = [VoLine(id=ln["id"], text=ln["text"], start=ln["start"], duration=ln["duration"], asset_id=ln["asset_id"], speed=ln["speed"], beat_id=ln["beat_id"]) for ln in lines]
-    cues = make_captions(vo)
+    cues = make_captions(vo, lang=lang)
     srt = to_srt(cues)
     srt_asset = await st.put_asset(campaign_id=campaign_id, name=f"captions-{lang}.srt", data=srt.encode("utf-8"), mime="application/x-subrip", kind="subtitle", actor=actor, tags=["captions", lang], index=False)
+    warnings = [
+        {"line_id": ln["id"], "beat_id": ln["beat_id"], "natural_s": ln["natural_duration"], "available_s": ln["available"], "key": "voice.line_too_long", "params": {"line": ln["id"], "natural": ln["natural_duration"], "avail": ln["available"]}}
+        for ln in lines if ln["overflow"]
+    ]  # the 'line too long for its beat' check on the synthesized audio (stored as code + params, rendered at read time)
     art = await st.create_artifact(
         campaign_id, "voice",
-        {"title": f"Voice-over ({lang})", "script_id": script["id"], "lang": lang, "voice": voice, "speed": speed, "lines": lines, "captions": [c.model_dump() for c in cues], "srt_asset_id": srt_asset["id"],
-         "total_vo_seconds": round(sum(ln["duration"] for ln in lines), 2), "overflow_lines": [ln["id"] for ln in lines if ln["overflow"]], "cost_usd": round(sum(ln["cost_usd"] for ln in lines), 5)},
+        {"title": t("artifact.title.voice", lang, lang=lang), "script_id": script["id"], "lang": lang, "voice": voice, "speed": speed, "lines": lines, "captions": [c.model_dump() for c in cues], "srt_asset_id": srt_asset["id"],
+         "total_vo_seconds": round(sum(ln["duration"] for ln in lines), 2), "overflow_lines": [ln["id"] for ln in lines if ln["overflow"]], "warnings": warnings, "cost_usd": round(sum(ln["cost_usd"] for ln in lines), 5)},
         actor=actor,
     )
     await st.audit(campaign_id, actor, "audio.voice_generated", {"artifact_id": art["id"]}, {"voice": voice, "lang": lang, "lines": len(lines)})
     return {"artifact_id": art["id"], "lines": len(lines), "voice": voice, "overflow": art["overflow_lines"]}
+
+
+def _localize_voice(a: dict[str, Any]) -> dict[str, Any]:
+    """A voice artifact with its warnings rendered in the viewer's language."""
+    if not a.get("warnings"):
+        return a
+    return {**a, "warnings": [{**w, "message": render_message(w.get("key"), w.get("params"), w.get("message", ""))} for w in a["warnings"]]}
 
 
 @camp_router.get("")
@@ -190,7 +212,7 @@ async def get_audio(request: Request, campaign_id: str) -> dict[str, Any]:
     st = studio(request)
     await st.campaign(campaign_id)
     arts = await st.artifacts(campaign_id, "voice")
-    return {"latest": arts[0] if arts else None, "versions": [{"id": a["id"], "lang": a["lang"], "voice": a["voice"], "created_at": a["created_at"], "total_vo_seconds": a["total_vo_seconds"]} for a in arts]}
+    return {"latest": _localize_voice(arts[0]) if arts else None, "versions": [{"id": a["id"], "lang": a["lang"], "voice": a["voice"], "created_at": a["created_at"], "total_vo_seconds": a["total_vo_seconds"]} for a in arts]}
 
 
 FEATURE = Feature(

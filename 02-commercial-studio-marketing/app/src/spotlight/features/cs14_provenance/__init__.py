@@ -10,8 +10,9 @@ from pydantic import BaseModel
 
 from ...core import provenance as prov
 from ...deps import mutate_limit, svc
-from ...domain.disclosure import PLATFORMS, required_labels
+from ...domain.disclosure import platform_catalog, required_labels
 from ...errors import NotFound, ValidationFailed
+from ...i18n import current_locale, t
 from ...registry import Feature
 from ...roles import Actor, require
 from ...util import sha256_hex
@@ -28,7 +29,7 @@ async def _latest(st: Any, asset_id: str) -> dict[str, Any] | None:
 @router.get("/labels")
 async def labels(markets: str = "US", channels: str = "", ai: bool = True, lang: str = "en") -> dict[str, Any]:
     """Which AI-disclosure labels a campaign needs per jurisdiction and platform (illustrative — validate with counsel)."""
-    return {**required_labels([m.strip().upper() for m in markets.split(",") if m.strip()], [c.strip().lower() for c in channels.split(",") if c.strip()], ai, lang), "platform_catalog": PLATFORMS}
+    return {**required_labels([m.strip().upper() for m in markets.split(",") if m.strip()], [c.strip().lower() for c in channels.split(",") if c.strip()], ai, lang, current_locale()), "platform_catalog": platform_catalog(current_locale())}
 
 
 @router.get("/assets/{asset_id}")
@@ -38,7 +39,7 @@ async def get_manifest(request: Request, asset_id: str) -> dict[str, Any]:
     if not doc:
         raise NotFound("no provenance manifest for this asset yet", code="manifest_missing")
     ver = await prov.verify_doc(svc(request), doc)
-    return {"id": doc["id"], "asset_id": asset_id, "manifest": doc["manifest"], "manifest_hash": doc["manifest_hash"], "signature": dict(doc["signature"].items()), "sidecar_url": f"/api/provenance/assets/{asset_id}/sidecar.json", "verification": ver}
+    return {"id": doc["id"], "asset_id": asset_id, "manifest": doc["manifest"], "manifest_hash": doc["manifest_hash"], "signature": dict(doc["signature"].items()), "sidecar_url": f"/api/provenance/assets/{asset_id}/sidecar.json", "verification": ver, "summary": prov.human_summary(doc)}
 
 
 @router.get("/assets/{asset_id}/sidecar.json")
@@ -101,9 +102,9 @@ async def verify_file(request: Request, file: UploadFile = File(...), sidecar_js
     except Exception as exc:
         raise ValidationFailed("sidecar_json must be a Spotlight .c2pa.json document", code="bad_sidecar") from exc
     checks = [
-        {"name": "asset_hash", "ok": sha256_hex(data) == manifest["asset"]["sha256"], "detail": "file SHA-256 vs manifest"},
-        {"name": "manifest_hash", "ok": prov.manifest_hash(manifest) == mh, "detail": "manifest content vs recorded hash"},
-        {"name": "signature", "ok": prov.verify_signature(sig["public_key"], sig["value"], mh.encode()), "detail": f"Ed25519 key {sig.get('key_id')}"},
+        {"name": "asset_hash", "ok": sha256_hex(data) == manifest["asset"]["sha256"], "detail": t("prov.file.asset_hash")},
+        {"name": "manifest_hash", "ok": prov.manifest_hash(manifest) == mh, "detail": t("prov.file.manifest_hash")},
+        {"name": "signature", "ok": prov.verify_signature(sig["public_key"], sig["value"], mh.encode()), "detail": t("prov.file.signature", key_id=sig.get("key_id"))},
     ]
     return {"ok": all(c["ok"] for c in checks), "checks": checks}
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import shutil
@@ -64,6 +65,31 @@ def write_wav(path: str | Path, audio: np.ndarray, sr: int = SR) -> None:
         wf.setsampwidth(2)
         wf.setframerate(sr)
         wf.writeframes(pcm.tobytes())
+
+
+def encode_wav(audio: np.ndarray, sr: int = SR) -> bytes:
+    """Stereo float array -> 16-bit PCM WAV bytes."""
+    buf = io.BytesIO()
+    pcm = (np.clip(audio, -1.0, 1.0) * 32767.0).astype(np.int16)
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(pcm.tobytes())
+    return buf.getvalue()
+
+
+def trim_silence(audio: np.ndarray, lead_keep: float = 0.03, trail_keep: float = 0.08, threshold_db: float = -45.0) -> np.ndarray:
+    """Cut the leading / trailing silence of a voice line (neural voices pad every utterance; a 15 s spot cannot afford it).
+    A short margin stays so the first / last syllable is never clipped. Silent or empty input is returned unchanged."""
+    if len(audio) == 0:
+        return audio
+    loud = np.nonzero(np.abs(audio).max(axis=1) > 10 ** (threshold_db / 20.0))[0]
+    if len(loud) == 0:
+        return audio
+    a = max(0, int(loud[0]) - int(lead_keep * SR))
+    b = min(len(audio), int(loud[-1]) + 1 + int(trail_keep * SR))
+    return audio[a:b]
 
 
 def audio_duration(data: bytes) -> float:

@@ -9,17 +9,47 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from ..errors import AppError, NotFound
+from ..i18n import DEFAULT, current_locale, t
 from ..util import new_id, now_iso
 from .ai.base import reset_ctx, set_ctx
 
 log = logging.getLogger("spotlight.jobs")
 TERMINAL = {"succeeded", "failed", "cancelled"}
+
+
+def _jsonable(params: dict[str, Any] | None) -> dict[str, Any]:
+    return json.loads(json.dumps(params or {}, default=str))
+
+
+def _set_message(doc: dict[str, Any], key: str, params: dict[str, Any] | None = None) -> None:
+    """Store a progress/state message as catalog key + params (plus its English text) so any viewer can read it in their language."""
+    p = _jsonable(params)
+    doc["message"], doc["message_key"], doc["message_params"] = t(key, DEFAULT, **p), key, p
+
+
+def render_job(j: dict[str, Any], locale: str | None = None) -> dict[str, Any]:
+    """A job as served to clients: title, message, error and hint rendered in ``locale`` from the stored catalog keys.
+
+    English (the language the text is stored in) and records without keys come back exactly as stored; ids, status and numbers never change."""
+    loc = locale or current_locale()
+    out = dict(j)
+    if loc == DEFAULT:
+        return out
+    if j.get("title_key"):
+        out["title"] = t(j["title_key"], loc, **(j.get("title_params") or {}))
+    if j.get("message_key"):
+        out["message"] = t(j["message_key"], loc, **(j.get("message_params") or {}))
+    if j.get("status") == "failed" and j.get("error_code") and "error_params" in j:
+        msg, hint = AppError(j.get("error") or "", code=j["error_code"], hint=j.get("error_hint"), params=j.get("error_params"), key=j.get("error_key") or None).localized(loc)
+        out.update(error=msg, error_hint=hint, message=msg)
+    return out
 
 
 class JobCancelled(Exception):
@@ -34,13 +64,18 @@ class JobContext:
         self.campaign_id: str | None = doc.get("campaign_id")
         self._last_flush = 0.0
 
-    async def progress(self, pct: float | None = None, message: str | None = None, step: str | None = None, *, force: bool = False) -> None:
+    async def progress(self, pct: float | None = None, message: str | None = None, step: str | None = None, *, key: str | None = None, params: dict[str, Any] | None = None, force: bool = False) -> None:
+        """Report progress. ``key`` (+ ``params``) names a ``job.msg.*`` catalog entry so the message is shown in the viewer's language; a plain ``message`` stays as written."""
         if self.doc.get("cancel_requested"):
             raise JobCancelled()
         if pct is not None:
             self.doc["progress"] = round(max(0.0, min(1.0, pct)), 4)
-        if message is not None:
+        if key is not None:
+            _set_message(self.doc, key, params)
+        elif message is not None:
             self.doc["message"] = message
+            self.doc.pop("message_key", None)
+            self.doc.pop("message_params", None)
         if step is not None:
             self.doc["step"] = step
             self.doc.setdefault("steps", []).append({"name": step, "at": now_iso(), "progress": self.doc.get("progress", 0)})
@@ -76,12 +111,14 @@ class JobRunner:
         for st in ("queued", "running"):
             for d in await self.repo.query("jobs", {"status": st}):
                 if d.get("owner") != self.instance_id or d["id"] not in self._tasks:
-                    d.update(status="failed", error="interrupted by restart/scale-in", message="Interrupted — please retry", finished_at=now_iso())
+                    d.update(status="failed", error="interrupted by restart/scale-in", finished_at=now_iso())
+                    _set_message(d, "job.state.interrupted")
                     await self.repo.upsert("jobs", d)
                     n += 1
         return n
 
-    async def submit(self, kind: str, fn: JobFn, *, campaign_id: str | None = None, title: str = "", feature: str | None = None, meta: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def submit(self, kind: str, fn: JobFn, *, campaign_id: str | None = None, title: str = "", feature: str | None = None, meta: dict[str, Any] | None = None, title_key: str | None = None, title_params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Queue a job. ``title_key`` (+ ``title_params``) names a ``job.title.*`` catalog entry so the title is shown in the viewer's language."""
         doc: dict[str, Any] = {
             "id": new_id("job"),
             "pk": campaign_id or "global",
@@ -100,6 +137,10 @@ class JobRunner:
             "meta": meta or {},
             "created_at": now_iso(),
         }
+        if title_key:
+            params = _jsonable(title_params)
+            doc.update(title=t(title_key, DEFAULT, **params), title_key=title_key, title_params=params)
+        _set_message(doc, "job.state.queued")
         await self._persist(doc)
         self._tasks[doc["id"]] = asyncio.create_task(self._run(doc, fn, feature))
         return dict(doc)
@@ -110,27 +151,34 @@ class JobRunner:
             async with self._sem:
                 tok = set_ctx(campaign_id=doc.get("campaign_id"), feature=feature or doc["kind"], ref=doc["id"])
                 try:
-                    doc.update(status="running", started_at=now_iso(), message="Running")
+                    doc.update(status="running", started_at=now_iso())
+                    _set_message(doc, "job.state.running")
                     await self._persist(doc)
                     result = await fn(ctx)
-                    doc.update(status="succeeded", progress=1.0, result=result or {}, message="Done", finished_at=now_iso())
+                    doc.update(status="succeeded", progress=1.0, result=result or {}, finished_at=now_iso())
+                    _set_message(doc, "job.state.done")
                 finally:
                     reset_ctx(tok)
         except JobCancelled:
-            doc.update(status="cancelled", message="Cancelled", finished_at=now_iso())
+            doc.update(status="cancelled", finished_at=now_iso())
+            _set_message(doc, "job.state.cancelled")
         except asyncio.CancelledError:
-            doc.update(status="cancelled", message="Cancelled", finished_at=now_iso())
+            doc.update(status="cancelled", finished_at=now_iso())
+            _set_message(doc, "job.state.cancelled")
             await self._persist(doc)
             raise
         except AppError as exc:
-            doc.update(status="failed", error=exc.message, error_code=exc.code, error_hint=exc.hint, message=exc.message, finished_at=now_iso())
+            doc.update(status="failed", error=exc.message, error_code=exc.code, error_hint=exc.hint, error_key=exc.key or "", error_params=_jsonable(exc.params), message=exc.message, finished_at=now_iso())
+            doc.pop("message_key", None)
+            doc.pop("message_params", None)
         except Exception as exc:
             log.exception("job %s failed", doc["id"])
-            doc.update(status="failed", error=f"{type(exc).__name__}: {exc}"[:500], error_code="internal_error", message="Job failed", finished_at=now_iso())
+            doc.update(status="failed", error=f"{type(exc).__name__}: {exc}"[:500], error_code="internal_error", finished_at=now_iso())
+            _set_message(doc, "job.state.failed")
         await self._persist(doc)
         if self.on_event:
             with contextlib.suppress(Exception):
-                await self.on_event(f"job.{doc['status']}", {"job_id": doc["id"], "kind": doc["kind"], "campaign_id": doc.get("campaign_id"), "title": doc.get("title")})
+                await self.on_event(f"job.{doc['status']}", {"job_id": doc["id"], "kind": doc["kind"], "campaign_id": doc.get("campaign_id"), "title": render_job(doc)["title"]})
         self._tasks.pop(doc["id"], None)
 
     async def get(self, job_id: str) -> dict[str, Any] | None:
@@ -141,7 +189,7 @@ class JobRunner:
     async def require(self, job_id: str) -> dict[str, Any]:
         j = await self.get(job_id)
         if not j:
-            raise NotFound(f"job {job_id} not found", code="job_not_found")
+            raise NotFound(f"job {job_id} not found", code="job_not_found", params={"id": job_id})
         return j
 
     async def list(self, campaign_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
@@ -182,12 +230,12 @@ class JobRunner:
             await asyncio.sleep(poll)
 
     async def shutdown(self) -> None:
-        for t in list(self._tasks.values()):
-            t.cancel()
-        for t in list(self._tasks.values()):
+        for task in list(self._tasks.values()):
+            task.cancel()
+        for task in list(self._tasks.values()):
             with contextlib.suppress(asyncio.CancelledError, Exception):
-                await t
+                await task
 
 
 def _public(j: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in j.items() if k not in {"owner", "cancel_requested"}}
+    return {k: v for k, v in render_job(j).items() if k not in {"owner", "cancel_requested"}}

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from ...deps import mutate_limit
 from ...domain import planner as pl
 from ...errors import ValidationFailed
+from ...i18n import label, t
 from ...registry import Feature
 from ...roles import Actor, require
 from ...util import new_id, now_iso
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/api/planner", tags=["CS-19 Campaign Planner"])
 
 @router.get("/channels")
 async def channels() -> dict[str, Any]:
-    return {"channels": pl.CHANNELS, "note": "Illustrative assumptions (not benchmarks) — calibrate with CS-18 performance data."}
+    return {"channels": pl.CHANNELS, "labels": {c: label("label.channel", c) for c in pl.CHANNELS}, "note": t("planner.note.channels")}
 
 
 class PlanIn(BaseModel):
@@ -32,11 +33,16 @@ class PlanIn(BaseModel):
     seed: int = Field(default=7, ge=1, le=10_000)
 
 
+def _localized_plan(result: dict[str, Any]) -> dict[str, Any]:
+    """A stored plan with its note and channel names rendered in the viewer's language (channel ids and numbers are unchanged)."""
+    return {**result, "note": t("planner.note.plan"), "allocation": [{**row, "label": label("label.channel", row["channel"])} for row in result["allocation"]]}
+
+
 @router.post("/plan", dependencies=[Depends(mutate_limit)])
 async def make_plan(request: Request, body: PlanIn, actor: Actor = Depends(require("campaign.write"))) -> dict[str, Any]:
     bad = [c for c in (body.channels or []) if c not in pl.CHANNELS]
     if bad:
-        raise ValidationFailed(f"unknown channel(s) {bad}", code="bad_channel")
+        raise ValidationFailed(f"unknown channel(s) {bad}", code="bad_channel", params={"channels": ", ".join(bad)})
     chans = body.channels or list(pl.CHANNELS)
     if len(chans) * body.min_share > 0.95:
         raise ValidationFailed("min_share × channels exceeds the budget", code="bad_min_share")
@@ -45,7 +51,7 @@ async def make_plan(request: Request, body: PlanIn, actor: Actor = Depends(requi
     out["vs_uniform_split"] = {"uniform_revenue": round(base), "optimised_revenue": out["totals"]["revenue"], "uplift_pct": round((out["totals"]["revenue"] / base - 1) * 100, 1) if base else None}
     doc = {"id": new_id("plan"), "pk": body.campaign_id or "global", "campaign_id": body.campaign_id, "input": body.model_dump(), "result": out, "created_at": now_iso(), "created_by": actor.name}
     await studio(request).repo.upsert("plans", doc)
-    return {"id": doc["id"], **out}
+    return {"id": doc["id"], **_localized_plan(out)}
 
 
 @router.get("/plans")

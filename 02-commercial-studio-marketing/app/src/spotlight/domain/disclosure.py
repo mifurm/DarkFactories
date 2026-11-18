@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..i18n import has
+from ..i18n import t as tr
 from .claims import REGIONS
 
 BADGE_TEXT = {
@@ -50,19 +52,49 @@ def market_to_jurisdiction(market: str) -> str | None:
     return None
 
 
-def required_labels(markets: list[str], channels: list[str], ai_generated: bool = True, lang: str = "en") -> dict[str, Any]:
-    """What disclosure a campaign needs: burned-in badge, metadata credentials and platform toggles."""
+def _localized(code: str, base: dict[str, Any], group: str, fields: tuple[str, ...], locale: str) -> dict[str, Any]:
+    out = dict(base)
+    for f in fields:
+        key = f"disclosure.{group}.{code}.{f}"
+        if has(key, locale):
+            out[f] = tr(key, locale)
+    return out
+
+
+def platform_catalog(locale: str = "en") -> dict[str, dict[str, Any]]:
+    """The platform disclosure catalog with each platform's label and mechanism text in ``locale``."""
+    return {code: _localized(code, p, "platform", ("label", "mechanism"), locale) for code, p in PLATFORMS.items()}
+
+
+def required_labels(markets: list[str], channels: list[str], ai_generated: bool = True, lang: str = "en", locale: str = "en") -> dict[str, Any]:
+    """What disclosure a campaign needs: burned-in badge, metadata credentials and platform toggles.
+
+    ``lang`` is the CONTENT language (the wording of the burned-in badge); ``locale`` is the viewer's language for the descriptive text.
+    The signed provenance manifest always stores the English (``locale="en"``) rendering.
+    """
     juris = sorted({j for m in markets if (j := market_to_jurisdiction(m))})
     plats = [c.lower() for c in channels if c.lower() in PLATFORMS]
     burn_in = ai_generated and any(JURISDICTIONS[j]["badge"] and JURISDICTIONS[j]["required"] for j in juris)
     advised_badge = ai_generated and any(JURISDICTIONS[j]["badge"] for j in juris)
     return {
         "ai_generated": ai_generated,
-        "jurisdictions": [{"code": j, **JURISDICTIONS[j]} for j in juris],
-        "platforms": [{"code": p, **PLATFORMS[p]} for p in plats],
+        "jurisdictions": [{"code": j, **_localized(j, JURISDICTIONS[j], "juris", ("name", "basis"), locale)} for j in juris],
+        "platforms": [{"code": p, **_localized(p, PLATFORMS[p], "platform", ("label", "mechanism"), locale)} for p in plats],
         "burn_in_required": burn_in,
         "burn_in_advised": advised_badge,
         "badge_text": BADGE_TEXT.get(lang, BADGE_TEXT["en"]),
-        "metadata": ["c2pa-style manifest + sidecar JSON", "IPTC DigitalSourceType = trainedAlgorithmicMedia"],
-        "notice": "Illustrative disclosure rules — validate with legal counsel for each market/platform.",
+        "metadata": [tr("disclosure.metadata.manifest", locale), tr("disclosure.metadata.iptc", locale)],
+        "notice": tr("disclosure.notice", locale),
     }
+
+
+def localize_labels(labels: dict[str, Any] | None, locale: str) -> dict[str, Any] | None:
+    """A stored labels dict (e.g. inside a signed manifest) re-rendered for the viewer; the stored copy is never modified."""
+    if not labels:
+        return labels
+    out = dict(labels)
+    out["jurisdictions"] = [{**j, **_localized(j["code"], {}, "juris", ("name", "basis"), locale)} for j in labels.get("jurisdictions", [])]
+    out["platforms"] = [{**p, **_localized(p["code"], {}, "platform", ("label", "mechanism"), locale)} for p in labels.get("platforms", [])]
+    out["metadata"] = [tr("disclosure.metadata.manifest", locale), tr("disclosure.metadata.iptc", locale)]
+    out["notice"] = tr("disclosure.notice", locale)
+    return out

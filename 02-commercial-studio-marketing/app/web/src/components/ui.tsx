@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from "react";
 import { CheckCircle2, AlertTriangle, XCircle, Info, Loader2, X } from "lucide-react";
-import { ApiError, api, onApiError } from "../api";
+import { ApiError, api, onApiError, withLang } from "../api";
+import { useI18n } from "../i18n";
+import { stepLabel } from "./jobSteps";
 
 export const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -29,19 +31,20 @@ export const statusTone = (s?: string): Tone => {
 };
 
 export function StatusBadge({ s }: { s?: string }) {
-  return <Badge tone={statusTone(s)}>{(s || "—").replace(/_/g, " ")}</Badge>;
+  const { tEnum } = useI18n();
+  return <Badge tone={statusTone(s)}>{tEnum("status", s)}</Badge>;
 }
 
 export function Card({ title, subtitle, actions, children, className, pad = true, testId }: { title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children?: ReactNode; className?: string; pad?: boolean; testId?: string }) {
   return (
-    <section data-testid={testId} className={cn("rounded-2xl border border-cream-300 bg-white shadow-[0_1px_0_rgba(43,26,18,0.04)]", className)}>
+    <section data-testid={testId} className={cn("min-w-0 rounded-2xl border border-cream-300 bg-white shadow-[0_1px_0_rgba(43,26,18,0.04)]", className)}>
       {(title || actions) && (
         <header className="flex items-start justify-between gap-3 border-b border-cream-200 px-5 py-3.5">
-          <div>
+          <div className="min-w-0">
             {title && <h3 className="font-display text-[17px] font-semibold leading-tight text-espresso-800">{title}</h3>}
             {subtitle && <p className="mt-0.5 text-[12.5px] text-espresso-500">{subtitle}</p>}
           </div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+          {actions && <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{actions}</div>}
         </header>
       )}
       <div className={pad ? "p-5" : ""}>{children}</div>
@@ -50,7 +53,8 @@ export function Card({ title, subtitle, actions, children, className, pad = true
 }
 
 export function Spinner({ className }: { className?: string }) {
-  return <Loader2 className={cn("h-4 w-4 animate-spin", className)} aria-label="loading" />;
+  const { t } = useI18n();
+  return <Loader2 className={cn("h-4 w-4 animate-spin", className)} aria-label={t("loading")} data-spinner="" />;
 }
 
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "accent" | "ghost" | "danger" | "outline"; size?: "sm" | "md"; loading?: boolean; icon?: ReactNode };
@@ -74,11 +78,38 @@ export function Button({ variant = "primary", size = "md", loading, icon, childr
   );
 }
 
+/** A big figure that shrinks (28 → 16 px) until it fits its tile: Polish values ("465 tys. USD", "15,86 mln USD") are wider than the English "$465k". */
+function FitValue({ children, className }: { children: ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const fit = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    let size = 28;
+    el.style.whiteSpace = "nowrap";
+    el.style.fontSize = `${size}px`;
+    while (el.scrollWidth > el.clientWidth + 1 && size > 16) el.style.fontSize = `${--size}px`;
+    if (el.scrollWidth > el.clientWidth + 1) el.style.whiteSpace = "normal"; // still too wide at the minimum size: wrap instead of clipping
+  }, []);
+  useLayoutEffect(fit);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fit]);
+  return (
+    <div ref={ref} className={className}>
+      {children}
+    </div>
+  );
+}
+
 export function Stat({ label, value, hint, tone }: { label: string; value: ReactNode; hint?: ReactNode; tone?: Tone }) {
   return (
-    <div className="rounded-2xl border border-cream-300 bg-white px-4 py-3.5">
+    <div className="min-w-0 rounded-2xl border border-cream-300 bg-white px-4 py-3.5">
       <div className="text-[11.5px] font-semibold uppercase tracking-wider text-espresso-500">{label}</div>
-      <div className={cn("mt-1 font-display text-[28px] font-semibold leading-none", tone === "bad" && "text-roast-600", tone === "good" && "text-sage-600", tone === "dawn" && "text-dawn-600")}>{value}</div>
+      <FitValue className={cn("mt-1 font-display font-semibold leading-none", tone === "bad" && "text-roast-600", tone === "good" && "text-sage-600", tone === "dawn" && "text-dawn-600")}>{value}</FitValue>
       {hint && <div className="mt-1.5 text-[12px] text-espresso-500">{hint}</div>}
     </div>
   );
@@ -103,10 +134,20 @@ export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { id: 
   );
 }
 
-export function Field({ label, hint, children, className }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
+export function Field({ label, hint, children, className, group }: { label: string; hint?: ReactNode; children: ReactNode; className?: string; group?: boolean }) {
+  const text = <span className="mb-1 block text-[12px] font-semibold uppercase tracking-wide text-espresso-500">{label}</span>;
+  // A <label> around several buttons would name the first one after the whole group ("Markets US DE FR …"): button groups get role="group" instead.
+  if (group)
+    return (
+      <div role="group" aria-label={label} className={cn("block", className)}>
+        {text}
+        {children}
+        {hint && <span className="mt-1 block text-[12px] text-espresso-400">{hint}</span>}
+      </div>
+    );
   return (
     <label className={cn("block", className)}>
-      <span className="mb-1 block text-[12px] font-semibold uppercase tracking-wide text-espresso-500">{label}</span>
+      {text}
       {children}
       {hint && <span className="mt-1 block text-[12px] text-espresso-400">{hint}</span>}
     </label>
@@ -116,7 +157,12 @@ const inputCls = "rounded-lg border border-cream-300 bg-cream-50 px-3 py-2 text-
 const widthCls = (c?: string) => (c && /(^|\s)(w|max-w|flex)-/.test(c) ? "" : "w-full");
 export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => <input {...p} className={cn(inputCls, widthCls(p.className), p.className)} />;
 export const Textarea = (p: TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...p} className={cn(inputCls, widthCls(p.className), "min-h-[90px] leading-relaxed", p.className)} />;
-export const Select = (p: SelectHTMLAttributes<HTMLSelectElement>) => <select {...p} className={cn(inputCls, widthCls(p.className), p.className)} />;
+/** An explicit `w-NN` is a minimum: the control grows to its longest option so longer (Polish) labels are never cut off. */
+export const Select = ({ style, ...p }: SelectHTMLAttributes<HTMLSelectElement>) => {
+  const w = /(?:^|\s)w-(\d+)(?:\s|$)/.exec(p.className ?? "");
+  const grow = w ? { width: "auto", minWidth: `${Number(w[1]) / 4}rem` } : undefined;
+  return <select {...p} style={{ ...grow, ...style }} className={cn(inputCls, widthCls(p.className), p.className)} />;
+};
 
 export function Empty({ title, hint, action }: { title: string; hint?: ReactNode; action?: ReactNode }) {
   return (
@@ -131,17 +177,18 @@ export function Empty({ title, hint, action }: { title: string; hint?: ReactNode
 export function PageHeader({ eyebrow, title, subtitle, actions }: { eyebrow?: ReactNode; title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-      <div>
+      <div className="min-w-0">
         {eyebrow && <div className="mb-1 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-dawn-600">{eyebrow}</div>}
         <h1 className="text-[32px] font-semibold leading-[1.1] text-espresso-900">{title}</h1>
         {subtitle && <p className="mt-1.5 max-w-3xl text-[14px] text-espresso-500">{subtitle}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
 
 export function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
+  const { t } = useI18n();
   useEffect(() => {
     if (!open) return;
     const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -154,7 +201,7 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
       <div className={cn("max-h-[90vh] w-full overflow-auto rounded-2xl bg-white shadow-2xl", wide ? "max-w-4xl" : "max-w-xl")} onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center justify-between border-b border-cream-200 px-5 py-3.5">
           <h3 className="font-display text-lg font-semibold">{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="rounded p-1 hover:bg-cream-200">
+          <button onClick={onClose} aria-label={t("Close")} className="rounded p-1 hover:bg-cream-200">
             <X className="h-4 w-4" />
           </button>
         </header>
@@ -180,7 +227,7 @@ export function KV({ rows }: { rows: [string, ReactNode][] }) {
       {rows.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="text-espresso-500">{k}</dt>
-          <dd className="font-medium text-espresso-800">{v}</dd>
+          <dd className="min-w-0 break-words font-medium text-espresso-800">{v}</dd>
         </div>
       ))}
     </dl>
@@ -188,7 +235,8 @@ export function KV({ rows }: { rows: [string, ReactNode][] }) {
 }
 
 export function Table({ head, rows, empty }: { head: ReactNode[]; rows: ReactNode[][]; empty?: string }) {
-  if (!rows.length) return <div className="px-2 py-6 text-center text-[13px] text-espresso-400">{empty || "Nothing here yet."}</div>;
+  const { t } = useI18n();
+  if (!rows.length) return <div className="px-2 py-6 text-center text-[13px] text-espresso-400">{empty || t("Nothing here yet.")}</div>;
   return (
     <div className="scroll-thin overflow-x-auto">
       <table className="w-full text-left text-[13px]">
@@ -247,7 +295,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           return (
             <div key={t.id} className={cn("flex gap-2.5 rounded-xl border px-3.5 py-3 shadow-lg", t.tone === "bad" ? "border-roast-500/40 bg-white" : t.tone === "warn" ? "border-dawn-400 bg-white" : "border-cream-300 bg-white")}>
               <I className={cn("mt-0.5 h-4 w-4 shrink-0", t.tone === "bad" ? "text-roast-500" : t.tone === "warn" ? "text-dawn-600" : t.tone === "good" ? "text-sage-600" : "text-sky-700")} />
-              <div className="text-[13px]">
+              <div className="min-w-0 text-[13px]">
                 <div className="font-semibold text-espresso-900">{t.title}</div>
                 {t.body && <div className="mt-0.5 text-espresso-500">{t.body}</div>}
               </div>
@@ -261,11 +309,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 // ---------------------------------------------------------------------------------------------- jobs (SSE)
 export function JobProgress({ jobId, onDone, compact }: { jobId: string; onDone?: (job: any) => void; compact?: boolean }) {
+  const i18n = useI18n();
+  const { t, lang } = i18n;
   const [job, setJob] = useState<any>(null);
   const doneRef = useRef(false);
   useEffect(() => {
     doneRef.current = false;
-    const es = new EventSource(`/api/stream/jobs/${jobId}`);
+    const es = new EventSource(withLang(`/api/stream/jobs/${jobId}`));
     const handle = (ev: MessageEvent) => {
       const j = JSON.parse(ev.data);
       setJob(j);
@@ -294,14 +344,21 @@ export function JobProgress({ jobId, onDone, compact }: { jobId: string; onDone?
     return () => es.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
-  if (!job) return <div className="flex items-center gap-2 text-[13px] text-espresso-500"><Spinner /> Connecting…</div>;
+  if (!job)
+    return (
+      <div className="flex items-center gap-2 text-[13px] text-espresso-500">
+        <Spinner /> {t("Connecting…")}
+      </div>
+    );
   const failed = job.status === "failed";
+  // the server renders the title in the request language (with the persona and details); the dictionary is only the fallback
+  const title = job.title || (lang !== "en" && i18n.hasEnum("jobKind", job.kind) ? i18n.tEnum("jobKind", job.kind) : job.kind);
   return (
     <div className={cn("rounded-xl border px-4 py-3", failed ? "border-roast-500/40 bg-roast-500/5" : "border-cream-300 bg-cream-50")} data-testid="job-progress">
       <div className="flex items-center justify-between text-[13px]">
         <div className="flex items-center gap-2 font-medium">
           {job.status === "running" || job.status === "queued" ? <Spinner /> : failed ? <XCircle className="h-4 w-4 text-roast-500" /> : <CheckCircle2 className="h-4 w-4 text-sage-600" />}
-          {job.title}
+          {title}
         </div>
         <span className="tabular-nums text-espresso-500">{Math.round((job.progress || 0) * 100)}%</span>
       </div>
@@ -313,7 +370,7 @@ export function JobProgress({ jobId, onDone, compact }: { jobId: string; onDone?
         <ol className="mt-2 flex flex-wrap gap-1.5">
           {job.steps.slice(-8).map((s: any, i: number) => (
             <li key={i} className="rounded-full bg-cream-200 px-2 py-0.5 text-[11px] text-espresso-600">
-              {s.name}
+              {stepLabel(i18n, s.name)}
             </li>
           ))}
         </ol>

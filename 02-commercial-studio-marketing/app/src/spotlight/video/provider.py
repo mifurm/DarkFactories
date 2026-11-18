@@ -58,6 +58,8 @@ class CompositorProvider:
         }
 
     async def render(self, spec: RenderSpec, scene_images: dict[str, bytes], vo_audio: dict[str, bytes], progress: ProgressCb | None = None) -> RenderOutput:
+        if self.work_dir:
+            await asyncio.to_thread(Path(self.work_dir).mkdir, parents=True, exist_ok=True)  # a configured scratch directory that does not exist yet is created, not a 500
         with tempfile.TemporaryDirectory(prefix="spot-", dir=self.work_dir) as td:
             root = Path(td)
             (root / "assets").mkdir()
@@ -97,7 +99,7 @@ class CompositorProvider:
                 raise ProviderUnavailable("render timed out", code="render_timeout") from exc
             if proc.returncode != 0 or result is None:
                 stderr = (await proc.stderr.read()).decode(errors="replace")[-400:] if proc.stderr else ""
-                raise ProviderUnavailable(f"render failed: {error or stderr or 'unknown error'}", code="render_failed")
+                raise ProviderUnavailable(f"render failed: {error or stderr or 'unknown error'}", code="render_failed", params={"detail": error or stderr or "unknown error"})
             out = root / "out"
             return RenderOutput(
                 video=(out / result["video"]).read_bytes(),

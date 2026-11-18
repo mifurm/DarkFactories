@@ -2,17 +2,27 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileCheck2, ShieldCheck, ShieldX, Stamp } from "lucide-react";
-import { api } from "../../api";
+import { api, withLang } from "../../api";
 import type { FeatureDef, WorkspaceTabProps } from "../../registry";
 import { Badge, Button, Card, Empty, KV, Skeleton, Table } from "../../components/ui";
+import { msg, useI18n, useOnLangChange } from "../../i18n";
+
+// English constant the API returns verbatim; tKnown() translates it in a non-English UI when the server did not localize it.
+const KNOWN_SERVER_TEXT = [
+  msg("Illustrative disclosure rules — validate with legal counsel for each market/platform."),
+  msg("C2PA-style (hash-based, signed) manifest for demonstration — not a certified C2PA Content Credential."),
+];
 
 function Checks({ checks }: { checks: any[] }) {
+  const { tEnum } = useI18n();
   return (
     <ul className="space-y-1 text-[13px]">
       {checks.map((c, i) => (
         <li key={i} className="flex items-start gap-2">
           {c.ok ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-sage-600" /> : <ShieldX className="mt-0.5 h-4 w-4 shrink-0 text-roast-500" />}
-          <span><b>{c.name}</b> <span className="text-espresso-500">{c.detail}</span></span>
+          <span>
+            <b>{tEnum("provCheck", c.name, c.name)}</b> <span className="text-espresso-500">{c.detail}</span>
+          </span>
         </li>
       ))}
     </ul>
@@ -20,6 +30,7 @@ function Checks({ checks }: { checks: any[] }) {
 }
 
 function ProvenanceTab({ campaign }: WorkspaceTabProps) {
+  const { t, tEnum, tOpen, tKnown } = useI18n();
   const id = campaign.campaign.id;
   const markets = (campaign.campaign.markets ?? ["US"]).join(",");
   const channels = (campaign.campaign.channels ?? []).join(",");
@@ -49,74 +60,175 @@ function ProvenanceTab({ campaign }: WorkspaceTabProps) {
       setBusy(false);
     }
   };
+  useOnLangChange(() => {
+    if (tamper) test(); // the check details are rendered by the server in the request language
+  });
   const m = man.data;
   const a = m?.manifest?.assertions;
   const L = labels.data;
   return (
     <div className="space-y-5">
-      <Card title="Content credentials" subtitle="Every rendered spot carries a signed, hash-chained provenance manifest (C2PA-style, Ed25519): assets, models and prompt digests, edits, approvals and rights are bound to the file hash. A tampered file or manifest fails verification.">
+      <Card title={t("Content credentials")} subtitle={t("Every rendered spot carries a signed, hash-chained provenance manifest (C2PA-style, Ed25519): assets, models and prompt digests, edits, approvals and rights are bound to the file hash. A tampered file or manifest fails verification.")}>
         <div className="flex flex-wrap items-center gap-3 text-[13px]">
-          <Badge tone="good">coverage {sum.data?.coverage ?? "—"}%</Badge>
-          <span className="text-espresso-500">signer {sum.data?.signer ?? "…"}</span>
+          <Badge tone="good">{t("coverage {pct}%", { pct: sum.data?.coverage ?? "—" })}</Badge>
+          <span className="text-espresso-500">{t("signer {name}", { name: sum.data?.signer ?? "…" })}</span>
         </div>
         {sum.isLoading && <Skeleton h={60} />}
-        {!sum.isLoading && !videos.length && <div className="mt-3"><Empty title="No rendered spot yet" hint="Provenance manifests are created when a spot is rendered." /></div>}
+        {!sum.isLoading && !videos.length && (
+          <div className="mt-3">
+            <Empty title={t("No rendered spot yet")} hint={t("Provenance manifests are created when a spot is rendered.")} />
+          </div>
+        )}
         {videos.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <select value={cur} onChange={(e) => { setAid(e.target.value); setTamper(null); }} className="rounded-lg border border-cream-300 bg-white px-3 py-2 text-[13px]" aria-label="asset">
-              {videos.map((v) => <option key={v.asset_id} value={v.asset_id}>{v.name} {v.has_manifest ? "✔" : "(no manifest)"}</option>)}
+            <select
+              value={cur}
+              onChange={(e) => {
+                setAid(e.target.value);
+                setTamper(null);
+              }}
+              className="rounded-lg border border-cream-300 bg-white px-3 py-2 text-[13px]"
+              aria-label={t("asset")}
+            >
+              {videos.map((v) => (
+                <option key={v.asset_id} value={v.asset_id}>
+                  {v.name} {v.has_manifest ? "✔" : t("(no manifest)")}
+                </option>
+              ))}
             </select>
-            {!m && !man.isLoading && <Button variant="outline" loading={busy} icon={<Stamp className="h-4 w-4" />} onClick={create}>Create manifest</Button>}
-            {m && <Button variant="accent" loading={busy} icon={<ShieldCheck className="h-4 w-4" />} onClick={test}>Run tamper test</Button>}
-            {m && <a className="text-[13px] text-dawn-700 underline" href={m.sidecar_url}>sidecar .c2pa.json</a>}
-            {m && <a className="text-[13px] text-dawn-700 underline" href={`/api/provenance/assets/${cur}/pack`}>provenance pack (.zip)</a>}
+            {!m && !man.isLoading && (
+              <Button variant="outline" loading={busy} icon={<Stamp className="h-4 w-4" />} onClick={create}>
+                {t("Create manifest")}
+              </Button>
+            )}
+            {m && (
+              <Button variant="accent" loading={busy} icon={<ShieldCheck className="h-4 w-4" />} onClick={test}>
+                {t("Run tamper test")}
+              </Button>
+            )}
+            {m && (
+              <a className="text-[13px] text-dawn-700 underline" href={withLang(m.sidecar_url)}>
+                {t("sidecar .c2pa.json")}
+              </a>
+            )}
+            {m && (
+              <a className="text-[13px] text-dawn-700 underline" href={withLang(`/api/provenance/assets/${cur}/pack`)}>
+                {t("provenance pack (.zip)")}
+              </a>
+            )}
           </div>
         )}
       </Card>
       {m && (
         <div className="grid gap-5 lg:grid-cols-2">
-          <Card title="Verification" actions={<Badge tone={m.verification.ok ? "good" : "bad"}>{m.verification.ok ? "authentic" : "FAILED"}</Badge>} testId="verification">
+          <Card title={t("Verification")} actions={<Badge tone={m.verification.ok ? "good" : "bad"}>{m.verification.ok ? t("authentic") : t("FAILED")}</Badge>} testId="verification">
             <Checks checks={m.verification.checks} />
             <div className="mt-3">
-              <KV rows={[["Manifest hash", <code key="h" className="text-[11.5px]">{m.manifest_hash.slice(0, 28)}…</code>], ["Signature", `${m.signature.alg ?? "Ed25519"} · key ${m.signature.key_id}`], ["Format", m.manifest.manifest_version]]} />
+              <KV
+                rows={[
+                  [
+                    t("Manifest hash"),
+                    <code key="h" className="text-[11.5px]">
+                      {m.manifest_hash.slice(0, 28)}…
+                    </code>,
+                  ],
+                  [t("Signature"), t("{alg} · key {id}", { alg: m.signature.alg ?? "Ed25519", id: m.signature.key_id })],
+                  [t("Format"), m.manifest.manifest_version],
+                ]}
+              />
             </div>
           </Card>
-          <Card title="Manifest summary">
+          <Card title={t("Manifest summary")}>
             <KV
               rows={[
-                ["Asset", `${m.manifest.title} · sha256 ${String(m.manifest.asset.sha256).slice(0, 14)}…`],
-                ["Generator", m.manifest.claim_generator],
-                ["AI-generated", a.ai_disclosure.ai_generated ? <Badge key="ai" tone="warn">yes — disclosure applied</Badge> : "no"],
-                ["Models", (a.models ?? []).map((x: any) => x.deployment).join(", ") || "—"],
-                ["Ingredients", `${(a.ingredients ?? []).length} hashed (keyframes, voice-over)`],
-                ["Actions", `${(a.actions ?? []).length} (created, placed, loudness, music)`],
-                ["Approvals recorded", `${(a.approvals ?? []).length}`],
-                ["Rights linked", (a.rights ?? []).map((r: any) => r.title).join(", ") || "—"],
-                ["Audit anchor", `chain ${m.manifest.audit_anchor?.chain} #${m.manifest.audit_anchor?.seq}`],
+                [t("Asset"), t("{title} · sha256 {hash}…", { title: m.manifest.title, hash: String(m.manifest.asset.sha256).slice(0, 14) })],
+                [t("Generator"), m.manifest.claim_generator],
+                [
+                  t("AI-generated"),
+                  a.ai_disclosure.ai_generated ? (
+                    <Badge key="ai" tone="warn">
+                      {t("yes — disclosure applied")}
+                    </Badge>
+                  ) : (
+                    t("no")
+                  ),
+                ],
+                [t("Models"), (a.models ?? []).map((x: any) => x.deployment).join(", ") || "—"],
+                [t("Ingredients"), t("{n} hashed (keyframes, voice-over)", { n: (a.ingredients ?? []).length })],
+                [t("Actions"), t("{n} (created, placed, loudness, music)", { n: (a.actions ?? []).length })],
+                [t("Approvals recorded"), `${(a.approvals ?? []).length}`],
+                [t("Rights linked"), (a.rights ?? []).map((r: any) => r.title).join(", ") || "—"],
+                [t("Audit anchor"), t("chain {chain} #{seq}", { chain: m.manifest.audit_anchor?.chain, seq: String(m.manifest.audit_anchor?.seq) })],
               ]}
             />
-            <div className="mt-2 text-[11.5px] text-espresso-400">{m.manifest.notice}</div>
+            <div className="mt-2 text-[11.5px] text-espresso-400">{tKnown(m.manifest.notice)}</div>
           </Card>
         </div>
       )}
       {tamper && (
-        <Card title="Tamper test" subtitle="Verification must FAIL when the manifest or the file is altered" actions={<Badge tone={tamper.tamper_detected ? "good" : "bad"}>{tamper.tamper_detected ? "tampering detected ✔" : "NOT detected"}</Badge>} testId="tamper-result">
+        <Card
+          title={t("Tamper test")}
+          subtitle={t("Verification must FAIL when the manifest or the file is altered")}
+          actions={<Badge tone={tamper.tamper_detected ? "good" : "bad"}>{tamper.tamper_detected ? t("tampering detected ✔") : t("NOT detected")}</Badge>}
+          testId="tamper-result"
+        >
           <div className="grid gap-4 md:grid-cols-3">
-            <div><div className="mb-1 text-[12px] font-semibold uppercase text-espresso-500">Original</div><Checks checks={tamper.result.checks} /></div>
-            <div><div className="mb-1 text-[12px] font-semibold uppercase text-espresso-500">Edited manifest</div><Checks checks={tamper.tamper_manifest.checks} /></div>
-            <div><div className="mb-1 text-[12px] font-semibold uppercase text-espresso-500">Altered file (1 byte flipped)</div><Checks checks={tamper.tamper_asset.checks} /></div>
+            <div>
+              <div className="mb-1 text-[12px] font-semibold uppercase text-espresso-500">{t("Original")}</div>
+              <Checks checks={tamper.result.checks} />
+            </div>
+            <div>
+              <div className="mb-1 text-[12px] font-semibold uppercase text-espresso-500">{t("Edited manifest")}</div>
+              <Checks checks={tamper.tamper_manifest.checks} />
+            </div>
+            <div>
+              <div className="mb-1 text-[12px] font-semibold uppercase text-espresso-500">{t("Altered file (1 byte flipped)")}</div>
+              <Checks checks={tamper.tamper_asset.checks} />
+            </div>
           </div>
         </Card>
       )}
-      <Card title="Disclosure labels required" subtitle="Per jurisdiction and platform — illustrative; validate with counsel" actions={<FileCheck2 className="h-4 w-4 text-espresso-400" />}>
-        {labels.isLoading || !L ? <Skeleton h={80} /> : (
+      <Card title={t("Disclosure labels required")} subtitle={t("Per jurisdiction and platform — illustrative; validate with counsel")} actions={<FileCheck2 className="h-4 w-4 text-espresso-400" />}>
+        {labels.isLoading || !L ? (
+          <Skeleton h={80} />
+        ) : (
           <div className="space-y-3 text-[13px]">
-            <Table head={["Jurisdiction / platform", "Rule", "Label / mechanism"]} rows={[
-              ...L.jurisdictions.map((j: any) => [<b key={j.code}>{j.name}</b>, j.required ? <Badge key="r" tone="warn">required</Badge> : <Badge key="r">advised</Badge>, <span key="b" className="text-espresso-600">{j.basis}</span>]),
-              ...L.platforms.map((p: any) => [<b key={p.code}>{p.code}</b>, p.required ? <Badge key="r" tone="warn">disclose</Badge> : <Badge key="r">optional</Badge>, <span key="b" className="text-espresso-600"><b>{p.label}</b> — {p.mechanism}</span>]),
-            ]} empty="No jurisdiction-specific labels." />
-            <div className="rounded-lg bg-cream-100 px-3 py-2">Burned-in badge text: <b>{L.badge_text}</b> · {L.burn_in_required ? "required for these markets" : L.burn_in_advised ? "advised" : "not required"} · metadata: {L.metadata.join("; ")}</div>
-            <div className="text-[11.5px] text-espresso-400">{L.notice}</div>
+            <Table
+              head={[t("Jurisdiction / platform"), t("Rule"), t("Label / mechanism")]}
+              rows={[
+                ...L.jurisdictions.map((j: any) => [
+                  <b key={j.code}>{tEnum("jurisdiction", j.code, j.name)}</b>,
+                  j.required ? (
+                    <Badge key="r" tone="warn">
+                      {t("required")}
+                    </Badge>
+                  ) : (
+                    <Badge key="r">{t("advised")}</Badge>
+                  ),
+                  <span key="b" className="text-espresso-600">
+                    {tEnum("jurisdictionBasis", j.code, j.basis)}
+                  </span>,
+                ]),
+                ...L.platforms.map((p: any) => [
+                  <b key={p.code}>{p.code}</b>,
+                  p.required ? (
+                    <Badge key="r" tone="warn">
+                      {t("disclose")}
+                    </Badge>
+                  ) : (
+                    <Badge key="r">{t("optional")}</Badge>
+                  ),
+                  <span key="b" className="text-espresso-600">
+                    <b>{tEnum("platformLabel", p.code, p.label)}</b> — {tEnum("platformMechanism", p.code, p.mechanism)}
+                  </span>,
+                ]),
+              ]}
+              empty={t("No jurisdiction-specific labels.")}
+            />
+            <div className="rounded-lg bg-cream-100 px-3 py-2">
+              {t("Burned-in badge text:")} <b>{L.badge_text}</b> · {L.burn_in_required ? t("required for these markets") : L.burn_in_advised ? t("advised") : t("not required")} · {t("metadata:")} {L.metadata.map((x: string) => tOpen("labelMetadata", x)).join("; ")}
+            </div>
+            <div className="text-[11.5px] text-espresso-400">{tKnown(L.notice)}</div>
           </div>
         )}
       </Card>
@@ -124,4 +236,4 @@ function ProvenanceTab({ campaign }: WorkspaceTabProps) {
   );
 }
 
-export const feature: FeatureDef = { id: "CS-14", workspaceTabs: [{ id: "provenance", label: "Provenance", order: 110, Component: ProvenanceTab }] };
+export const feature: FeatureDef = { id: "CS-14", workspaceTabs: [{ id: "provenance", label: msg("Provenance"), order: 110, Component: ProvenanceTab }] };

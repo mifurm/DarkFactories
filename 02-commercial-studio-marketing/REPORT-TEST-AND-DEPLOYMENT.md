@@ -7,6 +7,8 @@ Raw evidence files are in [`app/evidence/`](app/evidence): `smoke-live.txt`, `lo
 `azure-rg-tags.json`, `azure-resource-tags.txt`, `azure-security-settings.txt`, `ai-spend.txt`. Screenshots (1600×900) are in
 [`deck/assets/screens/`](deck/assets/screens).
 
+> §1–§11 document the **English release as deployed** (97 tests, 30/30 live smoke …). The **Polish localization** was added afterwards, **deployed to Azure on 18 Nov 2026 and verified live (44/44 smoke)**; it is reported in **§12** (evidence in `app/evidence/pl-*`).
+
 ## 1. Definition-of-done checklist
 
 | # | Requirement | Result | Evidence |
@@ -215,3 +217,107 @@ python ../scripts/load_test.py  --base-url <url>
 /path/to/playwright-venv/bin/python e2e/journeys.py --base-url <url> --screens ../deck/assets/screens   # 18/18 + PNGs
 python ../scripts/sync_business_case.py                                                                # re-vendor model v1.1.0 + parity
 ```
+
+## 12. Polish localization (pl)
+
+**Status.** **Deployed to Azure and verified live** (code-only redeploy by `az acr build` + `az containerapp update`, revision `ca-studio-web--0000003`; no infrastructure change; the idempotent seed `2026.11.3` upserted the Polish content into the live Cosmos DB without touching existing data).
+Before the deployment the work was verified locally in two ways: *offline stubs* (every code path, deterministic) and the **real Azure AI models** on *hybrid backends* — real Azure OpenAI, Content Safety, AI Speech and image generation,
+but an in-memory repository and local-directory blobs, so nothing touched the live Cosmos DB / Blob storage while the English app was being served from it. The live daily AI cap was raised for the verification and restored to **$5** (per-campaign cap $2).
+
+### 12.1 What is Polish now
+
+| Area | What changed | Proven by |
+|---|---|---|
+| Contract | `?lang` → `X-UI-Lang` → `Accept-Language` → `en` locale middleware (context variable, inherited by background jobs); `/api/meta` → `languages`, `default_language`, `language`; `Content-Language` on every response; `campaign.language` (defaults to the request locale, always returned); errors keep `error.code` and localize `message`/`hint` (125 raise sites, AST-checked) | `test_pl_i18n.py`, `test_pl_error_catalog.py`, smoke PL-1 |
+| Read-time rendering | deterministic text is stored as **code + params** and rendered in the reader's language: Guardian findings, script timing issues, voice warnings, audit one-liners, job titles/progress/errors (also the SSE stream), approval stages, notifications / webhook cards, team roster, scorecard tips, insight sentences, cost/ROI/ops notes, format-version notes, provenance summary; hash chain and signed manifest untouched (machine fields stay English) | `test_pl_guardian.py`, `test_pl_platform.py`, smoke PL-13/PL-14 |
+| Content (seed v2026.11.2, idempotent) | second Brand Book + kit with `lang: pl` (tagline *„Obudź się powoli.”*, voice & tone, do/don't, personas, products, glossary, logo notes), 15 `clm-pl-*` claim rules, Rights registry notes/channel/territory labels, sample campaign **„Dawn Roast — premiera w Polsce”** (`dawn-roast-premiera-pl`, market PL, language pl). Deterministic ids, upsert only, English seeds and counts untouched; re-seeding on an already-deployed store keeps user work | `test_pl_seed.py` |
+| Guardian in Polish | inflection-aware, diacritic-insensitive patterns (ł/Ł included) for prohibited / needs-substantiation / approved claims, forbidden words with replacements that agree in gender and case, caffeine disclaimer, EU 1924/2006 health claims (PL market only), greenwashing, superlatives, finance / pharma / alcohol packs, missing AI-disclosure label, rights; **34 positives × (with / without diacritics) and 30 negative controls** (look-alike stems such as *zabierz*, compliant copy) → no false positives; auto-revise converges to compliant Polish with Polish rewrites | `test_pl_guardian.py` (165), smoke PL-3/PL-7/PL-8 |
+| Content Safety / Prompt Shields | Polish word lists for the offline stub, and a local Polish + English prompt-injection pre-check in the Azure adapter (the documented languages of Prompt Shields do not include Polish) | `test_pl_guardian.py`, `test_pl_i18n.py`, smoke PL-4 (real service) |
+| Polish-first pipeline | brief (Polish free text → Polish questions → normalized brief) → strategy territories (grounded in the Polish Brand Book) → 6 / 15 / 30 s scripts (beats, VO, supers, CTA) → storyboard (Polish descriptions, **English image prompts by design**) → `pl-PL` neural VO → SRT + burned-in captions → end card / legal supers / „Wygenerowano przez AI” → format factory; every LLM call carries an explicit output-language directive and the offline stubs write Polish too | `test_pl_pipeline.py`, smoke PL-5 … PL-11 |
+| Timing and typography | per-language speaking model (`domain/timing.py`) calibrated on real audio, the *„line too long for its beat”* check, trimming / beat rebalancing that never drops the tagline or a verbatim mandatory; numbers / units / dates spelled as inflected words for the voice; NBSP after single-letter words, between number and unit and inside brand names; captions break at sentence ends, then at commas, never leave a one-word cue; long words shrink to fit | `test_pl_voice_timing.py`, `test_pl_pipeline.py` (extracted frame), smoke PL-10/PL-11 |
+| Localization both ways | PL → EN / DE / FR … and EN → PL: glossary + do-not-translate masked and verified, legal lines translated, back-translation QA in the source language (Polish compared by word stems), localized supers, voice and render | `test_pl_pipeline.py`, `test_pl_i18n.py`, smoke PL-12 |
+| Scorecard / variants / insights / planner | Polish audience-panel personas and suggestions, Polish hook copy and labels, insight statements rendered per viewer from structured evidence, pl-PL numbers and dates | `test_pl_insights.py`, smoke PL-14 |
+
+### 12.2 Results
+
+| Gate | Offline stubs | Real Azure models (hybrid) | Live (deployed) |
+|---|---|---|---|
+| `pytest` (`app/tests`) | **1,206 passed + 8 strict `xfail`** (97 English baseline unchanged + 1,109 Polish / regression: the build's 287 plus the independent linguistic QA — an 825-case adversarial Guardian corpus in `test_pl_guardian_adversarial.py`, 165 Guardian goldens, regression tests for the two live findings of §12.4), 0 failed, ≈ 65 s. The 8 xfails are documented residual gaps (`KNOWN_GAPS`) that fail loudly if they ever start passing | — | n/a (local suite) |
+| Line coverage | **90 %** total on the final tree (9,911 statements, 957 missed) | — | n/a |
+| `ruff check src tests ../scripts e2e` / `mypy` | clean / no issues in 42 files | — | n/a |
+| `smoke_test.py --lang both` | **44/44** (30 English + 14 Polish), English-only `--lang en` 30/30 | — | **44/44** on the deployed app (`app/evidence/pl-smoke-live.txt`), AI spend **US$0.34** for both languages |
+| `smoke_test.py --lang pl` | 14/14 Polish steps | **17/17** (3 infra + 14 Polish), AI spend **US$0.140** | PL-1 … PL-14 all PASS: Polish content on Cosmos, Guardian block + auto-revise, pl-PL VO, MP4, PL→EN localization, provenance, read-time localization |
+| Polish 15 s spot vs delivery spec | ffprobe h264/aac 1280×720, 14.90 s, −16.0 LUFS | same: 14.90 s, −16.0 LUFS (−15.8 … −16.0 over the runs) | **14.9 s h264/aac 1280×720, −16 LUFS** (PL-11) |
+| Extracted frames: diacritics + „Wygenerowano przez AI” | glyph check of caption, badge and end card passes | passes (`app/evidence/pl-frames/*.png`) | **verified on a frame of the live render** (`app/evidence/pl-frames-live/`: „Wolniejszy początek dnia,”, „Obudź się powoli.”, „Znajdź Dawn Roast…”) |
+| Guardian rewrite / PL→DE / EN→PL on the real models | — | verified (`pl-realmodel-guardian-localization.txt`, US$0.059) | PL-3, PL-7, PL-8, PL-12 on the live services |
+| Front end: typecheck, vitest, build, Playwright Polish journeys + screenshots | Polish journeys **36/36** (33 page states), English journeys **18/18**; vitest 65 passed; `pl_audit`: 0 missing keys, 0 console errors, 0 overflow at 1600×900 and 1280×720 (`app/PHASE1-fe-DONE.md`) | — | Polish journeys on the deployed app: see §12.8 |
+| Eval pass rate | not applicable to Spotlight (the equivalent is the Guardian golden set: 34 Polish positives, 30 negative controls, each also without diacritics — `test_pl_guardian.py`) | — | — |
+
+**English regression.** Every pre-existing test passes unchanged and the English smoke is 30/30. A parity run recorded 83 API responses and 15 LLM prompts of the English narrative on the previous release (`git archive` of `HEAD`) and on the working tree:
+**0 unexplained differences** in deterministic English content (explained: additive Polish seeds, Guardian `rules_version`/`subject_hash` hashes of the extended rule set, simulator numbers seeded from the random campaign-id suffix, the intended EN → Polish localization prompt);
+14 of 15 English LLM prompts are byte-identical, and English captions are identical on 1,500 random lines (`app/evidence/pl-english-parity.txt`).
+
+### 12.3 Real-model findings (what only the real services could show)
+
+* **Neural voices pad every line.** Raw `pl-PL-ZofiaNeural` audio carries ≈ 0.16 s of leading and ≈ 0.82 s of trailing silence and pauses ≈ 0.8–1.2 s between sentences, so a 4-beat script overran its windows. Fix: exact SSML `mstts:silence` values
+  (leading 30 ms, trailing 60 ms, sentence boundary 260 ms, comma 130 ms) plus trimming to a WAV (lead ≈ 0.03 s, trail ≈ 0.08 s); the synthesis cache key is versioned.
+* **The first speaking-rate model was 35–60 % too optimistic.** Recalibrated on 24 real lines (`app/evidence/pl-tts-calibration.json`, reproducible with `scripts/calibrate_tts.py`): 5.4 syllables/s, 0.6 s per sentence stop, 0.35 s per comma, +0.11 s per line;
+  against the measured audio the shipped model has RMSE 10 %, bias ≈ 0 and a worst under-estimate of 22 %, absorbed by the 1.05 headroom and the ≤ 1.3 × speed-up limit. The offline Polish voice uses the same model. The calibration covers `pl-PL-ZofiaNeural` only.
+* **Stage timings** of the final real run (swedencentral): brief 5.4 s · strategy 13.2 s · script 8.3 s · auto-revise 0.8 s · storyboard 95.8 s (4 × `gpt-image-1.5` low quality) · voice-over 1.3 s · render 6–16 s · PL → EN localization incl. English render 20.4 s.
+* **Spend of that run: US$0.140** — images 4 × $0.013 = $0.052, Content Safety 57 calls $0.046, LLM 8 calls $0.035, TTS 8 calls $0.007, embeddings and render compute < $0.001. Cumulative AI spend of this whole verification (four Polish smoke runs ≈ $0.55,
+  three real-model probes ≈ $0.23, TTS calibration ≈ $0.08) ≈ **US$0.87**, under the US$3 budget; images were generated at low quality and only once per run.
+* **Output quality (gpt-5.4-mini / gpt-5.4):** idiomatic Polish questions, territories (*„Cicha pierwsza filiżanka”*, *„Małe partie, duży spokój”*) and scripts, citations from the Polish Brand Book, PL → EN lines such as *„Dawn Roast — a slower start, done right.”*;
+  lines that are paraphrased rather than translated get a low back-translation score and are flagged `needs_review` for a human (by design).
+
+### 12.4 Issues found and fixed during verification
+
+* Real services: neural-voice padding and speaking model (above); a missing `WORK_DIR` turned the first render into HTTP 500 (now created on demand); the LLM wrote number words where digits were asked (the directive now says digits; the voice layer spells them).
+* Polish typography: `overlays.wrap()` split on NBSP (single-letter words were not glued); captions ended mid-sentence and left one-word cues (*„… palone w małych | partiach.”*) → sentence-aware, comma-preferring, balanced split (English split untouched, checked against `HEAD`).
+* Guardian: the bare toast *„Zdrowie!”* was a health claim; trimming used the English words-per-second; the mandatory claim may sit in the supers instead of the voice-over (script and smoke handle both).
+* English drift caught by the parity run: brief normalization (trailing-period stripping, splitting on *„ i ”* / *„ oraz ”*) is now gated to non-English; the English-source localization prompt was restored byte-for-byte.
+* Terminology aligned with the front end: *claim / claimy* (the EU regulation keeps *„oświadczenia zdrowotne”*), *Specjalista kreatywny*, *Dział prawny / Compliance*.
+* Back-translation QA compares Polish word stems, so inflection (*„początek”* / *„początku”*) no longer lowers the score.
+* **Found only on the deployed app (both are latent defects of the English release that the Polish verification exposed; fixed with regression tests):**
+  * *Audit hash chain broke on Cosmos DB.* After a run whose images came from the AI cache, an audit entry carried `cost_usd: 0.0`; Cosmos DB returns `0.0` as `0`, so the hash recomputed on read no longer matched and `CS-13 audit log verifies` failed (`broken_at` 9, "entry content hash mismatch"). The in-memory repository keeps the float, so no unit test could see it.
+    Fix: `entry_hash` hashes integral floats as ints (only the audit hash; `canonical_json` is untouched because signed provenance manifests depend on its exact output). `test_audit_cosmos_numbers` replays entries through a repository that mimics Cosmos and still detects edits to numbers and booleans.
+  * *Library semantic search returned nothing.* Deleting an asset or a campaign (the smoke test cleans up after itself) left its vectors in the `library` namespace, and the search took the top-k vectors *before* dropping those whose asset no longer exists, so a few stale vectors pushed every live asset out. Fix: delete the vectors together with the asset / campaign, over-fetch in the search and drop (and heal) stale vectors. `test_library_vectors` (3).
+  * The smoke test now retries a step once on a transport error ("connection reset by peer" between the laptop and Azure) instead of failing a whole run on a network blip.
+
+### 12.5 Known limits
+
+* The Polish Playwright journeys on the deployed app are reported in §12.8; the English live evidence (§4–§6) is the release baseline and still stands (the English smoke is 30/30 on the final build).
+* The speaking model is calibrated for one voice (`pl-PL-ZofiaNeural`); another voice needs its own constants in `domain/timing.py`.
+* Polish legal wording (EU 1924/2006, AI disclosure) is factual **demo content, not legal advice**. Image prompts stay English by design (image models); `/api/features` summaries stay English by contract (the UI translates by feature id).
+* Back-translation QA is lexical, not semantic: good paraphrases are flagged for review rather than passed. Content Safety severity offline is a word-list heuristic (the real service is used in azure mode).
+* CJK / Arabic captions still need fonts that are not shipped (Latin Extended-A, which covers Polish, is in the bundled DejaVu fonts).
+* The English copy *„Seven seeded violations — …”* lists eight items (pre-existing; left untouched to keep English identical — the Polish text says *„Osiem”*).
+
+### 12.6 Evidence files (`app/evidence/`)
+
+`pl-tests.txt` (test / lint / coverage summary) · `pl-smoke-offline.txt` (44/44) · `smoke-en-offline-after-pl.txt` (30/30) · `pl-smoke-hybrid-realmodel.txt` (17/17, real models) · `pl-realmodel-guardian-localization.txt` ·
+`pl-tts-calibration.json` (24 real `pl-PL` lines) · `pl-english-parity.txt` · `pl-frames/smoke-pl-caption-frame.png`, `smoke-pl-endcard-frame.png`, `smoke-pl-captions.srt`. Live (deployed app): `pl-smoke-live.txt` (44/44) and `pl-frames-live/` (frames and SRT of the live Polish render).
+
+### 12.7 Reproduce
+
+```bash
+cd app
+.venv/bin/pytest --cov                                              # 1,206 passed, 8 xfailed · 90 %
+.venv/bin/ruff check src tests ../scripts && .venv/bin/mypy         # clean
+SPOTLIGHT_MODE=offline .venv/bin/uvicorn spotlight.main:app --port 8102 &
+python ../scripts/smoke_test.py --base-url http://127.0.0.1:8102 --lang both         # 44/44 offline
+# real Azure AI without touching the live data (hybrid): in-memory repository + local blobs
+SPOTLIGHT_MODE=azure AI_BACKEND=azure REPO_BACKEND=memory BLOB_BACKEND=localdir DATA_DIR=./.hybrid COSMOS_ENDPOINT= BLOB_ACCOUNT_URL= \
+  AZURE_OPENAI_ENDPOINT=https://<ais>.openai.azure.com/ AI_ENDPOINT=https://<ais>.cognitiveservices.azure.com/ .venv/bin/uvicorn spotlight.main:app --port 8102 &
+python ../scripts/smoke_test.py --base-url http://127.0.0.1:8102 --lang pl --expect-mode azure --evidence-dir evidence    # 17/17, ≈ US$0.14
+# after the code-only redeploy (live):
+python ../scripts/smoke_test.py --base-url https://<app>.azurecontainerapps.io --expect-mode azure --lang both --evidence-dir evidence
+```
+
+### 12.8 Polish Playwright journeys on the deployed app
+
+`BASE_URL=https://ca-studio-web… .venv/bin/python e2e/journeys_pl.py` (full run with live AI) against the deployed app: **35 of 36 journeys passed** and 33 page states were checked; the one failure was a scanner finding, not a missing translation — the approvals inbox listed the English strategy concept *„The First Quiet Minute”* of the English smoke campaign,
+i.e. user / AI-authored content in its own language. The artifact title and the reviewers' comments are now rendered as content (`data-user-content`), the build was redeployed (revision `ca-studio-web--0000004`) and the journey passed on the live app. The same suite without the live-AI steps passes **22 / 22** on the deployed app at 1280×720
+(5 journeys that need a produced campaign are skipped there), and **36 / 36** (33 page states) on the offline server; the English journeys pass **18 / 18**. The harness's English-leftover scan also learned to skip technical text that is not UI wording (licence names, model ids such as `neural:pl-PL-ZofiaNeural`, price-tier names, Recharts' own aria-labels).
+The 29 Polish screenshots in `deck/assets/screens-pl/` (1600×900) were captured on the deployed app („AZURE · NA ŻYWO”); `deck/assets/screens/` (English) is untouched.
+
+What running against the real services showed that the offline stubs hide: identifiers that only azure mode sends (provider / model / voice ids, job kinds, price tiers) are covered by a unit test that parses the backend sources (`backend-enums.test.ts`); a produced campaign includes ≈ 90 s of keyframe generation (4 images), so the journeys take one timeout knob and assert model-written text by pattern.

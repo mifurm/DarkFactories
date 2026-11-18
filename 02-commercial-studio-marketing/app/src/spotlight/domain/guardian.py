@@ -1,4 +1,9 @@
-"""Brand Guardian (CS-12): deterministic multi-check rule engine + fix operators. LLMs only assist (never gate)."""
+"""Brand Guardian (CS-12): deterministic multi-check rule engine + fix operators. LLMs only assist (never gate).
+
+Findings carry a stable ``rule_id`` plus a catalog ``key`` and ``params``; ``message`` / ``suggestion`` are rendered from the catalog in the
+locale of the request that created them and re-rendered at read time (:func:`localize_report`), so a stored report can be shown in
+English or Polish without regenerating it. Content-language data (matched spans, replacement wording) is never translated.
+"""
 
 from __future__ import annotations
 
@@ -7,18 +12,35 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ..i18n import render_message
+from ..i18n import t as tr
 from ..util import new_id, now_iso, sha256_hex, stable_hash
 from . import colors as col
-from .claims import ClaimRule, find_hits, unsatisfied_disclaimers
-from .disclosure import required_labels
+from .claims import ClaimHit, ClaimRule, find_hits, unsatisfied_disclaimers
+from .disclosure import BADGE_TEXT, required_labels
+from .pl_morph import form_for, hype_regex, is_negated, match_case, term_for, term_regex
 from .rights import RightsEntry, check_use, find_entry
 from .rights import best_replacement_track as _best_track
-from .text import contains_phrase, replace_ci, sentences, word_count
+from .text import (
+    MatchView,
+    contains_phrase,
+    detect_lang,
+    fold,
+    has_polish_evidence,
+    match_views,
+    normalize,
+    replace_ci,
+    sentences,
+    squeeze,
+    word_count,
+)
 
 TextKind = Literal["vo", "super", "caption", "headline", "cta", "legal", "body", "brief", "dialogue"]
 Check = Literal["brand_voice", "visual_identity", "claims", "regulated", "rights", "content_safety", "disclosure", "accessibility"]
 CHECKS: list[Check] = ["brand_voice", "visual_identity", "claims", "regulated", "rights", "content_safety", "disclosure", "accessibility"]
 SUPPORT_KINDS = {"legal", "super", "caption"}
+SOURCE_WORDS = ("source", "źródło")  # "Source: northwind.example/…" legal supers, per content language
+CONTRAST_LABELS = {"end-card text": "contrast.end_card_text", "CTA button": "contrast.cta_button", "captions": "contrast.captions", "text": "contrast.text"}
 
 
 class TextItem(BaseModel):
@@ -60,6 +82,7 @@ class StockUse(BaseModel):
 class Disclosure(BaseModel):
     ai_generated: bool = True
     label_present: bool = False
+    label_text: str | None = None  # the burned-in label wording, when known (checked against the content language)
 
 
 class GuardianSubject(BaseModel):
@@ -83,6 +106,15 @@ class GuardianSubject(BaseModel):
     lang: str = "en"
 
 
+class VoicePack(BaseModel):
+    """Brand-voice rules of ONE language (e.g. Polish): matched on folded text with inflection-aware patterns."""
+
+    forbidden_words: list[str] = Field(default_factory=list)
+    replacements: dict[str, str] = Field(default_factory=dict)
+    hype_terms: list[str] = Field(default_factory=list)  # plain phrases, or "re:…" regexes on folded text
+    max_sentence_words: int | None = None
+
+
 class BrandRules(BaseModel):
     palette: list[str] = Field(default_factory=lambda: ["#2B1A12", "#F2A03D", "#F6EBDD", "#B5452B", "#5C7A5E"])
     forbidden_words: list[str] = Field(default_factory=list)
@@ -95,6 +127,7 @@ class BrandRules(BaseModel):
     spec_color_tolerance: float = 18.0
     image_palette_warn: float = 22.0
     image_palette_block: float = 45.0
+    packs: dict[str, VoicePack] = Field(default_factory=dict)  # per-language voice rules (language code -> pack)
 
 
 class SafetyObs(BaseModel):
@@ -124,6 +157,9 @@ class Finding(BaseModel):
     suggestion: str | None = None
     fix: dict[str, Any] | None = None
     waived: bool = False
+    key: str | None = None  # catalog key of ``message`` (finding.<rule>[.<variant>]); ``params`` fill its placeholders
+    sug_key: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class GuardianReport(BaseModel):
@@ -146,74 +182,200 @@ def _fid(rule: str, item: str | None, evidence: str) -> str:
     return sha256_hex(f"{rule}|{item}|{evidence.lower()}")[:10]
 
 
-def _f(check: Check, rule: str, sev: str, msg: str, *, item: str | None = None, ev: str = "", sug: str | None = None, fix: dict[str, Any] | None = None) -> Finding:
-    return Finding(id=_fid(rule, item, ev or msg), check=check, rule_id=rule, severity=sev, message=msg, evidence=ev, item_id=item, suggestion=sug, fix=fix)  # type: ignore[arg-type]
+def _f(check: Check, rule: str, sev: str, key: str, params: dict[str, Any] | None = None, *, item: str | None = None, ev: str = "", sug_key: str | None = None, fix: dict[str, Any] | None = None) -> Finding:
+    """One finding. ``key``/``sug_key`` are catalog keys; ``params`` fills both templates. The id is locale-independent (waivers key on it)."""
+    params = params or {}
+    return Finding(
+        id=_fid(rule, item, ev or stable_hash([key, params])), check=check, rule_id=rule, severity=sev, message=tr(key, **params), evidence=ev, item_id=item,  # type: ignore[arg-type]
+        suggestion=tr(sug_key, **params) if sug_key else None, fix=fix, key=key, sug_key=sug_key, params=params,
+    )
+
+
+def item_lang(it: TextItem, s: GuardianSubject) -> str:
+    """Language of a text item: its own tag, else the subject's, else detected (Polish copy sent without a language tag)."""
+    if it.lang and it.lang != "en":
+        return it.lang
+    if s.lang and s.lang != "en":
+        return s.lang
+    return detect_lang(it.text) or "en"
+
+
+def item_langs(it: TextItem, s: GuardianSubject) -> tuple[str, ...]:
+    """The rule languages to try for a text item: its tag, else the subject's, else the detected language. A line that declares no language (no ``lang`` on the item or the
+    subject) and that detection cannot place but that shows some Polish evidence ("Pomaga zapomniec o stresie.") is read as English first and, if the English rules find
+    nothing, as Polish. A line explicitly tagged English never is."""
+    if it.lang and it.lang != "en":
+        return (it.lang,)
+    if s.lang and s.lang != "en":
+        return (s.lang,)
+    detected = detect_lang(it.text)
+    if detected:
+        return (detected,)
+    declared = "lang" in it.model_fields_set or "lang" in s.model_fields_set
+    return ("en", "pl") if not declared and has_polish_evidence(it.text) else ("en",)
+
+
+def _shouting(text: str) -> str | None:
+    """Three or more consecutive ALL-CAPS words (unicode-aware: 'ŚWIEŻA KAWA ŁAGODNA RANO')."""
+    for m in re.finditer(r"[^\W\d_]{3,}(?:\s+[^\W\d_]{3,}){2,}", text):
+        if all(w.isupper() for w in m.group(0).split()):
+            return text[:40]
+    return None
+
+
+SOURCE_LINE = {"en": "Source: {}", "pl": "Źródło: {}"}
+
+
+def _rule_text(r: ClaimRule) -> dict[str, str]:
+    """The rule's description per language (its own wording under its language code, plus any translations)."""
+    return {**r.text_i18n, ("pl" if r.lang == "pl" else "en"): r.text}
 
 
 # ------------------------------------------------------------------------------------------ checks
+
+
+def _first_unnegated(rx: re.Pattern[str], views: list[MatchView]) -> tuple[int, int] | None:
+    """Offsets (in the original text) of the first match that is not negated ("nie obiecujemy cudów", "bez lifehacków")."""
+    for view in views:
+        for m in rx.finditer(view.text):
+            if not is_negated(view.text, m.start()):
+                return view.span(m.start(), m.end())
+    return None
+
+
+def _first_match(rx: re.Pattern[str], views: list[MatchView]) -> tuple[int, int] | None:
+    return next((view.span(m.start(), m.end()) for view in views if (m := rx.search(view.text))), None)
+
+
+def _pack_findings(it: TextItem, pack: VoicePack, rules: BrandRules) -> list[Finding]:
+    """Voice rules of one language: forbidden words by stem + ending classes (inflection-aware, diacritic-insensitive, looking through soft hyphens and
+    letter-spacing, ignoring negated use), hype patterns. Mandated legal wording is not brand voice, so ``legal`` lines are not checked for forbidden words."""
+    out: list[Finding] = []
+    views = match_views(it.text)
+    for word in pack.forbidden_words if it.kind != "legal" else []:
+        term = term_for(word)
+        found = _first_unnegated(term_regex(term), views)
+        if not found:
+            continue
+        span = it.text[found[0] : found[1]]
+        rep = form_for(term.forms, squeeze(span))  # "" = this inflected form has no grammatical stand-in: the LLM rewrites the line
+        if rep is None and not term.strict:
+            rep = pack.replacements.get(word.lower()) or pack.replacements.get(fold(word).lower()) or term.default
+        rep = match_case(span, rep) if rep else None
+        out.append(
+            _f("brand_voice", "voice.forbidden_word", "block", "finding.voice.forbidden_word", {"word": span, "kind": it.kind, "replacement": rep or ""}, item=it.id, ev=span,
+               sug_key="finding.voice.forbidden_word.sug" if rep else "finding.voice.forbidden_word.sug_none",
+               fix={"op": "replace_text", "item_id": it.id, "find": span, "replace": rep} if rep else {"op": "llm_rewrite", "item_id": it.id, "reason": f"remove forbidden word {word}"})
+        )
+    if it.kind in {"vo", "headline", "body", "dialogue", "caption", "super", "cta"}:
+        for spec in pack.hype_terms:
+            found = _first_match(hype_regex(spec), views)
+            if found:
+                span = it.text[found[0] : found[1]]
+                out.append(_f("brand_voice", "voice.hype", "warn", "finding.voice.hype", {"term": span}, item=it.id, ev=span))
+    return out
 
 
 def check_voice(s: GuardianSubject, ctx: GuardianContext) -> list[Finding]:
     out: list[Finding] = []
     b = ctx.brand
     for it in s.texts:
+        langs = item_langs(it, s)
+        pack = b.packs.get(langs[0])
+        packed = [f for lang in langs for p in [b.packs.get(lang)] if p for f in _pack_findings(it, p, b)]
+        covered = {squeeze(f.evidence).lower() for f in packed if f.rule_id == "voice.forbidden_word"}
         low = it.text
+        views = match_views(low) if langs[0] != "en" else []  # other languages are read through soft hyphens and letter-spacing, as the voice pack is
         for w in b.forbidden_words:
-            m = re.search(r"(?<!\w)" + re.escape(w) + r"\w{0,3}(?!\w)", low, re.IGNORECASE)
-            if m:
-                rep = b.replacements.get(w.lower())
+            rx = re.compile(r"(?<!\w)" + re.escape(w) + r"\w{0,3}(?!\w)", re.IGNORECASE)
+            if langs[0] == "en":
+                m = rx.search(low)
+                hit = m.group(0) if m else None
+            else:
+                found = _first_match(rx, views)
+                hit = low[found[0] : found[1]] if found else None
+            if hit:
+                if langs[0] != "en" and any(squeeze(hit).lower() in c for c in covered):  # the language's own pack already reports (and rewrites) this word
+                    continue
+                rep = b.replacements.get(w.lower()) if langs[0] == "en" else None  # an English stand-in would put English words into Polish copy
                 out.append(
-                    _f("brand_voice", "voice.forbidden_word", "block", f"Forbidden word “{m.group(0)}” in {it.kind} text", item=it.id, ev=m.group(0),
-                       sug=f"Use “{rep}” instead" if rep else "Rephrase without the forbidden word",
-                       fix={"op": "replace_text", "item_id": it.id, "find": m.group(0), "replace": rep} if rep else {"op": "llm_rewrite", "item_id": it.id, "reason": f"remove forbidden word {w}"})
+                    _f("brand_voice", "voice.forbidden_word", "block", "finding.voice.forbidden_word", {"word": hit, "kind": it.kind, "replacement": rep or ""}, item=it.id, ev=hit,
+                       sug_key="finding.voice.forbidden_word.sug" if rep else "finding.voice.forbidden_word.sug_none",
+                       fix={"op": "replace_text", "item_id": it.id, "find": hit, "replace": rep} if rep else {"op": "llm_rewrite", "item_id": it.id, "reason": f"remove forbidden word {w}"})
                 )
+        out += packed
         if it.kind in {"vo", "headline", "body", "dialogue", "caption", "super", "cta"}:
             ex = it.text.count("!")
             if ex > b.max_exclamations:
-                out.append(_f("brand_voice", "voice.exclamations", "warn", f"{ex} exclamation marks — brand voice is calm and unhurried (max {b.max_exclamations})", item=it.id, ev="!" * ex,
-                              sug="Replace exclamation marks with full stops", fix={"op": "replace_text", "item_id": it.id, "find": "!", "replace": ".", "all": True}))
-            if re.search(r"\b[A-Z]{3,}(?:\s+[A-Z]{3,}){2,}\b", it.text):
-                out.append(_f("brand_voice", "voice.shouting", "warn", "ALL-CAPS shouting is off-brand", item=it.id, ev=it.text[:40]))
+                out.append(_f("brand_voice", "voice.exclamations", "warn", "finding.voice.exclamations", {"count": ex, "max": b.max_exclamations}, item=it.id, ev="!" * ex,
+                              sug_key="finding.voice.exclamations.sug", fix={"op": "replace_text", "item_id": it.id, "find": "!", "replace": ".", "all": True}))
+            if (shout := _shouting(it.text)) is not None:
+                out.append(_f("brand_voice", "voice.shouting", "warn", "finding.voice.shouting", item=it.id, ev=shout))
+            limit = (pack.max_sentence_words if pack and pack.max_sentence_words else b.max_sentence_words)
             for sent in sentences(it.text):
-                if word_count(sent) > b.max_sentence_words and it.kind in {"vo", "body", "dialogue"}:
-                    out.append(_f("brand_voice", "voice.long_sentence", "warn", f"Sentence has {word_count(sent)} words (>{b.max_sentence_words}) — hard to voice", item=it.id, ev=sent[:60]))
+                if word_count(sent) > limit and it.kind in {"vo", "body", "dialogue"}:
+                    out.append(_f("brand_voice", "voice.long_sentence", "warn", "finding.voice.long_sentence", {"words": word_count(sent), "count": word_count(sent), "max": limit}, item=it.id, ev=sent[:60]))
             for h in b.hype_terms:
                 if re.search(r"(?<!\w)" + re.escape(h) + r"(?!\w)", it.text, re.IGNORECASE):
-                    out.append(_f("brand_voice", "voice.hype", "warn", f"Hype term “{h}” — Northwind speaks with quiet confidence", item=it.id, ev=h))
+                    out.append(_f("brand_voice", "voice.hype", "warn", "finding.voice.hype", {"term": h}, item=it.id, ev=h))
     return out
+
+
+def _sentence_start(text: str, start: int, span: str, replacement: str) -> str:
+    """A replacement that opens a sentence gets a capital even when the replaced span began with a digit ("100% naturalna" -> "Kawa, z której …")."""
+    before = text[:start].rstrip()
+    if (not before or before[-1] in ".!?…") and not span[:1].isalpha() and replacement[:1].islower():
+        return replacement[0].upper() + replacement[1:]
+    return replacement
 
 
 def check_claims(s: GuardianSubject, ctx: GuardianContext) -> list[Finding]:
     out: list[Finding] = []
-    support = " ".join(t.text for t in s.texts if t.kind in SUPPORT_KINDS)
+    support = " ".join(x.text for x in s.texts if x.kind in SUPPORT_KINDS)
     all_hits = []
     for it in s.texts:
         if it.kind == "legal":
             continue
-        hits = find_hits(it.text, ctx.claims, s.markets, s.category, it.id)
+        langs = item_langs(it, s)
+        hits: list[ClaimHit] = []
+        for lang in langs:  # a line of unknown language: English rules first, then Polish
+            hits = find_hits(it.text, ctx.claims, s.markets, s.category, it.id, lang)
+            if hits:
+                break
         all_hits += hits
         for h in hits:
             r = h.rule
+            lang = h.lang
             check: Check = "regulated" if (r.rule_pack and r.type == "prohibited") else "claims"
+            alt = h.alternative
+            fixed = (match_case(h.span, alt) if lang != "en" else alt) if alt else None  # inflected languages keep the original capitalisation
+            if fixed and lang != "en":
+                fixed = _sentence_start(it.text, h.start, h.span, fixed)
             if r.type == "prohibited":
                 out.append(
-                    _f(check, "claims.prohibited", r.severity, f"Prohibited claim “{h.span}” ({'regulated-category rule' if r.rule_pack else 'claims library'}: {r.text})", item=it.id, ev=h.span,
-                       sug=(f"Use the approved wording: “{r.alternative}”" if r.alternative else "Remove or rephrase the claim"),
-                       fix={"op": "replace_text", "item_id": it.id, "find": h.span, "replace": r.alternative} if r.alternative else {"op": "llm_rewrite", "item_id": it.id, "reason": f"remove prohibited claim: {r.text}"})
+                    _f(check, "claims.prohibited", r.severity, "finding.claims.prohibited", {"span": h.span, "source": "regulated" if r.rule_pack else "library", "rule_text": _rule_text(r), "alternative": alt or ""}, item=it.id, ev=h.span,
+                       sug_key="finding.claims.prohibited.sug" if alt else "finding.claims.prohibited.sug_none",
+                       fix={"op": "replace_text", "item_id": it.id, "find": h.span, "replace": fixed} if alt else {"op": "llm_rewrite", "item_id": it.id, "reason": f"remove prohibited claim: {r.text}"})
                 )
             elif r.type == "needs_substantiation":
-                substantiated = bool(r.substantiation_url and contains_phrase(support, f"source {r.substantiation_url}")) or bool(r.substantiation_url and r.substantiation_url in support)
+                url = r.substantiation_url
+                substantiated = bool(url) and (any(contains_phrase(support, f"{w} {url}") for w in SOURCE_WORDS) or str(url) in support)
                 if not substantiated:
+                    if url:
+                        fix: dict[str, Any] | None = {"op": "append_text", "kind": "legal", "text": SOURCE_LINE.get(lang, SOURCE_LINE["en"]).format(url), "lang": lang}
+                    elif alt:
+                        fix = {"op": "replace_text", "item_id": it.id, "find": h.span, "replace": fixed}
+                    else:  # no agreeing wording for this match: Polish (non-English) copy goes to the rewrite instead of staying stuck
+                        fix = {"op": "llm_rewrite", "item_id": it.id, "reason": f"substantiate or remove claim: {r.text}"} if lang != "en" else None
                     out.append(
-                        _f("claims", "claims.needs_substantiation", r.severity, f"Claim “{h.span}” needs substantiation before use", item=it.id, ev=h.span,
-                           sug=("Add the substantiation source as a legal super, or use: " + (r.alternative or "an approved claim")),
-                           fix={"op": "append_text", "kind": "legal", "text": f"Source: {r.substantiation_url}", "lang": it.lang} if r.substantiation_url else ({"op": "replace_text", "item_id": it.id, "find": h.span, "replace": r.alternative} if r.alternative else None))
+                        _f("claims", "claims.needs_substantiation", r.severity, "finding.claims.needs_substantiation", {"span": h.span, "alternative": alt or {"en": "an approved claim", "pl": "zatwierdzone sformułowanie"}}, item=it.id, ev=h.span,
+                           sug_key="finding.claims.needs_substantiation.sug", fix=fix)
                     )
-    support_after = support
-    for h in unsatisfied_disclaimers(all_hits, support_after):
+    for h in unsatisfied_disclaimers(all_hits, support):
+        disclaimer = h.rule.required_disclaimer or ""
         out.append(
-            _f("claims", "claims.missing_disclaimer", "block", f"Required disclaimer missing for claim “{h.span}”: “{h.rule.required_disclaimer}”", item=h.item_id, ev=h.rule.required_disclaimer or "",
-               sug="Add the disclaimer as a legal super", fix={"op": "append_text", "kind": "legal", "text": h.rule.required_disclaimer, "lang": "en"})
+            _f("claims", "claims.missing_disclaimer", "block", "finding.claims.missing_disclaimer", {"span": h.span, "disclaimer": disclaimer}, item=h.item_id, ev=disclaimer,
+               sug_key="finding.claims.missing_disclaimer.sug", fix={"op": "append_text", "kind": "legal", "text": h.rule.required_disclaimer, "lang": h.lang})
         )
     return out
 
@@ -229,26 +391,27 @@ def check_visual(s: GuardianSubject, ctx: GuardianContext) -> list[Finding]:
         for c in dict.fromkeys(v.colors):
             near, d = col.nearest_palette(c, b.palette)
             if d > b.spec_color_tolerance:
-                out.append(_f("visual_identity", "visual.off_palette", "block", f"Colour {c} is outside the brand palette (ΔE {d} from {near})", item=v.id, ev=c.upper(),
-                              sug=f"Use brand colour {near}", fix={"op": "snap_colors", "visual_id": v.id, "mapping": {c: near}}))
+                out.append(_f("visual_identity", "visual.off_palette", "block", "finding.visual.off_palette", {"color": c, "de": d, "near": near}, item=v.id, ev=c.upper(),
+                              sug_key="finding.visual.off_palette.sug", fix={"op": "snap_colors", "visual_id": v.id, "mapping": {c: near}}))
         if v.dominant:
             d = col.palette_distance(v.dominant, b.palette)
             if d >= b.image_palette_block:
-                out.append(_f("visual_identity", "visual.image_palette", "block", f"Image palette is far off-brand (mean ΔE {d} ≥ {b.image_palette_block})", item=v.id, ev=f"dE={d}", sug="Regenerate with palette conditioning / apply the brand grade"))
+                out.append(_f("visual_identity", "visual.image_palette", "block", "finding.visual.image_palette.block", {"de": d, "limit": b.image_palette_block}, item=v.id, ev=f"dE={d}", sug_key="finding.visual.image_palette.block.sug"))
             elif d >= b.image_palette_warn:
-                out.append(_f("visual_identity", "visual.image_palette", "warn", f"Image palette drifts from the brand (mean ΔE {d})", item=v.id, ev=f"dE={d}", sug="Apply the brand colour grade"))
+                out.append(_f("visual_identity", "visual.image_palette", "warn", "finding.visual.image_palette.warn", {"de": d}, item=v.id, ev=f"dE={d}", sug_key="finding.visual.image_palette.warn.sug"))
         if v.logo:
             lg = v.logo
             pct = 100.0 * lg["w"] / max(1.0, lg["frame_w"])
             if pct + 1e-9 < b.logo_min_width_pct:
-                out.append(_f("visual_identity", "visual.logo_size", "block", f"Logo is {pct:.1f}% of frame width (min {b.logo_min_width_pct}%)", item=v.id, ev=f"{pct:.1f}%",
-                              sug="Enlarge the logo", fix={"op": "resize_logo", "visual_id": v.id, "min_width_pct": b.logo_min_width_pct}))
+                out.append(_f("visual_identity", "visual.logo_size", "block", "finding.visual.logo_size", {"pct": pct, "min": b.logo_min_width_pct}, item=v.id, ev=f"{pct:.1f}%",
+                              sug_key="finding.visual.logo_size.sug", fix={"op": "resize_logo", "visual_id": v.id, "min_width_pct": b.logo_min_width_pct}))
             pad = b.logo_clear_space_ratio * lg["h"]
             zone = (lg["x"] - pad, lg["y"] - pad, lg["x"] + lg["w"] + pad, lg["y"] + lg["h"] + pad)
             for el in v.elements:
                 x0, y0, x1, y1 = _rect(el)
                 if x0 < zone[2] and x1 > zone[0] and y0 < zone[3] and y1 > zone[1]:
-                    out.append(_f("visual_identity", "visual.logo_clear_space", "block", f"“{el.get('name', 'element')}” intrudes into the logo clear-space ({b.logo_clear_space_ratio}× logo height)", item=v.id, ev=str(el.get("name", "element")), sug="Move the element away from the logo"))
+                    out.append(_f("visual_identity", "visual.logo_clear_space", "block", "finding.visual.logo_clear_space", {"name": str(el.get("name", "element")), "ratio": b.logo_clear_space_ratio}, item=v.id, ev=str(el.get("name", "element")),
+                                  sug_key="finding.visual.logo_clear_space.sug"))
     return out
 
 
@@ -258,8 +421,14 @@ def check_contrast(s: GuardianSubject, ctx: GuardianContext) -> list[Finding]:
         for p in v.contrast_pairs:
             cr = col.contrast_ratio(p["fg"], p["bg"])
             if cr < 4.5:
-                out.append(_f("accessibility", "a11y.contrast", "warn", f"{p.get('label', 'text')} contrast {cr}:1 is below WCAG AA 4.5:1", item=v.id, ev=f"{cr}:1", sug="Use a darker/lighter text colour or a scrim"))
+                raw = str(p.get("label", "text"))
+                out.append(_f("accessibility", "a11y.contrast", "warn", "finding.a11y.contrast", {"label": {"en": raw, "pl": tr(CONTRAST_LABELS[raw], locale="pl")} if raw in CONTRAST_LABELS else raw, "cr": cr}, item=v.id, ev=f"{cr}:1",
+                              sug_key="finding.a11y.contrast.sug"))
     return out
+
+
+def _swap_music_fix(m: MusicUse, rep: RightsEntry | None) -> dict[str, Any] | None:
+    return {"op": "swap_music", "from_title": m.title, "rights_id": rep.id, "title": rep.title, "mood": (rep.library_track or {}).get("mood")} if rep else None
 
 
 def check_rights(s: GuardianSubject, ctx: GuardianContext) -> list[Finding]:
@@ -271,37 +440,35 @@ def check_rights(s: GuardianSubject, ctx: GuardianContext) -> list[Finding]:
         e = find_entry(ctx.rights, "music", m.title, m.rights_id)
         if e is None:
             rep = _best_track(ctx.rights, s.markets, s.channels, s.air_start, s.air_end, m.mood, now=now)
-            out.append(_f("rights", "rights.unlicensed", "block", f"Music cue “{m.title}” has no licence in the Rights Registry", item=m.title, ev=m.title,
-                          sug=(f"Swap to licensed library track “{rep.title}”" if rep else "License the track or choose a library track"),
-                          fix={"op": "swap_music", "from_title": m.title, "rights_id": rep.id, "title": rep.title, "mood": (rep.library_track or {}).get("mood")} if rep else None))
+            out.append(_f("rights", "rights.unlicensed", "block", "finding.rights.unlicensed.music", {"title": m.title, "track": rep.title if rep else ""}, item=m.title, ev=m.title,
+                          sug_key="finding.rights.sug.swap_music" if rep else "finding.rights.sug.license_music", fix=_swap_music_fix(m, rep)))
             continue
         verdicts = check_use(e, s.markets, s.channels, s.air_start, s.air_end, now)
         for v in verdicts:
             if v.severity == "info":
                 continue
             rep = _best_track(ctx.rights, s.markets, s.channels, s.air_start, s.air_end, m.mood or (e.library_track or {}).get("mood"), exclude_ids={e.id}, now=now) if v.severity == "block" else None
-            out.append(_f("rights", v.code, v.severity, v.message, item=m.title, ev=e.title,
-                          sug=(f"Swap to licensed library track “{rep.title}”" if rep else None),
-                          fix={"op": "swap_music", "from_title": m.title, "rights_id": rep.id, "title": rep.title, "mood": (rep.library_track or {}).get("mood")} if rep else None))
-    for t in s.talent:
-        e = find_entry(ctx.rights, "talent", t.name, t.rights_id)
+            out.append(_f("rights", v.code, v.severity, v.key or "finding.rights.generic", {**v.params, "message": v.message, "track": rep.title if rep else ""}, item=m.title, ev=e.title,
+                          sug_key="finding.rights.sug.swap_music" if rep else None, fix=_swap_music_fix(m, rep)))
+    for tl in s.talent:
+        e = find_entry(ctx.rights, "talent", tl.name, tl.rights_id)
         if e is None:
-            out.append(_f("rights", "rights.unlicensed", "block", f"Talent “{t.name}” ({t.usage}) has no consent record in the Rights Registry", item=t.name, ev=t.name,
-                          sug="Obtain consent or use a synthetic library voice", fix={"op": "swap_talent", "name": t.name}))
+            out.append(_f("rights", "rights.unlicensed", "block", "finding.rights.unlicensed.talent", {"name": tl.name, "usage": tl.usage}, item=tl.name, ev=tl.name,
+                          sug_key="finding.rights.sug.consent_or_synthetic", fix={"op": "swap_talent", "name": tl.name}))
             continue
-        for v in check_use(e, s.markets, s.channels, s.air_start, s.air_end, now, ai_synthesis=t.ai_synthesis, usage=t.usage):
+        for v in check_use(e, s.markets, s.channels, s.air_start, s.air_end, now, ai_synthesis=tl.ai_synthesis, usage=tl.usage):
             if v.severity == "info":
                 continue
-            out.append(_f("rights", v.code, v.severity, v.message, item=t.name, ev=e.title, sug="Obtain renewed consent, or replace with a synthetic library voice" if v.severity == "block" else None,
-                          fix={"op": "swap_talent", "name": t.name} if v.severity == "block" else None))
+            out.append(_f("rights", v.code, v.severity, v.key or "finding.rights.generic", {**v.params, "message": v.message}, item=tl.name, ev=e.title, sug_key="finding.rights.sug.renew_consent" if v.severity == "block" else None,
+                          fix={"op": "swap_talent", "name": tl.name} if v.severity == "block" else None))
     for st in s.stock:
         e = find_entry(ctx.rights, "stock", st.title, st.rights_id)
         if e is None:
-            out.append(_f("rights", "rights.unlicensed", "block", f"Stock asset “{st.title}” has no licence in the Rights Registry", item=st.title, ev=st.title, sug="License the asset or remove it", fix={"op": "remove_stock", "title": st.title}))
+            out.append(_f("rights", "rights.unlicensed", "block", "finding.rights.unlicensed.stock", {"title": st.title}, item=st.title, ev=st.title, sug_key="finding.rights.sug.license_stock", fix={"op": "remove_stock", "title": st.title}))
             continue
         for v in check_use(e, s.markets, s.channels, s.air_start, s.air_end, now):
             if v.severity != "info":
-                out.append(_f("rights", v.code, v.severity, v.message, item=st.title, ev=e.title, fix={"op": "remove_stock", "title": st.title} if v.severity == "block" else None))
+                out.append(_f("rights", v.code, v.severity, v.key or "finding.rights.generic", {**v.params, "message": v.message}, item=st.title, ev=e.title, fix={"op": "remove_stock", "title": st.title} if v.severity == "block" else None))
     return out
 
 
@@ -315,19 +482,25 @@ def check_safety(s: GuardianSubject, ctx: GuardianContext) -> list[Finding]:
         sev = int(obs.get("max", 0))
         cats = ", ".join(f"{k}={v}" for k, v in (obs.get("categories") or {}).items() if v)
         if sev >= sf.block_at:
-            out.append(_f("content_safety", "safety.text", "block", f"Azure AI Content Safety flagged this text ({cats})", item=it.id, ev=cats, sug="Rewrite the line", fix={"op": "llm_rewrite", "item_id": it.id, "reason": f"content safety: {cats}"}))
+            out.append(_f("content_safety", "safety.text", "block", "finding.safety.text.block", {"cats": cats}, item=it.id, ev=cats, sug_key="finding.safety.text.block.sug", fix={"op": "llm_rewrite", "item_id": it.id, "reason": f"content safety: {cats}"}))
         elif sev >= sf.warn_at:
-            out.append(_f("content_safety", "safety.text", "warn", f"Content Safety low-severity signal ({cats})", item=it.id, ev=cats))
+            out.append(_f("content_safety", "safety.text", "warn", "finding.safety.text.warn", {"cats": cats}, item=it.id, ev=cats))
         if obs.get("protected"):
-            out.append(_f("content_safety", "safety.protected_material", "block", "Protected material detected (possible lyrics / copyrighted text)", item=it.id, ev=it.text[:50], sug="Rewrite in original wording", fix={"op": "llm_rewrite", "item_id": it.id, "reason": "protected material"}))
+            out.append(_f("content_safety", "safety.protected_material", "block", "finding.safety.protected_material", item=it.id, ev=it.text[:50], sug_key="finding.safety.protected_material.sug", fix={"op": "llm_rewrite", "item_id": it.id, "reason": "protected material"}))
         if obs.get("attack"):
-            out.append(_f("content_safety", "safety.prompt_injection", "block", "Prompt Shields detected an injection attempt in user-provided content", item=it.id, ev=it.text[:50], sug="Remove the embedded instructions", fix={"op": "remove_text", "item_id": it.id}))
+            out.append(_f("content_safety", "safety.prompt_injection", "block", "finding.safety.prompt_injection", item=it.id, ev=it.text[:50], sug_key="finding.safety.prompt_injection.sug", fix={"op": "remove_text", "item_id": it.id}))
     for v in s.visuals:
         obs = sf.images.get(v.id)
         if obs and int(obs.get("max", 0)) >= sf.block_at:
             cats = ", ".join(f"{k}={x}" for k, x in (obs.get("categories") or {}).items() if x)
-            out.append(_f("content_safety", "safety.image", "block", f"Azure AI Content Safety flagged this image ({cats})", item=v.id, ev=cats, sug="Regenerate the frame"))
+            out.append(_f("content_safety", "safety.image", "block", "finding.safety.image", {"cats": cats}, item=v.id, ev=cats, sug_key="finding.safety.image.sug"))
     return out
+
+
+def _same_label(shown: str, badge: str, lang: str) -> bool:
+    """Is the burned-in AI label the required badge? English: exactly (case / diacritics aside, as always); other languages also ignore punctuation and spacing,
+    so "Wygenerowano przez AI." and a typeset "Wygenerowano\u00a0przez\u00a0AI" are the same label."""
+    return fold(shown).lower() == fold(badge).lower() if lang == "en" else normalize(shown) == normalize(badge)
 
 
 def check_disclosure(s: GuardianSubject, ctx: GuardianContext) -> list[Finding]:
@@ -335,12 +508,15 @@ def check_disclosure(s: GuardianSubject, ctx: GuardianContext) -> list[Finding]:
     if s.has_video and s.disclosure.ai_generated:
         labels = required_labels(s.markets, s.channels, True, s.lang)
         if labels["burn_in_required"] and not s.disclosure.label_present:
-            out.append(_f("disclosure", "disclosure.missing_label", "block", f"AI-disclosure label “{labels['badge_text']}” is required for {', '.join(j['code'] for j in labels['jurisdictions'])} but not burned in", ev=labels["badge_text"],
-                          sug="Enable the on-screen AI-generated badge", fix={"op": "set_disclosure"}))
+            out.append(_f("disclosure", "disclosure.missing_label", "block", "finding.disclosure.missing_label", {"badge": labels["badge_text"], "jurisdictions": ", ".join(j["code"] for j in labels["jurisdictions"])}, ev=labels["badge_text"],
+                          sug_key="finding.disclosure.missing_label.sug", fix={"op": "set_disclosure"}))
         elif labels["burn_in_advised"] and not s.disclosure.label_present:
-            out.append(_f("disclosure", "disclosure.advised_label", "warn", "An on-screen AI-generated label is advised for these markets", ev=labels["badge_text"], fix={"op": "set_disclosure"}))
+            out.append(_f("disclosure", "disclosure.advised_label", "warn", "finding.disclosure.advised_label", ev=labels["badge_text"], fix={"op": "set_disclosure"}))
+        elif s.disclosure.label_present and s.disclosure.label_text and not _same_label(s.disclosure.label_text, BADGE_TEXT.get(s.lang, BADGE_TEXT["en"]), s.lang):
+            out.append(_f("disclosure", "disclosure.label_language", "warn", "finding.disclosure.label_language", {"shown": s.disclosure.label_text, "badge": BADGE_TEXT.get(s.lang, BADGE_TEXT["en"])}, ev=s.disclosure.label_text,
+                          sug_key="finding.disclosure.label_language.sug", fix={"op": "set_disclosure_text", "text": BADGE_TEXT.get(s.lang, BADGE_TEXT["en"])}))
     if s.has_video and s.captions_present is False:
-        out.append(_f("accessibility", "a11y.captions", "warn", "No captions / SRT — required for accessibility and sound-off viewing", sug="Enable burned-in captions + SRT", fix={"op": "enable_captions"}))
+        out.append(_f("accessibility", "a11y.captions", "warn", "finding.a11y.captions", sug_key="finding.a11y.captions.sug", fix={"op": "enable_captions"}))
     return out
 
 
@@ -378,6 +554,23 @@ def verdict_of(findings: list[Finding]) -> Literal["pass", "warn", "block"]:
 
 def rules_version(ctx: GuardianContext) -> str:
     return stable_hash({"c": sorted(c.id for c in ctx.claims), "r": sorted(r.id for r in ctx.rights), "b": ctx.brand.model_dump()})[:12]
+
+
+def localize_finding(f: dict[str, Any], locale: str | None = None) -> dict[str, Any]:
+    """Re-render a stored finding's message / suggestion from its catalog key + params (legacy findings keep their stored text)."""
+    if not f.get("key"):
+        return f
+    out = {**f, "message": render_message(f["key"], f.get("params"), f.get("message", ""), locale)}
+    if f.get("sug_key"):
+        out["suggestion"] = render_message(f["sug_key"], f.get("params"), f.get("suggestion") or "", locale)
+    return out
+
+
+def localize_report(report: dict[str, Any], locale: str | None = None) -> dict[str, Any]:
+    """A report (dict) with every finding rendered in ``locale`` — stored reports switch language at read time."""
+    if not report.get("findings"):
+        return report
+    return {**report, "findings": [localize_finding(f, locale) for f in report["findings"]]}
 
 
 def build_report(subject: GuardianSubject, ctx: GuardianContext, findings: list[Finding] | None = None, iterations: list[dict[str, Any]] | None = None) -> GuardianReport:
@@ -457,6 +650,10 @@ def apply_fix(subject: GuardianSubject, fix: dict[str, Any], ctx: GuardianContex
         changed = not subject.disclosure.label_present
         subject.disclosure.label_present = True
         return changed
+    if op == "set_disclosure_text":
+        changed = subject.disclosure.label_text != fix["text"] or not subject.disclosure.label_present
+        subject.disclosure.label_text, subject.disclosure.label_present = fix["text"], True
+        return changed
     if op == "enable_captions":
         changed = subject.captions_present is not True
         subject.captions_present = True
@@ -465,9 +662,14 @@ def apply_fix(subject: GuardianSubject, fix: dict[str, Any], ctx: GuardianContex
 
 
 def revise_once(subject: GuardianSubject, findings: list[Finding], ctx: GuardianContext) -> list[dict[str, Any]]:
-    """Apply every deterministic fix attached to a live (non-waived) blocking/warning finding."""
+    """Apply every deterministic fix attached to a live (non-waived) blocking/warning finding.
+
+    In Polish copy the fix that replaces the LONGER span goes first: when a brand-voice word sits inside a claim ("Gwarantowany" in "Gwarantowany zysk"), the
+    claim's own wording wins and the shorter word-for-word swap no longer fits (it would leave "Niezawodny zysk" behind)."""
     applied: list[dict[str, Any]] = []
-    for f in findings:
+    polish = subject.lang != "en" or any(t.lang != "en" for t in subject.texts)
+    ordered = sorted(findings, key=lambda f: -len(str(f.fix.get("find", ""))) if f.fix and f.fix.get("op") == "replace_text" else 0) if polish else findings
+    for f in ordered:
         if f.waived or f.severity == "info" or not f.fix or f.fix.get("op") == "llm_rewrite":
             continue
         if apply_fix(subject, f.fix, ctx):

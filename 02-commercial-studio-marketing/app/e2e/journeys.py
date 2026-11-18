@@ -8,24 +8,33 @@ creative workspace (storyboard keyframes, audio, rendered video player, formats,
 Guardian playground (seeded violations blocked, auto-revise converges) · approvals inbox + audit chain · variants/bandit ·
 performance insights · planner · asset library · cost meter · ROI/ACR calculator · team · ops · feature map.
 
-The target must already contain one produced campaign (run scripts/smoke_test.py first); the script finds it through the API.
+The target must already contain one produced campaign (run scripts/smoke_test.py first, or pass --campaign ID); the script finds it through the API.
 Exit code != 0 when any journey fails. Console errors and HTTP 5xx responses fail the run. Every screenshot waits for the page to settle
 (no skeleton, spinner, "Loading…" text, undecoded image/video/audio or toast) and fails the journey if it never does; the scratch
-"E2E —" campaigns created by the run are deleted at the end.
+"E2E —" campaigns created by the run (and only those) are deleted at the end. Against a deployed instance (a --base-url that is not
+localhost) the waits on a model are raised: E2E_AI_TIMEOUT_MS (default 600000) and a 15 s default expectation timeout.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 from playwright.sync_api import Page, expect, sync_playwright
 
 VIEWPORT = {"width": 1600, "height": 900}
+PRE_EXISTING: set[str] = set()  # campaign ids that existed before this run: the scratch cleanup only removes what the run itself created
+AI_FLOOR_MS = 0  # waits on a model: E2E_AI_TIMEOUT_MS, default 10 min against a deployed (non-localhost) instance
+
+
+def ai(ms: int) -> int:
+    return max(ms, AI_FLOOR_MS)
 
 # A capture must never show a loading state (skeleton, spinner, "Loading…" text, undecoded image/video) or a lingering toast.
 SETTLE_JS = """
@@ -94,17 +103,19 @@ def get_json(url: str):
 
 
 def delete_scratch_campaigns(base: str) -> int:
-    """Remove the 'E2E —' campaigns this script creates (their experiments go with them)."""
+    """Remove the 'E2E —' campaigns this script creates (their experiments go with them). Campaigns that existed before the run are never touched."""
     n = 0
     for c in get_json(f"{base}/api/campaigns"):
-        if c["name"].startswith("E2E —"):
+        if c["name"].startswith("E2E —") and c["id"] not in PRE_EXISTING:
             req = urllib.request.Request(f"{base}/api/campaigns/{c['id']}", method="DELETE", headers={"X-Studio-Role": "admin"})  # noqa: S310
             urllib.request.urlopen(req, timeout=60).read()  # noqa: S310
             n += 1
     return n
 
 
-def produced_campaign(base: str) -> dict:
+def produced_campaign(base: str, wanted: str = "") -> dict:
+    if wanted:
+        return get_json(f"{base}/api/campaigns/{wanted}")["campaign"]
     best = None
     for c in get_json(f"{base}/api/campaigns"):
         n = len(get_json(f"{base}/api/campaigns/{c['id']}/spot").get("spots", []))
@@ -116,14 +127,21 @@ def produced_campaign(base: str) -> dict:
 
 
 def main() -> int:
+    global AI_FLOOR_MS
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", required=True)
     ap.add_argument("--screens", default=None, help="directory for 1600x900 screenshots (deck/assets/screens)")
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--skip-live-ai", action="store_true", help="do not click buttons that call Azure OpenAI (brief analysis)")
+    ap.add_argument("--campaign", default="", help="use this produced campaign (default: the one with the most spots)")
     args = ap.parse_args()
     run = Run(args.base_url, Path(args.screens) if args.screens else None)
-    camp = produced_campaign(run.base)
+    remote = (urllib.parse.urlparse(run.base).hostname or "") not in {"localhost", "127.0.0.1", "::1"}
+    AI_FLOOR_MS = int(os.environ.get("E2E_AI_TIMEOUT_MS") or (600_000 if remote else 0))
+    if remote:
+        expect.set_options(timeout=15_000)  # deployed instance: network + Cosmos latency
+    PRE_EXISTING.update(c["id"] for c in get_json(f"{run.base}/api/campaigns"))
+    camp = produced_campaign(run.base, args.campaign)
     cid = camp["id"]
     print(f"E2E against {run.base} — campaign {cid!r} ({camp['name']})\n", flush=True)
 
@@ -146,7 +164,7 @@ def main() -> int:
             run.shot(p, "02-brief-wizard")
             return
         p.get_by_role("button", name="Analyze with the Briefing agent").click()
-        expect(p.get_by_test_id("questions")).to_be_visible(timeout=90000)
+        expect(p.get_by_test_id("questions")).to_be_visible(timeout=ai(90000))
         n = p.get_by_test_id("questions").locator("input").count()
         assert 1 <= n <= 3, f"expected 1-3 clarifying questions, got {n}"
         run.shot(p, "02-brief-wizard")
@@ -203,21 +221,21 @@ def main() -> int:
         run.go(p, f"/campaigns/{cid}/provenance")
         expect(p.get_by_test_id("verification")).to_contain_text("authentic", timeout=30000)
         p.get_by_role("button", name="Run tamper test").click()
-        expect(p.get_by_test_id("tamper-result")).to_contain_text("tampering detected", timeout=60000)
+        expect(p.get_by_test_id("tamper-result")).to_contain_text("tampering detected", timeout=ai(60000))
         run.shot(p, "12-provenance-tamper-test")
 
     def guardian(p: Page) -> None:
         run.go(p, "/guardian")
         expect(p.get_by_label("line v1")).to_have_value("Dawn Roast cures morning anxiety.")
         p.get_by_role("button", name="Run Guardian").click()
-        expect(p.get_by_test_id("verdict")).to_have_text("block", timeout=60000)
+        expect(p.get_by_test_id("verdict")).to_have_text("block", timeout=ai(60000))
         cov = p.get_by_test_id("seeded-coverage")
         expect(cov).to_be_visible()
         assert cov.get_by_text("failed").count() == 0, "a seeded violation was missed"
         p.evaluate("window.scrollTo(0, 0)")
         run.shot(p, "13-guardian-report-blocked")
         p.get_by_role("button", name="Auto-revise (≤3 iterations)").click()
-        expect(p.get_by_test_id("iterations")).to_be_visible(timeout=90000)
+        expect(p.get_by_test_id("iterations")).to_be_visible(timeout=ai(90000))
         expect(p.get_by_test_id("verdict")).not_to_have_text("block")
         p.evaluate("window.scrollTo(0, 0)")
         run.shot(p, "14-guardian-auto-revise")

@@ -19,15 +19,17 @@ from ..domain.guardian import (
     VisualItem,
     apply_fix,
     build_report,
+    item_lang,
     revise_once,
     run_rules,
 )
 from ..domain.rights import RightsEntry
-from ..domain.script import trim_to_window
+from ..domain.script import timing_issues, trim_to_window
+from ..i18n.directive import lang_directive
 from ..util import now_iso
 from ..video.overlays import endcard_layout
 from ..video.spec import RenderSpec
-from .studio import Studio
+from .studio import Studio, campaign_lang
 
 MAX_ITER = 3
 
@@ -39,7 +41,7 @@ class RewriteOut(BaseModel):
 # ------------------------------------------------------------------------------------------ subject builders
 
 
-def _base(campaign: dict[str, Any], stype: str, artifact_id: str | None = None, markets: list[str] | None = None, lang: str = "en") -> GuardianSubject:
+def _base(campaign: dict[str, Any], stype: str, artifact_id: str | None = None, markets: list[str] | None = None, lang: str | None = None) -> GuardianSubject:
     return GuardianSubject(
         type=stype,  # type: ignore[arg-type]
         campaign_id=campaign["id"],
@@ -50,7 +52,7 @@ def _base(campaign: dict[str, Any], stype: str, artifact_id: str | None = None, 
         channels=campaign.get("channels", []),
         air_start=campaign.get("air_start"),
         air_end=campaign.get("air_end"),
-        lang=lang,
+        lang=lang or campaign_lang(campaign),
     )
 
 
@@ -58,11 +60,11 @@ def subject_from_brief(campaign: dict[str, Any], art: dict[str, Any]) -> Guardia
     f = art.get("fields", {})
     s = _base(campaign, "brief", art["id"])
     for i, m in enumerate(f.get("mandatories", [])):
-        s.texts.append(TextItem(id=f"mand-{i}", kind="brief", text=m))
+        s.texts.append(TextItem(id=f"mand-{i}", kind="brief", text=m, lang=s.lang))
     if f.get("key_message"):
-        s.texts.append(TextItem(id="key_message", kind="headline", text=f["key_message"]))
+        s.texts.append(TextItem(id="key_message", kind="headline", text=f["key_message"], lang=s.lang))
     if f.get("cta"):
-        s.texts.append(TextItem(id="cta", kind="cta", text=f["cta"]))
+        s.texts.append(TextItem(id="cta", kind="cta", text=f["cta"], lang=s.lang))
     if f.get("music_reference"):
         s.music.append(MusicUse(title=f["music_reference"]))
     s.talent = [TalentUse(name=t.split("(")[0].strip()) for t in f.get("talent", []) if t.strip()]
@@ -70,17 +72,18 @@ def subject_from_brief(campaign: dict[str, Any], art: dict[str, Any]) -> Guardia
 
 
 def subject_from_strategy(campaign: dict[str, Any], art: dict[str, Any]) -> GuardianSubject:
-    s = _base(campaign, "concept", art["id"])
+    s = _base(campaign, "concept", art["id"], lang=art.get("lang"))
     if art.get("positioning"):
-        s.texts.append(TextItem(id="positioning", kind="body", text=art["positioning"]))
+        s.texts.append(TextItem(id="positioning", kind="body", text=art["positioning"], lang=s.lang))
     for t in art.get("territories", []):
-        s.texts.append(TextItem(id=f"{t['id']}:idea", kind="body", text=t["big_idea"]))
+        s.texts.append(TextItem(id=f"{t['id']}:idea", kind="body", text=t["big_idea"], lang=s.lang))
         for i, h in enumerate(t.get("hook_examples", [])):
-            s.texts.append(TextItem(id=f"{t['id']}:hook{i}", kind="headline", text=h))
+            s.texts.append(TextItem(id=f"{t['id']}:hook{i}", kind="headline", text=h, lang=s.lang))
     return s
 
 
-def subject_from_script(campaign: dict[str, Any], art: dict[str, Any], lang: str = "en", markets: list[str] | None = None) -> GuardianSubject:
+def subject_from_script(campaign: dict[str, Any], art: dict[str, Any], lang: str | None = None, markets: list[str] | None = None) -> GuardianSubject:
+    lang = lang or art.get("lang") or campaign_lang(campaign)
     s = _base(campaign, "script", art["id"], markets, lang)
     for b in art.get("beats", []):
         if b.get("vo"):
@@ -99,18 +102,18 @@ def subject_from_script(campaign: dict[str, Any], art: dict[str, Any], lang: str
 
 
 def subject_from_copy(campaign: dict[str, Any], art: dict[str, Any]) -> GuardianSubject:
-    s = _base(campaign, "copy", art["id"])
+    s = _base(campaign, "copy", art["id"], lang=art.get("lang"))
     for it in art.get("items", []):
-        s.texts.append(TextItem(id=it["id"], kind="headline" if it["kind"] == "headline" else "body", text=it["text"]))
+        s.texts.append(TextItem(id=it["id"], kind="headline" if it["kind"] == "headline" else "body", text=it["text"], lang=s.lang))
     return s
 
 
 async def subject_from_storyboard(st: Studio, campaign: dict[str, Any], art: dict[str, Any]) -> tuple[GuardianSubject, dict[str, bytes]]:
-    s = _base(campaign, "storyboard", art["id"])
+    s = _base(campaign, "storyboard", art["id"], lang=art.get("lang"))
     images: dict[str, bytes] = {}
     for sh in art.get("shots", []):
         if sh.get("super_text"):
-            s.texts.append(TextItem(id=f"{sh['id']}:super", kind="super", text=sh["super_text"], beat_id=sh.get("beat_id")))
+            s.texts.append(TextItem(id=f"{sh['id']}:super", kind="super", text=sh["super_text"], beat_id=sh.get("beat_id"), lang=s.lang))
         v = VisualItem(id=sh["id"], kind="frame")
         if sh.get("asset_id"):
             try:
@@ -162,7 +165,7 @@ def subject_from_spot(campaign: dict[str, Any], art: dict[str, Any], spec: Rende
     s.talent = [TalentUse(name=t["name"], usage=t.get("usage", "voice"), ai_synthesis=bool(t.get("ai_synthesis"))) for t in art.get("talent", [])]
     s.has_video = True
     s.captions_present = bool(spec.captions) and spec.captions_burned
-    s.disclosure = Disclosure(ai_generated=True, label_present=bool(spec.disclosure_badge))
+    s.disclosure = Disclosure(ai_generated=True, label_present=bool(spec.disclosure_badge), label_text=spec.disclosure_badge)
     return s
 
 
@@ -193,7 +196,8 @@ def apply_to_script(art: dict[str, Any], s: GuardianSubject, ctx: GuardianContex
             b["super_text"] = by_id[f"{b['id']}:super"]
         elif b.get("super_text"):
             b["super_text"] = None
-        trim_to_window(b)
+        trim_to_window(b, lang=art.get("lang") or "en", keep=[art.get("tagline") or "", *art.get("mandatories_inserted", [])])
+    art["timing_issues"] = timing_issues(art.get("beats", []), art.get("lang") or "en")
     if "cta" in by_id:
         art["cta"] = by_id["cta"]
     art["legal"] = [t.text for t in s.texts if t.kind == "legal"]
@@ -234,6 +238,8 @@ def apply_to_spot(art: dict[str, Any], s: GuardianSubject, ctx: GuardianContext)
         from ..domain.disclosure import BADGE_TEXT
 
         spec.disclosure_badge = BADGE_TEXT.get(spec.lang, BADGE_TEXT["en"])
+    if s.disclosure.label_text and s.disclosure.label_text != spec.disclosure_badge:
+        spec.disclosure_badge = s.disclosure.label_text
     if s.captions_present:
         spec.captions_burned = True
     art["spec"] = spec.model_dump(mode="json")
@@ -283,13 +289,16 @@ async def _tone_assist(svc: Any, subject: GuardianSubject, ctx: GuardianContext)
     from ..features.common import CREW_PREAMBLE, untrusted
 
     text = "\n".join(t.text for t in subject.texts if t.kind in {"vo", "headline", "body", "super", "cta"})[:3000]
+    lang = subject.lang
+    pack = ctx.brand.packs.get(lang)
+    forbidden = ", ".join(ctx.brand.forbidden_words + (pack.forbidden_words if pack else []))
     try:
         out = await svc.llm.complete(
             task="guardian.tone",
-            system=CREW_PREAMBLE + " You are a brand-voice reviewer. Score how on-brand the copy is (0-100) given the brand voice and list at most 3 strengths and 3 concerns. Advisory only.",
-            user=f"Brand tone: warm, unhurried, honest, quietly confident. Forbidden: {', '.join(ctx.brand.forbidden_words)}.\n{untrusted(text, 3000)}",
+            system=CREW_PREAMBLE + " You are a brand-voice reviewer. Score how on-brand the copy is (0-100) given the brand voice and list at most 3 strengths and 3 concerns. Advisory only." + lang_directive(lang),
+            user=f"Brand tone: warm, unhurried, honest, quietly confident. Forbidden: {forbidden}.\n{untrusted(text, 3000)}",
             schema=ToneOut,
-            context={"text": text},
+            context={"text": text, "lang": lang},
             max_tokens=600,
         )
         return {**out.model_dump(), "advisory": True}
@@ -301,13 +310,14 @@ class _Rewrite(BaseModel):
     text: str
 
 
-async def llm_rewrite(svc: Any, text: str, reason: str) -> str:
+async def llm_rewrite(svc: Any, text: str, reason: str, lang: str = "en") -> str:
     out = await svc.llm.complete(
         task="guardian.rewrite",
-        system="You are the Brand Guardian's rewrite assistant. Rewrite the line so it keeps its marketing intent but resolves the stated compliance problem. Keep it under the original length, in the brand's warm, unhurried voice. Return JSON.",
+        system="You are the Brand Guardian's rewrite assistant. Rewrite the line so it keeps its marketing intent but resolves the stated compliance problem. Keep it under the original length, in the brand's warm, unhurried voice. Return JSON."
+        + lang_directive(lang),
         user=f"Problem to fix: {reason}\n<untrusted_input>\n{text}\n</untrusted_input>",
         schema=_Rewrite,
-        context={"text": text, "reason": reason},
+        context={"text": text, "reason": reason, "lang": lang},
         max_tokens=400,
     )
     return out.text.strip()
@@ -334,7 +344,7 @@ async def auto_revise(svc: Any, subject: GuardianSubject, *, image_bytes: dict[s
                 if item is None:
                     continue
                 try:
-                    new = await llm_rewrite(svc, item.text, f.fix.get("reason", f.message))
+                    new = await llm_rewrite(svc, item.text, f.fix.get("reason", f.message), item_lang(item, subject))
                 except Exception:
                     continue
                 if new and new != item.text:

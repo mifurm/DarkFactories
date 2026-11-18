@@ -1,0 +1,12 @@
+English parity run: 83 API responses recorded on each tree (HEAD vs working tree), offline stubs, same narrative
+  removed fields/items: 4   length changes: 2   value changes: 99   additive fields/items: 470
+  explained:  12 x Polish seed content (additive rows: 2nd Brand Book, 15 Polish claim rules, sample campaign dawn-roast-premiera-pl)
+  explained:  16 x Guardian rules_version / subject_hash (hash of the extended rule set / subject; informational)
+  explained:  74 x simulator numbers seeded from the random campaign-id suffix (performance sync, insights, experiments)
+  explained:   0 x artifacts created within the same second are listed in a different order
+  explained:   3 x English → Polish localization prompt (Polish target directive + larger token budget) and its simulated cost
+  unexplained differences in deterministic English content: 0
+English LLM prompts of the narrative: 15 recorded on each tree, 14 byte-identical (system + user + max_tokens);
+  differs: #12 localize.transcreate — the English → Polish localization (target language directive + larger token budget): intended
+English captions: make_captions() of the working tree vs HEAD on 1500 random English VO lines (with/without sentence ends): 0 differences.
+Polish captions: 1500 random Polish lines -> 0 multi-cue lines with a one-word orphan cue (balanced split of a sentence longer than a cue).

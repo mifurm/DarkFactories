@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -26,6 +27,22 @@ from ..jobs_util import submit_job
 
 router = APIRouter(prefix="/api/campaigns/{campaign_id}/spot", tags=["CS-08 Spot compositor"])
 
+# The compositor subprocess reports English progress lines; they are mapped to catalog keys so the job shows them in the viewer's language.
+_RENDER_MESSAGES = {
+    "Preparing keyframes": "job.msg.render.prepare",
+    "Mixing voice-over + music, normalising loudness (EBU R128)": "job.msg.render.mix",
+    "Verifying output (ffprobe, loudness)": "job.msg.render.verify",
+    "Done": "job.state.done",
+}
+_FRAME_PROGRESS = re.compile(r"Rendering frame (\d+)/(\d+)$")
+
+
+def _render_message(msg: str) -> tuple[str | None, dict[str, Any]]:
+    if msg in _RENDER_MESSAGES:
+        return _RENDER_MESSAGES[msg], {}
+    m = _FRAME_PROGRESS.match(msg)
+    return ("job.msg.render.frame", {"n": int(m.group(1)), "total": int(m.group(2))}) if m else (None, {})
+
 
 async def render_spec_to_asset(s: Any, st: Studio, campaign: dict[str, Any], spec: RenderSpec, *, script_id: str | None, storyboard_id: str | None, voice_id: str | None, talent: list[dict[str, Any]], actor: Actor, job: JobContext | None, parent_id: str | None = None, lineage_kind: str = "master", variant: dict[str, Any] | None = None, status: str = "draft", markets: list[str] | None = None) -> dict[str, Any]:
     """Render a spec with the configured VideoProvider and persist video/SRT/poster assets + the ``spot`` artifact."""
@@ -41,7 +58,11 @@ async def render_spec_to_asset(s: Any, st: Studio, campaign: dict[str, Any], spe
 
     async def progress(p: float, msg: str) -> None:
         if job:
-            await job.progress(0.1 + 0.75 * p, msg)
+            key, params = _render_message(msg)
+            if key:
+                await job.progress(0.1 + 0.75 * p, key=key, params=params)
+            else:
+                await job.progress(0.1 + 0.75 * p, msg)
 
     out = await provider.render(spec, images, vo_audio, progress)
     rs = out.meta.get("render_seconds", 0.0)
@@ -97,13 +118,13 @@ async def render(request: Request, campaign_id: str, body: RenderIn | None = Non
         brief = await st.latest(campaign_id, "brief")
         sb = await (st.artifact(campaign_id, body.storyboard_id, "storyboard") if body.storyboard_id else st.latest(campaign_id, "storyboard"))
         if not sb:
-            raise ValidationFailed("A spot needs a storyboard with keyframes (CS-07).", code="inputs_missing")
+            raise ValidationFailed("A spot needs a storyboard with keyframes (CS-07).", code="inputs_missing", key="err.inputs_missing.storyboard")
         script_id = body.script_id or sb.get("script_id")
         script = await (st.artifact(campaign_id, script_id, "script") if script_id else st.latest(campaign_id, "script"))
         voices = [v for v in await st.artifacts(campaign_id, "voice") if script and v.get("script_id") == script["id"]]
         voice = await st.artifact(campaign_id, body.voice_id, "voice") if body.voice_id else (voices[0] if voices else None)
         if not script or not sb or not voice:
-            raise ValidationFailed("A spot needs a script, storyboard keyframes and a voice-over (CS-06/07/09).", code="inputs_missing")
+            raise ValidationFailed("A spot needs a script, storyboard keyframes and a voice-over (CS-06/07/09).", code="inputs_missing", key="err.inputs_missing.all")
         kit = (await st.brand_kit(camp["brand_id"]))["kit"]
         rows = await st.repo.query("rights", {"kind": "music"}, pk=camp["brand_id"])
         reg = [RightsEntry(**{k: v for k, v in r.items() if k in RightsEntry.model_fields}) for r in rows]
@@ -113,15 +134,15 @@ async def render(request: Request, campaign_id: str, body: RenderIn | None = Non
         try:
             spec = build_master_spec(spec_id=new_id("spec"), campaign=camp, script=script, storyboard=sb, voice=voice, kit={**kit, "name": (await st.brand(camp["brand_id"]))["name"]}, music=ms, brief_fields=(brief or {}).get("fields"), aspect=body.aspect, lang=voice.get("lang", "en"), loudness_lufs=body.loudness_lufs, grade_strength=body.grade_strength)
         except SpotBuildError as exc:
-            raise ValidationFailed(str(exc), code="inputs_missing") from exc
-        await job.progress(0.08, f"Compositing {spec.duration:.1f}s spot ({spec.aspect})", step="render")
+            raise ValidationFailed(str(exc), code="inputs_missing", key=exc.key, params=exc.params or {"detail": str(exc)}) from exc
+        await job.progress(0.08, step="render", key="job.msg.spot.composite", params={"dur": round(spec.duration, 1), "aspect": spec.aspect})
         art = await render_spec_to_asset(s, st, camp, spec, script_id=script["id"], storyboard_id=sb["id"], voice_id=voice["id"], talent=script.get("talent", []), actor=actor, job=job)
-        await job.progress(0.9, "Guardian review + provenance manifest", step="guardian")
+        await job.progress(0.9, step="guardian", key="job.msg.spot.guardian")
         art = await post_render(s, st, camp, art, actor)
         await st.set_stage(campaign_id, "production")
         return {"artifact_id": art["id"], "video_asset_id": art["assets"]["video"], "duration": art["probe"]["duration"], "loudness_lufs": art["loudness"]["integrated_lufs"], "guardian": art["guardian"], "render_seconds": art["render"]["render_seconds"]}
 
-    return await submit_job(request, "spot.render", run, campaign_id, f"Director: render {body.aspect} spot", "CS-08", wait, timeout=178)
+    return await submit_job(request, "spot.render", run, campaign_id, "job.title.render", "CS-08", wait, timeout=178, title_params={"aspect": body.aspect})
 
 
 @router.post("/{spot_id}/rerender", dependencies=[Depends(mutate_limit), Depends(spend_limit)])
@@ -139,7 +160,7 @@ async def rerender(request: Request, campaign_id: str, spot_id: str, wait: bool 
         art = await post_render(s, st, camp, art, actor)
         return {"artifact_id": art["id"], "video_asset_id": art["assets"]["video"], "guardian": art["guardian"]}
 
-    return await submit_job(request, "spot.rerender", run, campaign_id, "Director: re-render revised spot", "CS-08", wait, timeout=178)
+    return await submit_job(request, "spot.rerender", run, campaign_id, "job.title.rerender", "CS-08", wait, timeout=178)
 
 
 @router.get("")

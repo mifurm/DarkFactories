@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ..i18n import label
+from ..i18n import t as tr
 from .claims import market_matches
 from .text import normalize
 
@@ -35,6 +37,17 @@ class RightsVerdict(BaseModel):
     severity: Literal["block", "warn", "info"]
     message: str
     entry_id: str | None = None
+    key: str | None = None  # catalog key + params: ``message`` is re-rendered in the viewer's language
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+def _verdict(ok: bool, code: str, severity: Literal["block", "warn", "info"], key: str, params: dict[str, Any], entry_id: str) -> RightsVerdict:
+    return RightsVerdict(ok=ok, code=code, severity=severity, message=tr(key, **params), entry_id=entry_id, key=key, params=params)
+
+
+def _codes(codes: list[str], group: str) -> dict[str, str]:
+    """Territory / channel codes for a message: English keeps the raw codes ("US, DE"), Polish shows names ("Stany Zjednoczone, Niemcy")."""
+    return {"en": ", ".join(codes), "pl": ", ".join(label(group, c, "pl") for c in codes)}
 
 
 def _d(value: str | None) -> date | None:
@@ -80,30 +93,31 @@ def check_use(
     now = now or today()
     out: list[RightsVerdict] = []
     eid = entry.id
+    title = entry.title
     if entry.status != "active":
-        out.append(RightsVerdict(ok=False, code="rights.not_active", severity="block", message=f"'{entry.title}' licence status is {entry.status}", entry_id=eid))
+        out.append(_verdict(False, "rights.not_active", "block", "finding.rights.not_active", {"title": title, "status": entry.status}, eid))
     vf, vt = _d(entry.valid_from), _d(entry.valid_to)
     start, end = _d(air_start) or now, _d(air_end) or _d(air_start) or now
     if vt and vt < now:
-        out.append(RightsVerdict(ok=False, code="rights.expired", severity="block", message=f"'{entry.title}' {'consent' if entry.kind == 'talent' else 'licence'} expired on {entry.valid_to}", entry_id=eid))
+        out.append(_verdict(False, "rights.expired", "block", f"finding.rights.expired.{'consent' if entry.kind == 'talent' else 'licence'}", {"title": title, "valid_to": entry.valid_to}, eid))
     elif vt and end > vt:
-        out.append(RightsVerdict(ok=False, code="rights.window", severity="block", message=f"'{entry.title}' licence ends {entry.valid_to}, before the planned air window ends ({end.isoformat()})", entry_id=eid))
+        out.append(_verdict(False, "rights.window", "block", "finding.rights.window.ends", {"title": title, "valid_to": entry.valid_to, "end": end.isoformat()}, eid))
     if vf and start < vf:
-        out.append(RightsVerdict(ok=False, code="rights.window", severity="block", message=f"'{entry.title}' licence starts {entry.valid_from}, after the planned air start ({start.isoformat()})", entry_id=eid))
+        out.append(_verdict(False, "rights.window", "block", "finding.rights.window.starts", {"title": title, "valid_from": entry.valid_from, "start": start.isoformat()}, eid))
     if vt and now <= vt <= now + timedelta(days=30) and not any(v.code.startswith("rights.expired") for v in out):
-        out.append(RightsVerdict(ok=True, code="rights.expiring", severity="warn", message=f"'{entry.title}' licence expires on {entry.valid_to} (≤30 days)", entry_id=eid))
+        out.append(_verdict(True, "rights.expiring", "warn", "finding.rights.expiring", {"title": title, "valid_to": entry.valid_to}, eid))
     if not market_matches(entry.territories, markets):
-        out.append(RightsVerdict(ok=False, code="rights.territory", severity="block", message=f"'{entry.title}' is not licensed for territories {', '.join(markets)} (covers {', '.join(entry.territories)})", entry_id=eid))
+        out.append(_verdict(False, "rights.territory", "block", "finding.rights.territory", {"title": title, "markets": _codes(markets, "label.territory"), "covers": _codes(entry.territories, "label.territory")}, eid))
     if entry.channels and channels:
         bad = [c for c in channels if c.lower() not in {x.lower() for x in entry.channels}]
         if bad:
-            out.append(RightsVerdict(ok=False, code="rights.channel", severity="block", message=f"'{entry.title}' is not cleared for channel(s): {', '.join(bad)} (allowed: {', '.join(entry.channels)})", entry_id=eid))
+            out.append(_verdict(False, "rights.channel", "block", "finding.rights.channel", {"title": title, "bad": _codes(bad, "label.channel"), "allowed": _codes(entry.channels, "label.channel")}, eid))
     if entry.kind == "talent" and ai_synthesis:
         consent = entry.ai_voice_consent if usage == "voice" else entry.ai_likeness_consent
         if not consent:
-            out.append(RightsVerdict(ok=False, code="rights.no_ai_consent", severity="block", message=f"'{entry.title}' has not consented to AI-synthesised {usage}", entry_id=eid))
+            out.append(_verdict(False, "rights.no_ai_consent", "block", "finding.rights.no_ai_consent", {"title": title, "usage": usage}, eid))
     if not out:
-        out.append(RightsVerdict(ok=True, code="rights.cleared", severity="info", message=f"'{entry.title}' is cleared for this use", entry_id=eid))
+        out.append(_verdict(True, "rights.cleared", "info", "finding.rights.cleared", {"title": title}, eid))
     return out
 
 

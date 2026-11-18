@@ -10,6 +10,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from .domain.text import ascii_fold
+
 
 def now() -> datetime:
     return datetime.now(UTC)
@@ -60,8 +62,8 @@ def stable_hash(obj: Any) -> str:
 
 
 def slugify(text: str, max_len: int = 48) -> str:
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    text = re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
+    """URL/id slug. Uses the ł-safe fold (NFKD alone drops ``ł``: "Łódź" -> "odz" instead of "lodz")."""
+    text = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_fold(unicodedata.normalize("NFKC", text))).strip("-").lower()
     return text[:max_len] or "item"
 
 
@@ -77,5 +79,5 @@ _SAFE_FILENAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def safe_filename(name: str, default: str = "file") -> str:
-    name = _SAFE_FILENAME.sub("_", name.strip()) or default
+    name = _SAFE_FILENAME.sub("_", ascii_fold(name.strip())) or default
     return name[:96]

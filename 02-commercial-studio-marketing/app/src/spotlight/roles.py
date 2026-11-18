@@ -98,6 +98,7 @@ def require(permission: str):
                 code="role_forbidden",
                 hint="Switch role (top-right) or ask an Admin.",
                 details={"role": actor.role.value, "permission": permission},
+                params={"role": actor.role.value, "permission": permission},
             )
         return actor
 

@@ -7,7 +7,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
+from ...core.audit import entry_message
 from ...core.gates import stage_overview
+from ...core.jobs import render_job
 from ...deps import mutate_limit, svc
 from ...domain.rights import RightsEntry, expiring
 from ...registry import Feature
@@ -40,7 +42,7 @@ async def overview(request: Request) -> dict[str, Any]:
         spent, pipe = await asyncio.gather(s.meter.campaign_total(c["id"]), stage_overview(st, c["id"]))
         return {
             "id": c["id"], "name": c["name"], "status": c.get("status"), "stage": c.get("stage"), "markets": c.get("markets", []), "channels": c.get("channels", []),
-            "history": c.get("history", False), "spent_usd": spent,
+            "history": c.get("history", False), "spent_usd": spent, "language": c.get("language") or "en",
             "pipeline": [{"gate": p["gate"], "label": p["label"], "state": p["approval_state"] or p["artifact_status"], "verdict": (p["guardian"] or {}).get("verdict")} for p in pipe],
             "spots": sum(1 for a in spots if a["campaign_id"] == c["id"]),
         }
@@ -59,7 +61,7 @@ async def overview(request: Request) -> dict[str, Any]:
         "campaigns": cards,
         "rights_alerts": expiring(rights, 45),
         "experiments": [{"id": e["id"], "name": e["name"], "status": e["status"], "campaign_id": e["campaign_id"], "leader": e.get("leader")} for e in exps],
-        "jobs": jobs,
+        "jobs": [render_job(j) for j in jobs],
         "synthetic_data": True,
         "mode": s.settings.mode,
     }
@@ -74,7 +76,7 @@ async def activity(request: Request, limit: int = 25) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for ch in chains:
         for e in (await s.audit.entries(ch))[-15:]:
-            rows.append({"ts": e["ts"], "chain": ch, "campaign": names.get(ch), "action": e["action"], "actor": e["actor"], "data": e.get("data", {})})
+            rows.append({"ts": e["ts"], "chain": ch, "campaign": names.get(ch), "action": e["action"], "actor": e["actor"], "data": e.get("data", {}), **({"message": m} if (m := entry_message(e)) else {})})
     rows.sort(key=lambda r: r["ts"], reverse=True)
     return {"activity": rows[: min(limit, 100)]}
 

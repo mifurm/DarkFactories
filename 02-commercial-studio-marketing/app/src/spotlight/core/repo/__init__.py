@@ -125,7 +125,7 @@ class MemoryRepository:
 
     def _coll(self, name: str) -> dict[tuple[str, str], dict[str, Any]]:
         if name not in self._data:
-            raise NotFound(f"unknown collection {name!r}", code="unknown_collection")
+            raise NotFound(f"unknown collection {name!r}", code="unknown_collection", params={"name": name})
         return self._data[name]
 
     async def create(self, collection: str, doc: dict[str, Any]) -> dict[str, Any]:
@@ -134,7 +134,7 @@ class MemoryRepository:
         doc["pk"] = default_pk(doc)
         key = (doc["pk"], doc["id"])
         if key in coll:
-            raise Conflict(f"{collection}/{doc['id']} already exists")
+            raise Conflict(f"{collection}/{doc['id']} already exists", params={"collection": collection, "id": doc["id"]})
         doc.setdefault("created_at", now_iso())
         coll[key] = doc
         return copy.deepcopy(doc)

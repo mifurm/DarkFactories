@@ -8,9 +8,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ...errors import BudgetExceeded
+from ...i18n import t
 from ...util import new_id, now_iso, today_utc
 from .base import AICtx, current_ctx
-from .pricing import AGENCY_BASELINE_PER_ASSET_USD, PRICES_AS_OF, PRICING_NOTE
+from .pricing import AGENCY_BASELINE_PER_ASSET_USD, PRICES_AS_OF
 
 AlertFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 ALERT_THRESHOLDS = (0.8, 1.0)
@@ -125,7 +126,7 @@ class UsageMeter:
             "by_campaign": {k: round(v, 6) for k, v in by_campaign.items()},
             "simulated_prices": self.simulated,
             "prices_as_of": PRICES_AS_OF,
-            "pricing_note": PRICING_NOTE,
+            "pricing_note": t("cost.pricing_note"),
         }
 
 
@@ -176,6 +177,7 @@ class BudgetGuard:
                 code="daily_budget_exceeded",
                 hint="The cap resets at 00:00 UTC, or an Admin can raise DAILY_AI_BUDGET_USD.",
                 details={"spent_today_usd": spent_today, "cap_usd": self.daily_cap, "estimated_usd": round(est_cost, 4)},
+                params={"spent": spent_today, "cap": self.daily_cap, "call": kind, "est": est_cost},
             )
         if ctx.campaign_id:
             camp = await self._campaign(ctx.campaign_id)
@@ -190,6 +192,7 @@ class BudgetGuard:
                     code="campaign_budget_exceeded",
                     hint="A Brand Manager can raise the campaign cap in the Cost Meter.",
                     details={"campaign_spent_usd": spent, "cap_usd": cap, "estimated_usd": round(est_cost, 4)},
+                    params={"spent": spent, "cap": cap, "call": kind, "est": est_cost},
                 )
             if premium and not (ctx.premium_ok or (camp or {}).get("premium_approved")):
                 self.refusals += 1
@@ -197,11 +200,12 @@ class BudgetGuard:
                     f"Premium ({kind}, hero quality) generation needs approval: premium calls cost up to ~{_usd(est_cost)} each.",
                     code="premium_requires_approval",
                     hint="Ask a Brand Manager to approve premium generation for this campaign (Cost Meter).",
+                    params={"call": kind, "est": est_cost},
                 )
             await self._maybe_alert("campaign:" + ctx.campaign_id, spent + est_cost, cap)
         elif premium and not ctx.premium_ok:
             self.refusals += 1
-            raise BudgetExceeded("Premium generation needs an approved campaign context.", code="premium_requires_approval")
+            raise BudgetExceeded("Premium generation needs an approved campaign context.", code="premium_requires_approval", key="err.premium_requires_approval.no_campaign")
         await self._maybe_alert("daily:" + today_utc(), spent_today + est_cost, self.daily_cap)
 
     async def _maybe_alert(self, scope: str, spent: float, cap: float) -> None:
@@ -221,6 +225,6 @@ def cost_per_approved_asset(total_spend: float, approved_assets: int, baseline: 
         "approved_assets": approved_assets,
         "cost_per_approved_asset_usd": round(per, 4) if per is not None else None,
         "agency_baseline_per_asset_usd": baseline,
-        "baseline_note": "Assumption: blended agency/production cost per adapted asset (editable in the ROI calculator).",
+        "baseline_note": t("cost.baseline_note"),
         "savings_pct": round((1 - per / baseline) * 100, 2) if per is not None and baseline else None,
     }

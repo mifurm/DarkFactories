@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from ...deps import svc
+from ...i18n import t
 from ...registry import Feature
 
 router = APIRouter(prefix="/api/ops", tags=["CS-24 Observability"])
@@ -45,10 +46,10 @@ async def status(request: Request) -> dict:
         "cache": s.cache.stats(),
         "jobs": counts,
         "security": {
-            "auth": "managed identity / Entra ID only (keyless); no account keys or connection secrets",
+            "auth": t("ops.auth"),
             "headers": ["CSP", "HSTS", "X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy"],
-            "cors": "same-origin only",
-            "container_user": "non-root",
+            "cors": t("ops.cors"),
+            "container_user": t("ops.container_user"),
         },
     }
 

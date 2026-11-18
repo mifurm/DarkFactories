@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 
 from ...deps import mutate_limit
 from ...domain import perfsim as ps
+from ...domain.perfsim import localize_learning
 from ...errors import PayloadTooLarge, ValidationFailed
+from ...i18n import current_locale, t
 from ...registry import Feature
 from ...roles import Actor, require
 from ...util import new_id, now_iso
@@ -48,7 +50,7 @@ CONNECTORS = {p: SimulatedConnector(p) for p in ["google", "meta", "tiktok", "li
 
 @router.get("/connectors")
 async def connectors() -> dict[str, Any]:
-    return {"connectors": [{"platform": p, "mode": "simulated", "interface": "AdPlatformConnector.fetch(campaign_id, variants, days, seed)", "production": "Azure Functions + platform reporting API with OAuth (documented target)"} for p in CONNECTORS], "csv_columns": ["date", "platform", "variant_id", "impressions", "clicks", "views", "completes", "conversions", "spend", "revenue"]}
+    return {"connectors": [{"platform": p, "mode": "simulated", "interface": "AdPlatformConnector.fetch(campaign_id, variants, days, seed)", "production": t("perf.connector.production")} for p in CONNECTORS], "csv_columns": ["date", "platform", "variant_id", "impressions", "clicks", "views", "completes", "conversions", "spend", "revenue"]}
 
 
 async def _variants_for(st: Any, campaign_id: str) -> list[dict[str, Any]]:
@@ -78,7 +80,7 @@ async def metrics(request: Request, campaign_id: str | None = None, group_by: st
     rows = await _rows(st, campaign_id)
     allowed = {None, "variant_id", "platform", "date", "source", "hook", "cta", "visual", "segment"}
     if group_by not in allowed:
-        raise ValidationFailed(f"group_by must be one of {sorted(x for x in allowed if x)}", code="bad_group")
+        raise ValidationFailed(f"group_by must be one of {sorted(x for x in allowed if x)}", code="bad_group", params={"allowed": ", ".join(sorted(x for x in allowed if x))})
     total = ps.aggregate(rows, None)
     return {"campaign_id": campaign_id, "rows": len(rows), "totals": total[0] if total else None, "groups": ps.aggregate(rows, group_by or "platform"), "group_by": group_by or "platform", "by_day": sorted(ps.aggregate(rows, "date"), key=lambda r: r["key"]), "sources": sorted({r.get("source", "?") for r in rows}), "simulated": True}
 
@@ -90,10 +92,10 @@ async def ingest_csv(request: Request, campaign_id: str = Form(...), file: Uploa
     await st.campaign(campaign_id)
     data = await file.read(s.settings.max_upload_bytes + 1)
     if len(data) > s.settings.max_upload_bytes:
-        raise PayloadTooLarge("CSV exceeds the upload limit")
+        raise PayloadTooLarge("CSV exceeds the upload limit", key="err.payload_too_large.csv")
     rows, errors = ps.parse_csv(data.decode("utf-8-sig", errors="replace"))
     if not rows:
-        raise ValidationFailed("No valid rows: " + "; ".join(errors[:3]), code="bad_csv", details={"errors": errors})
+        raise ValidationFailed("No valid rows: " + "; ".join(errors[:3]), code="bad_csv", details={"errors": errors}, params={"errors": "; ".join(errors[:3])})
     attrs = {v["id"]: v["attrs"] for v in await _variants_for(st, campaign_id)}
     n = await _store(st, campaign_id, rows, "csv", attrs)
     await st.audit(campaign_id, actor, "performance.csv_ingested", {"campaign_id": campaign_id}, {"rows": n, "errors": len(errors)})
@@ -110,7 +112,7 @@ class SyncIn(BaseModel):
 async def sync(request: Request, platform: str, body: SyncIn, actor: Actor = Depends(require("performance.write"))) -> dict[str, Any]:
     conn = CONNECTORS.get(platform)
     if not conn:
-        raise ValidationFailed(f"unknown connector {platform!r}", code="bad_connector")
+        raise ValidationFailed(f"unknown connector {platform!r}", code="bad_connector", params={"platform": repr(platform)})
     st = studio(request)
     await st.campaign(body.campaign_id)
     variants = await _variants_for(st, body.campaign_id)
@@ -143,13 +145,14 @@ async def generate_insights(request: Request, body: InsightIn | None = None, act
         doc = await add_learning(s, "northwind", i["statement"], {"dimension": i["dimension"], "winner": i["winner"], "metric": i["metric"], "lift_pct": i["lift_pct"], "p_value": i["p_value"], "n": i["n"]}, i["confidence"], "performance", body.campaign_id)
         written.append(doc["id"])
     await st.audit(body.campaign_id, actor, "performance.insights_generated", {"campaign_id": body.campaign_id}, {"insights": len(ins), "written_to_brand_brain": len(written)})
-    return {"insights": ins, "written_to_brand_brain": len(written), "rows_analysed": len(rows)}
+    lang = current_locale()
+    return {"insights": [{**i, "statement": ps.render_statement(i, lang) or i["statement"], "statement_en": i["statement"]} if lang != "en" else i for i in ins], "written_to_brand_brain": len(written), "rows_analysed": len(rows)}
 
 
 @router.get("/insights")
 async def list_insights(request: Request, campaign_id: str | None = None) -> dict[str, Any]:
     rows = await studio(request).repo.query("learnings", {"source": "performance", **({"campaign_id": campaign_id} if campaign_id else {})}, pk="northwind", order_by="created_at", desc=True, limit=50)
-    return {"insights": rows}
+    return {"insights": [localize_learning(r, current_locale()) for r in rows]}
 
 
 async def seed_history(s: Any) -> None:

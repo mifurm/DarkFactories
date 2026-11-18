@@ -18,9 +18,10 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
+from ...domain.text import detect_lang
 from ...errors import ProviderUnavailable
 from ...util import stable_hash
-from . import pricing
+from . import pricing, safety_rules
 from .base import ImageResult, SafetyResult, SpeechResult, T, VoiceInfo
 
 # --------------------------------------------------------------------------------------- LLM
@@ -49,7 +50,7 @@ class StubLLM:
     async def _run(self, task: str, system: str, user: str, context: dict[str, Any] | None, role: str) -> Any:
         handler = STUB_TASKS.get(task)
         if handler is None:
-            raise ProviderUnavailable(f"no offline stub registered for LLM task {task!r}", code="stub_missing")
+            raise ProviderUnavailable(f"no offline stub registered for LLM task {task!r}", code="stub_missing", params={"task": task})
         model = "gpt-5.4" if role == "reasoning" else "gpt-5.4-mini"
         p_tok = pricing.estimate_tokens(system + user)
         if self.guard:
@@ -212,14 +213,25 @@ def speech_duration_estimate(text: str, speed: float = 1.0) -> float:
     return round((sum(0.13 + 0.052 * len(w) for w in words) + 0.07 * len(words) + pause) / max(speed, 0.5), 3)
 
 
-def synth_pseudo_speech(text: str, voice: str, speed: float = 1.0, sr: int = 24000) -> bytes:
-    """Speech-like synthetic audio: per-word voiced bursts with formant emphasis (NOT intelligible)."""
+def synth_pseudo_speech(text: str, voice: str, speed: float = 1.0, sr: int = 24000, lang: str = "en") -> bytes:
+    """Speech-like synthetic audio: per-word voiced bursts with formant emphasis (NOT intelligible).
+
+    English keeps its letter-length timing; other languages are syllable-timed with the same model the script estimator uses
+    (``domain.timing``: rate, sentence / comma pauses, line padding), like real neural voices: Polish words are long but not proportionally slow to say."""
+    from ...domain.text import syllables
+    from ...domain.timing import COMMA_PAUSE, LINE_PAD, SENTENCE_PAUSE, SYLLABLE_RATE
+
+    def model(table: dict[str, float]) -> float:
+        return table.get(lang, table["en"])
+
     base = 105 + (int(hashlib.sha1(voice.encode()).hexdigest()[:4], 16) % 110)
     chunks: list[np.ndarray] = []
     words = re.findall(r"\w+[.,;:!?…]*", text)
+    if lang != "en":
+        chunks.append(np.zeros(int(sr * model(LINE_PAD) * 0.27 / max(speed, 0.5)), dtype=np.float32))  # lead share of the padding
     for i, wd in enumerate(words):
         core = re.sub(r"[^\w]", "", wd)
-        dur = (0.13 + 0.052 * len(core)) / max(speed, 0.5)
+        dur = ((0.13 + 0.052 * len(core)) if lang == "en" else max(1, syllables(core, lang)) / model(SYLLABLE_RATE)) / max(speed, 0.5)
         n = int(sr * dur)
         t = np.arange(n) / sr
         f0 = base * (1 + 0.08 * math.sin(i * 1.7)) * (1 + 0.04 * np.sin(2 * math.pi * 5 * t))
@@ -227,7 +239,13 @@ def synth_pseudo_speech(text: str, voice: str, speed: float = 1.0, sr: int = 240
         sig = sum((1.0 / k) * np.sin(k * phase) * (1.6 if k in (3, 5) else 1.0) for k in range(1, 8))
         env = np.hanning(n) ** 0.6
         chunks.append((sig * env * 0.18).astype(np.float32))
-        gap = 0.07 + (0.35 if wd[-1:] in ".!?…" else 0.2 if wd[-1:] in ",;:" else 0.0)
+        last = i == len(words) - 1
+        if lang == "en":
+            gap = 0.07 + (0.35 if wd[-1:] in ".!?…" else 0.2 if wd[-1:] in ",;:" else 0.0)
+        elif last:
+            gap = model(LINE_PAD) * 0.73  # trail share of the padding
+        else:
+            gap = model(SENTENCE_PAUSE) if wd[-1:] in ".!?…" else model(COMMA_PAUSE) if wd[-1:] in ",;:" else 0.0
         chunks.append(np.zeros(int(sr * gap / max(speed, 0.5)), dtype=np.float32))
     audio = np.concatenate(chunks) if chunks else np.zeros(int(sr * 0.2), dtype=np.float32)
     pcm = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
@@ -258,7 +276,7 @@ class StubSpeech:
         est = pricing.tts_cost(kind, len(text))
         if self.guard:
             await self.guard.authorize(est, kind="tts", model=kind)
-        data = synth_pseudo_speech(text, voice, speed)
+        data = synth_pseudo_speech(text, voice, speed, lang=lang)
         self.calls += 1
         if self.meter:
             await self.meter.record(kind="tts", model=kind, units={"chars": len(text), "voice": voice, "stub": True}, cost_usd=est)
@@ -271,6 +289,8 @@ class StubSpeech:
 # --------------------------------------------------------------------------------------- embeddings
 
 _STOP = {"the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with", "is", "are", "be", "it", "this", "that", "at", "by", "as", "we", "our", "you", "your"}
+_STOP_PL = {"i", "w", "z", "o", "u", "a", "na", "do", "po", "od", "za", "nie", "to", "jest", "sie", "dla", "ale", "lub", "oraz", "jak", "ze", "co", "tak", "czy", "ten", "ta", "te", "tego", "tej", "ich", "ci", "ty", "ma", "sa", "byl"}
+_PL_FOLD = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
 
 
 class StubEmbeddings:
@@ -283,7 +303,9 @@ class StubEmbeddings:
 
     @staticmethod
     def _vec(text: str, dim: int) -> list[float]:
-        toks = [t for t in re.findall(r"[a-z0-9äöüßéèêàçñąćęłńóśźż]+", text.lower()) if t not in _STOP]
+        polish = detect_lang(text) == "pl"  # Polish text: fold diacritics (a typed-without-diacritics query still matches) + Polish stop-words
+        low = text.translate(_PL_FOLD).lower() if polish else text.lower()
+        toks = [t for t in re.findall(r"[a-z0-9äöüßéèêàçñąćęłńóśźż]+", low) if t not in _STOP and not (polish and t in _STOP_PL)]
         feats = toks + [a + "_" + b for a, b in itertools.pairwise(toks)]
         v = np.zeros(dim, dtype=np.float64)
         for f in feats:
@@ -307,20 +329,7 @@ class StubEmbeddings:
 
 # --------------------------------------------------------------------------------------- safety
 
-_STUB_SEVERE = {
-    "Violence": ["kill", "stab", "murder", "shoot", "bomb", "massacre", "bloodbath"],
-    "Hate": ["subhuman", "hate speech", "racial slur", "inferior race"],
-    "SelfHarm": ["suicide", "self-harm", "hurt myself", "end my life"],
-    "Sexual": ["pornographic", "explicit sex", "nsfw"],
-}
-_STUB_MILD = {"Violence": ["fight", "gun", "weapon", "attack"], "Hate": ["stupid", "idiot"], "SelfHarm": [], "Sexual": ["sexy"]}
-STUB_PROTECTED_PHRASES = ["sunrise anthem lyrics", "la la la golden morning", "(c) universal sound publishing"]
-_STUB_ATTACKS = [
-    r"ignore (all |any )?(previous|prior|above) (instructions|rules)",
-    r"reveal (the |your )?(system|hidden) prompt",
-    r"disregard (the )?(system|safety)",
-    r"you are now (in )?(developer|dan) mode",
-]
+# word lists (English + Polish) live in safety_rules.py, shared with the Azure adapter's local Prompt-Shields pre-check
 
 
 class StubSafety:
@@ -340,16 +349,7 @@ class StubSafety:
 
     async def analyze_text(self, text: str) -> SafetyResult:
         await self._tick("text")
-        low = text.lower()
-        cats: dict[str, int] = {}
-        for cat in ("Hate", "SelfHarm", "Sexual", "Violence"):
-            sev = 0
-            if any(w in low for w in _STUB_SEVERE[cat]):
-                sev = 4
-            elif any(w in low for w in _STUB_MILD[cat]):
-                sev = 2
-            cats[cat] = sev
-        return SafetyResult(cats, provider="stub")
+        return SafetyResult(safety_rules.severity(text), provider="stub")
 
     async def analyze_image(self, data: bytes) -> SafetyResult:
         await self._tick("image")
@@ -358,13 +358,11 @@ class StubSafety:
 
     async def protected_material(self, text: str) -> bool:
         await self._tick("text")
-        low = text.lower()
-        return any(p in low for p in STUB_PROTECTED_PHRASES)
+        return safety_rules.protected(text)
 
     async def shield_prompt(self, user_prompt: str, documents: list[str] | None = None) -> bool:
         await self._tick("text")
-        blob = " ".join([user_prompt, *(documents or [])]).lower()
-        return any(re.search(p, blob) for p in _STUB_ATTACKS)
+        return safety_rules.local_attack(" ".join([user_prompt, *(documents or [])]))
 
     async def ping(self) -> dict[str, Any]:
         return {"ok": True, "backend": "stub"}

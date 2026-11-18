@@ -10,6 +10,8 @@ from typing import Any
 
 import numpy as np
 
+from ..i18n import has
+from ..i18n import t as tr
 from ..util import stable_hash
 from .bandit import two_proportion_z
 
@@ -151,3 +153,24 @@ def insights_from_rows(rows: list[dict[str, Any]], dims: list[str] | None = None
                     "confidence": round(min(0.99, 1 - p), 3),
                 })
     return sorted(out, key=lambda r: (-r["lift_pct"]))
+
+
+def render_statement(evidence: dict[str, Any], lang: str = "en") -> str | None:
+    """The insight sentence for a stored learning's structured evidence, in ``lang`` (None when the evidence is not an insight)."""
+    try:
+        dim, winner, metric = str(evidence["dimension"]), str(evidence["winner"]), str(evidence["metric"])
+        lift, p, n = float(evidence["lift_pct"]), float(evidence["p_value"]), int(evidence["n"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (has(f"insight.dim.{dim}.nom", lang) and has(f"insight.metric.{metric}", lang)):
+        return None
+    shown = tr(f"attr.{winner}", lang) if has(f"attr.{winner}", lang) else winner
+    return tr("insight.statement", lang, nom=tr(f"insight.dim.{dim}.nom", lang), winner=shown, metric=tr(f"insight.metric.{metric}", lang), lift=lift, opts=tr(f"insight.dim.{dim}.opts", lang), p=p, n=n)
+
+
+def localize_learning(doc: dict[str, Any], lang: str) -> dict[str, Any]:
+    """A learning (Brand Brain) with its statement rendered in ``lang`` when it was derived from structured insight evidence."""
+    if lang == "en":
+        return doc
+    text = render_statement(doc.get("evidence") or {}, lang)
+    return {**doc, "statement": text, "statement_en": doc["statement"], "lang": lang} if text else doc

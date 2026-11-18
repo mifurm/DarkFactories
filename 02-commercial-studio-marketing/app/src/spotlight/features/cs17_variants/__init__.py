@@ -12,11 +12,14 @@ from pydantic import BaseModel, Field
 
 from ...core.ai.base import set_ctx
 from ...core.ai.stubs import stub_task
+from ...core.studio import campaign_lang
 from ...deps import mutate_limit, spend_limit
 from ...domain import bandit
 from ...domain import perfsim as ps
 from ...domain.scorecard import variant_score
 from ...errors import NotFound, ValidationFailed
+from ...i18n import current_locale, has, t
+from ...i18n.directive import lang_directive
 from ...registry import Feature
 from ...roles import Actor, require
 from ...util import new_id, now_iso
@@ -25,6 +28,21 @@ from ..common import CREW_PREAMBLE, studio
 router = APIRouter(prefix="/api/experiments", tags=["CS-17 Variants & Experiments"])
 DEFAULT_DIMS = {"hook": ["Human moment first", "Product first", "Question hook"], "cta": ["Find it near you", "Try it today"], "visual": ["Warm kitchen", "Macro pour"]}
 HOOK_COPY = {"Human moment first": "Before the house wakes up, there is a quiet hour.", "Product first": "Meet Dawn Roast: medium roast, small batches.", "Question hook": "When did you last start a morning slowly?", "Sensory close-up": "Listen: that is the sound of no rush."}
+HOOK_COPY_PL = {
+    "Human moment first": "Zanim dom się obudzi, jest cicha godzina.",
+    "Product first": "Poznaj Dawn Roast: kawa palona w małych partiach.",
+    "Question hook": "Kiedy ostatnio twój poranek zaczął się powoli?",
+    "Sensory close-up": "Posłuchaj: tak brzmi brak pośpiechu.",
+}
+
+
+def _attr(value: str, locale: str | None = None) -> str:
+    """A variant attribute value (a stable English id such as 'Human moment first') in ``locale``; unknown values are shown as they are."""
+    return t(f"attr.{value}", locale) if has(f"attr.{value}", locale or current_locale()) else value
+
+
+def _label(attrs: dict[str, Any], locale: str | None = None) -> str:
+    return " · ".join(_attr(str(v), locale) for v in attrs.values())
 
 
 class VariantScore(BaseModel):
@@ -39,25 +57,29 @@ class RankOut(BaseModel):
 
 @stub_task("experiments.rank")
 def _stub_rank(ctx: dict[str, Any]) -> dict[str, Any]:
-    return {"scores": [{"variant_id": v["id"], "panel_score": variant_score(v["attrs"])["predicted_score"], "rationale": "simulated panel: " + ", ".join(f"{k}={x}" for k, x in v["attrs"].items())} for v in ctx["variants"]]}
+    lang = ctx.get("lang", "en")
+    if lang == "en":
+        return {"scores": [{"variant_id": v["id"], "panel_score": variant_score(v["attrs"])["predicted_score"], "rationale": "simulated panel: " + ", ".join(f"{k}={x}" for k, x in v["attrs"].items())} for v in ctx["variants"]]}
+    return {"scores": [{"variant_id": v["id"], "panel_score": variant_score(v["attrs"])["predicted_score"], "rationale": t("variant.rationale", lang, pairs=", ".join(f"{t(f'insight.dim.{k}.nom', lang).lower()}={_attr(str(x), lang)}" for k, x in v["attrs"].items()))} for v in ctx["variants"]]}
 
 
 class ExperimentIn(BaseModel):
     campaign_id: str
-    name: str = Field(default="Dawn Roast variant test", max_length=100)
+    name: str | None = Field(default=None, max_length=100)  # default: "Dawn Roast variant test" in the campaign language
     dimensions: dict[str, list[str]] | None = None
     seed: int = Field(default=7, ge=1, le=10_000)
 
 
-def _build_variants(dims: dict[str, list[str]], seed: int) -> list[dict[str, Any]]:
+def _build_variants(dims: dict[str, list[str]], seed: int, lang: str = "en") -> list[dict[str, Any]]:
     names = list(dims)
     out = []
     for i, combo in enumerate(itertools.product(*[dims[n] for n in names]), start=1):
         attrs = dict(zip(names, combo, strict=True))
         tr = ps.true_rates(attrs, seed)
+        hooks = HOOK_COPY_PL if lang == "pl" else HOOK_COPY
         out.append({
             "id": f"v{i:02d}", "attrs": attrs, "label": " · ".join(f"{v}" for v in combo), "status": "active",
-            "copy": {"hook_line": HOOK_COPY.get(attrs.get("hook", ""), ""), "cta": attrs.get("cta", ""), "visual": attrs.get("visual", "")},
+            "copy": {"hook_line": hooks.get(attrs.get("hook", ""), ""), "cta": _attr(attrs.get("cta", ""), lang) if lang != "en" else attrs.get("cta", ""), "visual": _attr(attrs.get("visual", ""), lang) if lang != "en" else attrs.get("visual", "")},
             "preflight": variant_score(attrs), "alpha": 1.0, "beta": 1.0, "impressions": 0, "clicks": 0, "conversions": 0, "spend": 0.0, "revenue": 0.0, "share": 0.0, "p_best": None,
             "truth": tr,  # simulator ground truth — hidden from API responses unless reveal=true
         })
@@ -66,9 +88,11 @@ def _build_variants(dims: dict[str, list[str]], seed: int) -> list[dict[str, Any
 
 def _view(doc: dict[str, Any], reveal: bool = False) -> dict[str, Any]:
     out = {k: v for k, v in doc.items() if k != "variants"}
+    by_id = {v["id"]: v for v in doc["variants"]}
     vs = []
     for v in doc["variants"]:
         d = {k: x for k, x in v.items() if k != "truth"}
+        d["label"] = _label(v["attrs"])  # attribute names in the viewer's language (the ids in ``attrs`` never change)
         d["ctr"] = round(v["clicks"] / v["impressions"], 5) if v["impressions"] else None
         d["cvr"] = round(v["conversions"] / v["clicks"], 5) if v["clicks"] else None
         d["post_mean_ctr"] = round(v["alpha"] / (v["alpha"] + v["beta"]), 5)
@@ -76,6 +100,10 @@ def _view(doc: dict[str, Any], reveal: bool = False) -> dict[str, Any]:
             d["truth"] = v["truth"]
         vs.append(d)
     out["variants"] = vs
+    if out.get("leader") and out["leader"].get("id") in by_id:
+        out["leader"] = {**out["leader"], "label": _label(by_id[out["leader"]["id"]]["attrs"])}
+    if out.get("last_run"):
+        out["last_run"] = {**out["last_run"], "paused": [{**p, "label": _label(by_id[p["id"]]["attrs"]) if p["id"] in by_id else p["label"]} for p in out["last_run"].get("paused", [])]}
     return out
 
 
@@ -88,17 +116,18 @@ async def list_experiments(request: Request, campaign_id: str | None = None) -> 
 @router.post("", dependencies=[Depends(mutate_limit)])
 async def create(request: Request, body: ExperimentIn, actor: Actor = Depends(require("generate"))) -> dict[str, Any]:
     st = studio(request)
-    await st.campaign(body.campaign_id)
+    camp = await st.campaign(body.campaign_id)
+    lang = campaign_lang(camp)
     dims = body.dimensions or DEFAULT_DIMS
     for k, vals in dims.items():
         if k not in ps.EFFECTS and k not in {"hook", "cta", "visual", "segment"}:
-            raise ValidationFailed(f"unsupported dimension {k!r}", code="bad_dimension")
+            raise ValidationFailed(f"unsupported dimension {k!r}", code="bad_dimension", key="err.bad_dimension.unsupported", params={"dimension": repr(k)})
         if not 1 <= len(vals) <= 6:
-            raise ValidationFailed("each dimension needs 1–6 values", code="bad_dimension")
+            raise ValidationFailed("each dimension needs 1–6 values", code="bad_dimension", key="err.bad_dimension.count")
     n = int(np.prod([len(v) for v in dims.values()]))
     if n > 48 or n < 2:
-        raise ValidationFailed(f"the matrix would have {n} variants; use between 2 and 48", code="bad_matrix")
-    doc = {"id": new_id("exp"), "pk": body.campaign_id, "campaign_id": body.campaign_id, "name": body.name, "status": "draft", "dimensions": dims, "variants": _build_variants(dims, body.seed), "seed": body.seed, "hours_done": 0, "history": [], "leader": None, "strategy": "thompson", "created_at": now_iso(), "created_by": actor.name}
+        raise ValidationFailed(f"the matrix would have {n} variants; use between 2 and 48", code="bad_matrix", params={"n": n})
+    doc = {"id": new_id("exp"), "pk": body.campaign_id, "campaign_id": body.campaign_id, "name": body.name or t("experiment.default_name", lang), "lang": lang, "status": "draft", "dimensions": dims, "variants": _build_variants(dims, body.seed, lang), "seed": body.seed, "hours_done": 0, "history": [], "leader": None, "strategy": "thompson", "created_at": now_iso(), "created_by": actor.name}
     await st.repo.upsert("experiments", doc)
     await st.audit(body.campaign_id, actor, "experiment.created", {"experiment_id": doc["id"]}, {"variants": n})
     return _view(doc)
@@ -123,12 +152,13 @@ async def preflight(request: Request, exp_id: str, _: Actor = Depends(require("g
     st = studio(request)
     d = await _get(st, exp_id)
     set_ctx(campaign_id=d["campaign_id"], feature="experiments")
+    lang = d.get("lang") or "en"
     out = await s.llm.complete(
         task="experiments.rank",
-        system=CREW_PREAMBLE + " You simulate an audience panel ranking ad variants. Give each variant a panel score 0-100 and a one-line rationale. This is a simulation used only for ordering.",
+        system=CREW_PREAMBLE + " You simulate an audience panel ranking ad variants. Give each variant a panel score 0-100 and a one-line rationale. This is a simulation used only for ordering." + lang_directive(lang),
         user="Variants:\n" + "\n".join(f"{v['id']}: {v['attrs']}" for v in d["variants"]),
         schema=RankOut,
-        context={"variants": d["variants"]},
+        context={"variants": d["variants"], "lang": lang},
         max_tokens=2500,
     )
     panel = {x.variant_id: x for x in out.scores}
@@ -139,7 +169,7 @@ async def preflight(request: Request, exp_id: str, _: Actor = Depends(require("g
     d["preflight_at"] = now_iso()
     await st.repo.upsert("experiments", d)
     ranked = sorted(d["variants"], key=lambda v: -v["preflight"]["predicted_score"])
-    return {"ranking": [{"id": v["id"], "label": v["label"], "predicted_score": v["preflight"]["predicted_score"], "rationale": v["preflight"].get("rationale")} for v in ranked], "label": "Predictive / simulated"}
+    return {"ranking": [{"id": v["id"], "label": _label(v["attrs"]), "predicted_score": v["preflight"]["predicted_score"], "rationale": v["preflight"].get("rationale")} for v in ranked], "label": t("score.label.short")}
 
 
 class SimIn(BaseModel):
@@ -214,7 +244,7 @@ async def simulate(request: Request, exp_id: str, body: SimIn | None = None, act
         v = next(x for x in vs if x["id"] == vid)
         await st.repo.upsert("performance", {"id": f"{exp_id}-{vid}-{d['hours_done']}", "pk": d["campaign_id"], "campaign_id": d["campaign_id"], "source": "experiment-sim", "date": now_iso()[:10], "platform": "simulated", "variant_id": vid, "experiment_id": exp_id, "attrs": v["attrs"], "views": int(r["impressions"] * 0.35), "completes": int(r["impressions"] * 0.14), **{c: (round(r[c], 2) if c in {"spend", "revenue"} else int(r[c])) for c in ("impressions", "clicks", "conversions", "spend", "revenue")}})
     await st.audit(d["campaign_id"], actor, "experiment.simulated", {"experiment_id": exp_id}, {"hours": body.hours, "strategy": body.strategy, "paused": [p["id"] for p in paused]})
-    return {**_view(d), "last_run": d["last_run"]}
+    return _view(d)  # ``last_run`` (with the paused variants' labels in the viewer's language) is part of the view
 
 
 @router.post("/{exp_id}/reset", dependencies=[Depends(mutate_limit)])
@@ -241,7 +271,7 @@ async def significance(request: Request, exp_id: str, control: str | None = None
         if v["id"] == ctrl["id"]:
             continue
         z, p = bandit.two_proportion_z(v["clicks"], v["impressions"], ctrl["clicks"], ctrl["impressions"])
-        out.append({"variant_id": v["id"], "label": v["label"], "ctr": round(v["clicks"] / v["impressions"], 5) if v["impressions"] else None, "control_ctr": round(ctrl["clicks"] / ctrl["impressions"], 5) if ctrl["impressions"] else None, "z": round(z, 3), "p_value": float(f"{p:.3g}"), "significant_at_5pct": p < 0.05})
+        out.append({"variant_id": v["id"], "label": _label(v["attrs"]), "ctr": round(v["clicks"] / v["impressions"], 5) if v["impressions"] else None, "control_ctr": round(ctrl["clicks"] / ctrl["impressions"], 5) if ctrl["impressions"] else None, "z": round(z, 3), "p_value": float(f"{p:.3g}"), "significant_at_5pct": p < 0.05})
     return {"control": ctrl["id"], "results": out}
 
 

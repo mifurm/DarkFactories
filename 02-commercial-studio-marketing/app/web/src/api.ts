@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { getLang, getTranslator } from "./i18n";
+
 export class ApiError extends Error {
   code: string;
   hint?: string;
@@ -6,7 +8,7 @@ export class ApiError extends Error {
   details?: any;
   constructor(status: number, body: any) {
     const e = body?.error ?? {};
-    super(e.message ?? `Request failed (${status})`);
+    super(e.message ?? getTranslator().t("Request failed ({status})", { status: String(status) }));
     this.status = status;
     this.code = e.code ?? "error";
     this.hint = e.hint;
@@ -14,6 +16,7 @@ export class ApiError extends Error {
   }
 }
 
+/** Role ids; the visible names come from tEnum("role", id). */
 export const ROLES = [
   { id: "admin", label: "Admin" },
   { id: "brand_manager", label: "Brand Manager" },
@@ -41,7 +44,8 @@ export const onApiError = (fn: Listener) => {
 };
 
 async function request<T = any>(method: string, path: string, body?: any, opts: { quiet?: boolean; form?: FormData } = {}): Promise<T> {
-  const headers: Record<string, string> = { "X-Studio-Role": getRole(), "X-Studio-User": localStorage.getItem("studio.user") || "" };
+  const lang = getLang();
+  const headers: Record<string, string> = { "X-Studio-Role": getRole(), "X-Studio-User": localStorage.getItem("studio.user") || "", "X-UI-Lang": lang, "Accept-Language": lang };
   let payload: BodyInit | undefined;
   if (opts.form) payload = opts.form;
   else if (body !== undefined) {
@@ -68,8 +72,13 @@ export const api = {
   upload: <T = any>(p: string, form: FormData, o?: { quiet?: boolean }) => request<T>("POST", p, undefined, { ...o, form }),
 };
 
-export const fmtUsd = (v?: number | null, d = 2) => (v == null ? "—" : `$${v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })}`);
-export const fmtNum = (v?: number | null, d = 0) => (v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: d }));
-export const fmtPct = (v?: number | null, d = 1) => (v == null ? "—" : `${v.toFixed(d)}%`);
-export const fmtDate = (s?: string | null) => (s ? new Date(s).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—");
-export const assetUrl = (id: string, campaignId?: string) => `/api/library/assets/${id}/content${campaignId ? `?campaign_id=${campaignId}` : ""}`;
+/** Adds ?lang= to URLs that cannot carry headers (EventSource / SSE, media elements, download links). */
+export const withLang = (url: string) => `${url}${url.includes("?") ? "&" : "?"}lang=${getLang()}`;
+/** Content URL of a library asset. Media elements and download links cannot send headers: the UI language travels as ?lang=. */
+export const assetUrl = (id: string, opts: { campaignId?: string; download?: boolean } = {}) => {
+  const q = new URLSearchParams();
+  if (opts.campaignId) q.set("campaign_id", opts.campaignId);
+  if (opts.download) q.set("download", "true");
+  q.set("lang", getLang());
+  return `/api/library/assets/${id}/content?${q}`;
+};

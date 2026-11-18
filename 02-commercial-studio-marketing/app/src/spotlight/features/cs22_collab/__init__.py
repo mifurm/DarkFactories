@@ -14,10 +14,12 @@ from pydantic import BaseModel, Field
 
 from ...core.jobs import JobContext
 from ...core.notify import EVENTS, INTERNAL_SINK, validate_webhook_url
+from ...core.studio import campaign_lang
 from ...deps import mutate_limit, svc
 from ...errors import NotFound, ValidationFailed
+from ...i18n import label, t
 from ...registry import Feature
-from ...roles import PERMISSIONS, ROLE_LABELS, Actor, Role, require
+from ...roles import PERMISSIONS, Actor, Role, require
 from ...util import new_id, now_iso
 from ..common import studio
 from ..jobs_util import submit_job
@@ -36,17 +38,17 @@ ROSTER = [  # fictional demo roster (no real people)
 
 @router.get("/api/team/members")
 async def members() -> dict[str, Any]:
-    return {"members": ROSTER, "note": "Fictional roster. In an Entra-protected deployment roles come from app-role claims (X-MS-CLIENT-PRINCIPAL)."}
+    return {"members": [{**m, "title": t(f"team.title.{m['role']}")} for m in ROSTER], "note": t("team.note")}
 
 
 @router.get("/api/team/roles")
 async def roles() -> dict[str, Any]:
-    return {"roles": [{"id": r.value, "label": ROLE_LABELS[r], "permissions": sorted(p for p, rs in PERMISSIONS.items() if r in rs)} for r in Role], "permissions": sorted(PERMISSIONS)}
+    return {"roles": [{"id": r.value, "label": label("label.role", r.value), "permissions": sorted(p for p, rs in PERMISSIONS.items() if r in rs)} for r in Role], "permissions": sorted(PERMISSIONS)}
 
 
 @router.get("/api/team/api")
 async def api_info(request: Request) -> dict[str, Any]:
-    return {"openapi": "/openapi.json", "docs": "/docs", "auth": "Demo: X-Studio-Role / X-Studio-User headers. Production: Entra ID (Container Apps built-in auth) + app roles.", "rate_limits": {"spend_per_ip_per_min": svc(request).settings.rate_per_ip_spend_per_min, "mutate_per_ip_per_min": svc(request).settings.rate_per_ip_mutate_per_min}, "streaming": "SSE: GET /api/stream/jobs/{job_id}", "examples": ["POST /api/campaigns", "POST /api/campaigns/{id}/script/generate?wait=true", "GET /api/library/assets/{id}/content"]}
+    return {"openapi": "/openapi.json", "docs": "/docs", "auth": t("team.api.auth"), "rate_limits": {"spend_per_ip_per_min": svc(request).settings.rate_per_ip_spend_per_min, "mutate_per_ip_per_min": svc(request).settings.rate_per_ip_mutate_per_min}, "streaming": "SSE: GET /api/stream/jobs/{job_id}", "examples": ["POST /api/campaigns", "POST /api/campaigns/{id}/script/generate?wait=true", "GET /api/library/assets/{id}/content"]}
 
 
 class HookIn(BaseModel):
@@ -68,7 +70,7 @@ async def create_hook(request: Request, body: HookIn, actor: Actor = Depends(req
     await validate_webhook_url(body.url, svc(request).settings.allow_internal_webhook_sink)
     bad = [e for e in body.events if e != "*" and e not in EVENTS]
     if bad:
-        raise ValidationFailed(f"unknown event(s) {bad}", code="bad_event")
+        raise ValidationFailed(f"unknown event(s) {bad}", code="bad_event", params={"events": ", ".join(bad)})
     doc = {**body.model_dump(), "id": new_id("whk"), "pk": "tenant", "type": "webhook", "created_by": actor.name, "created_at": now_iso()}
     await studio(request).repo.upsert("webhooks", doc)
     notifier = svc(request).notifier
@@ -92,7 +94,7 @@ async def test_hook(request: Request, hook_id: str, _: Actor = Depends(require("
         raise NotFound("webhook not found", code="webhook_not_found")
     n = svc(request).notifier
     n.attach()
-    return await n.dispatcher.send(hook, "approval.requested", {"campaign": "Dawn Roast — Launch", "stage": "Script", "by": "webhook test"})  # type: ignore[union-attr]
+    return await n.dispatcher.send(hook, "approval.requested", {"campaign": t("notify.test.campaign"), "stage": "Script", "stage_id": "script", "by": t("notify.test.by")})  # type: ignore[union-attr]
 
 
 @router.get("/api/team/deliveries")
@@ -112,7 +114,8 @@ async def export_pack(request: Request, campaign_id: str, approved_only: bool = 
     async def run(job: JobContext) -> dict[str, Any]:
         s = svc(request)
         camp = await st.campaign(campaign_id)
-        await job.progress(0.1, "Collecting assets", step="collect")
+        lang = campaign_lang(camp)
+        await job.progress(0.1, step="collect", key="job.msg.export.collect")
         assets = await st.repo.query("assets", {"campaign_id": campaign_id}, limit=1000)
         videos = [a for a in assets if a["kind"] == "video" and (a.get("status") == "approved" or not approved_only)]
         extra = [a for a in assets if a["kind"] in {"subtitle"} or (a["kind"] == "image" and ("storyboard" in a.get("tags", []) or "poster" in a.get("tags", [])))]
@@ -125,7 +128,7 @@ async def export_pack(request: Request, campaign_id: str, approved_only: bool = 
             prov = await st.repo.query("provenance", {"asset_id": a["id"]}, order_by="created_at", desc=True, limit=1)
             if prov:
                 files[f"provenance/{a['name']}.c2pa.json"] = json.dumps({"manifest": prov[0]["manifest"], "manifest_hash": prov[0]["manifest_hash"], "signature": prov[0]["signature"]}, indent=2).encode()
-        await job.progress(0.6, "Building CSV + summary", step="build")
+        await job.progress(0.6, step="build", key="job.msg.export.build")
         perf = await st.repo.query("performance", {"campaign_id": campaign_id}, pk=campaign_id, limit=5000)
         buf = io.StringIO()
         w = csv.writer(buf)
@@ -136,19 +139,19 @@ async def export_pack(request: Request, campaign_id: str, approved_only: bool = 
         summary = {"campaign": {k: camp.get(k) for k in ("id", "name", "markets", "channels", "status")}, "brief": (arts["brief"] or {}).get("fields"), "territory": next((t for t in (arts["strategy"] or {}).get("territories", []) if t["id"] == (arts["strategy"] or {}).get("selected_territory_id")), None), "script": {k: (arts["script"] or {}).get(k) for k in ("title", "duration_s", "beats", "cta", "legal")}, "approved_only": approved_only, "exported_at": now_iso(), "synthetic_data": True}
         files["campaign.json"] = json.dumps(summary, indent=2, default=str).encode()
         manifest = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
-        files["manifest.json"] = json.dumps({"files": manifest, "generator": "SwarmAI Spotlight", "note": "Videos carry burned-in captions and (where required) an AI-generated label; see provenance/ for signed manifests."}, indent=2).encode()
-        files["README.txt"] = b"Campaign pack generated by SwarmAI Spotlight (synthetic demo data).\nvideos/ mp4 spots; keyframes/ storyboard images; captions/ SRT; provenance/ signed C2PA-style sidecars; performance.csv; campaign.json; manifest.json (SHA-256 of every file).\n"
+        files["manifest.json"] = json.dumps({"files": manifest, "generator": "SwarmAI Spotlight", "note": t("export.manifest_note", lang)}, indent=2, ensure_ascii=False).encode()
+        files["README.txt"] = t("export.readme", lang).encode()
         zbuf = io.BytesIO()
         with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
             for name, data in files.items():
                 z.writestr(name, data)
-        await job.progress(0.9, "Storing pack", step="store")
+        await job.progress(0.9, step="store", key="job.msg.export.store")
         asset = await st.put_asset(campaign_id=campaign_id, name=f"campaign-pack-{campaign_id}.zip", data=zbuf.getvalue(), mime="application/zip", kind="archive", actor=actor, tags=["export", "campaign-pack"], source="export", index=False, meta={"files": len(files), "approved_only": approved_only})
         await st.audit(campaign_id, actor, "campaign.exported", {"asset_id": asset["id"]}, {"files": len(files), "size": asset["size"]})
         _ = s
         return {"asset_id": asset["id"], "files": sorted(files), "size": asset["size"], "download": f"/api/library/assets/{asset['id']}/content?download=true"}
 
-    return await submit_job(request, "campaign.export", run, campaign_id, "Export campaign pack", "CS-22", wait)
+    return await submit_job(request, "campaign.export", run, campaign_id, "job.title.export", "CS-22", wait)
 
 
 @router.get("/api/campaigns/{campaign_id}/exports")

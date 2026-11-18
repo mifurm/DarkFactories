@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..errors import ValidationFailed
+from ..i18n import DEFAULT, has, label, t
 from ..util import new_id, now_iso
 
 log = logging.getLogger("spotlight.notify")
@@ -26,37 +27,50 @@ async def validate_webhook_url(url: str, allow_internal: bool = True) -> str:
     """SSRF guard: https only, allow-listed hosts, no credentials/IP literals, every resolved address must be public."""
     if url == INTERNAL_SINK:
         if not allow_internal:
-            raise ValidationFailed("the internal sink is disabled", code="bad_webhook")
+            raise ValidationFailed("the internal sink is disabled", code="bad_webhook", key="err.bad_webhook.internal")
         return url
     p = urlparse(url)
     host = (p.hostname or "").lower()
     if p.scheme != "https" or not host or p.username or p.password or (p.port not in (None, 443)):
-        raise ValidationFailed("webhook URLs must be https://<allow-listed host>/… on port 443 without credentials", code="bad_webhook")
+        raise ValidationFailed("webhook URLs must be https://<allow-listed host>/… on port 443 without credentials", code="bad_webhook", key="err.bad_webhook.format")
     try:
         ipaddress.ip_address(host)
     except ValueError:
         pass
     else:
-        raise ValidationFailed("IP-literal webhook hosts are not allowed", code="bad_webhook")
+        raise ValidationFailed("IP-literal webhook hosts are not allowed", code="bad_webhook", key="err.bad_webhook.ip")
     if not (host.endswith(ALLOWED_HOST_SUFFIXES) or host == "hooks.slack.com"):
-        raise ValidationFailed(f"host {host!r} is not on the webhook allow-list ({', '.join(ALLOWED_HOST_SUFFIXES)})", code="bad_webhook")
+        raise ValidationFailed(
+            f"host {host!r} is not on the webhook allow-list ({', '.join(ALLOWED_HOST_SUFFIXES)})", code="bad_webhook", key="err.bad_webhook.host", params={"host": host, "allowed": ", ".join(ALLOWED_HOST_SUFFIXES)}
+        )
     infos = await asyncio.to_thread(socket.getaddrinfo, host, 443, type=socket.SOCK_STREAM)
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if not ip.is_global:
-            raise ValidationFailed("webhook host resolves to a non-public address", code="bad_webhook")
+            raise ValidationFailed("webhook host resolves to a non-public address", code="bad_webhook", key="err.bad_webhook.private")
     return url
 
 
 def title_for(event: str) -> str:
-    return {
-        "approval.requested": "Approval requested", "approval.approved": "Approved", "approval.rejected": "Rejected", "approval.changes_requested": "Changes requested",
-        "job.failed": "Job failed", "job.succeeded": "Job finished", "budget.alert": "Budget alert", "rights.expiring": "Rights expiring", "rights.revoked": "Rights revoked",
-    }.get(event, event)
+    """Card title for ``event`` in the current language (English: the original wording; unknown events show their code)."""
+    return t(f"notify.title.{event}") if has(f"notify.title.{event}", DEFAULT) else event
+
+
+SUMMARY_FIELDS = ("campaign", "stage", "decision", "by", "title", "scope", "spent_usd", "cap_usd", "days_left", "kind")
 
 
 def summary_for(event: str, payload: dict[str, Any]) -> str:
-    bits = [f"{k}: {payload[k]}" for k in ("campaign", "stage", "decision", "by", "title", "scope", "spent_usd", "cap_usd", "days_left", "kind") if payload.get(k) is not None]
+    """One-line card text: ``field: value`` pairs with the field names (and stage/decision values) in the current language; free text and ids stay as they are."""
+    bits = []
+    for k in SUMMARY_FIELDS:
+        v = payload.get(k)
+        if v is None:
+            continue
+        if k == "stage" and payload.get("stage_id"):
+            v = label("label.gate", payload["stage_id"])
+        elif k == "decision" and has(f"notify.decision.{v}", DEFAULT):
+            v = t(f"notify.decision.{v}")
+        bits.append(f"{t(f'notify.field.{k}')}: {v}")
     return " · ".join(bits) or event
 
 

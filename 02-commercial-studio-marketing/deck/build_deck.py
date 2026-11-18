@@ -344,6 +344,30 @@ tour_slide(
     sim="Brand and talent data are fictional; no generative video model is used (VideoProvider is the plug-in point).",
 )
 
+# Polish (pl): the same Brand Guardian on Polish copy, captured on the deployed app with the interface in Polish (deck/assets/screens-pl/)
+pl_guardian = HERE / "assets" / "screens-pl" / "13-guardian-report-blocked.png"
+if pl_guardian.exists():
+    d.set_section("Polish · live on Azure, synthetic data")
+    s_pl = d.screenshot(
+        "Available in Polish: the Brand Guardian checks Polish copy and proposes Polish fixes",
+        pl_guardian,
+        caption="Brand Guardian on the deployed app, Polish interface: a deliberately unsafe Polish script is blocked (0/100)",
+        callouts=[
+            "Polish claims are matched in every inflected form, with or without diacritics: „leczy poranny niepokój” is a blocking finding",
+            "Each finding quotes the rule and proposes a compliant Polish rewrite, e.g. „daje spokojniejszy początek poranka”",
+            "Required wording is Polish too: the caffeine disclaimer „Zawiera kofeinę. Niezalecane dla dzieci i kobiet w ciąży.” and the „Wygenerowano przez AI” label",
+        ],
+        takeaway="Auto-revise converged in 2 iterations on the live app; 990 Polish Guardian test cases (positives and look-alike negatives) keep false alarms out.",
+        notes=("The same Brand Guardian works in Polish. This capture is from the deployed application with the interface switched to Polish. A deliberately unsafe Polish script is blocked at zero out of one "
+               "hundred: a claim about curing morning anxiety, a forbidden word, a health claim that needs the authorised wording under the European regulation, and a missing caffeine disclaimer. Matching follows "
+               "Polish inflection and works even when the text is typed without diacritics. Each finding quotes the rule and proposes a compliant Polish rewrite, and auto-revise converged in two iterations in the "
+               "live smoke test. The legal wording is demo content, not legal advice."),
+        source="Screenshot: live reference implementation on Azure (swedencentral), Polish interface, synthetic data. Evidence: REPORT-TEST-AND-DEPLOYMENT.md §12 (live smoke 44/44). Legal wording is demo content, not legal advice.",
+    )
+    set_alt(next(sh for sh in s_pl.shapes if sh.shape_type == MSO_SHAPE_TYPE.PICTURE),
+            "Brand Guardian report in Polish: verdict BLOKADA, compliance score 0 of 100, blocking findings with rule ids and Polish rewrite suggestions")
+    d.set_section(None)
+
 tour_slide(
     3, "18-performance-insights.png",
     "Insights close the loop: significant findings flow back into the Brand Brain",

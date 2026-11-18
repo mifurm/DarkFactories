@@ -12,16 +12,22 @@ from pydantic import BaseModel, Field
 from ...core.ai.stubs import stub_task
 from ...core.guardian_service import evaluate, subject_from_storyboard, summarize
 from ...core.jobs import JobContext
+from ...core.studio import campaign_lang
 from ...deps import mutate_limit, spend_limit
 from ...errors import AppError, NotFound, ValidationFailed
+from ...i18n import t
+from ...i18n.directive import lang_directive
 from ...registry import Feature
 from ...roles import Actor, require
+from ...seed.data import PALETTE_PL
 from ..common import CREW_PREAMBLE, studio
 from ..jobs_util import submit_job
 
 router = APIRouter(prefix="/api/campaigns/{campaign_id}/storyboard", tags=["CS-07 Storyboard"])
 MOVES = {"hook": "zoom_in", "product": "pan_right", "proof": "parallax", "cta": "pan_left", "brand": "zoom_out"}
 FRAMING = {"hook": "wide establishing shot", "product": "medium close-up", "proof": "macro close-up with shallow depth of field", "cta": "medium shot", "brand": "centered hero shot, calm negative space"}
+FRAMING_PL = {"hook": "plan ogólny wprowadzający", "product": "plan półzbliżony", "proof": "makro z płytką głębią ostrości", "cta": "plan średni", "brand": "centralne ujęcie produktu, spokojna wolna przestrzeń"}
+PALETTE_NAMES_PL = {name.lower(): pl_name.lower() for name, (pl_name, _role) in PALETTE_PL.items()}  # the colour names used in the Polish Brand Book
 FOCAL = {"hook": (0.5, 0.58), "product": (0.45, 0.52), "proof": (0.5, 0.55), "cta": (0.55, 0.55), "brand": (0.5, 0.58)}
 
 
@@ -45,9 +51,30 @@ class ShotOut(BaseModel):
     super_text: str
 
 
+class ShotOutL10n(ShotOut):
+    description_en: str  # the same shot in English: the (English-prompted) image model never sees the campaign language
+    framing_en: str
+
+
 class StoryboardOut(BaseModel):
     style_bible: StyleBible
     shots: list[ShotOut]
+
+
+class StoryboardOutL10n(StoryboardOut):
+    style_bible_en: StyleBible
+    shots: list[ShotOutL10n]  # type: ignore[assignment]
+
+
+def _bible_pl(pal: str) -> dict[str, str]:
+    return {
+        "look": "Ciepła, mało kontrastowa fotografia redakcyjna; prawdziwe faktury (para, ceramika, papier kraft); delikatne ziarno filmowe.",
+        "lighting": "Niskie, ciepłe światło wschodu słońca z długimi, miękkimi cieniami; para w kontrświetle.",
+        "lens": "Ujęcia jak z obiektywów stałoogniskowych 35 mm i 85 mm; płytka głębia ostrości w zbliżeniach.",
+        "product_description": "Torba z papieru kraft 340 g z małym bursztynowym znakiem słońca i napisem NORTHWIND (bez innego tekstu), matowe wykończenie.",
+        "character_description": "Maja, około trzydziestki, krótkie ciemne włosy, miękki sweter z dzianiny, spokojny wyraz twarzy, poranne światło na twarzy.",
+        "palette_notes": f"Paleta: {pal}.",
+    }
 
 
 @stub_task("storyboard.shots")
@@ -61,24 +88,37 @@ def _stub_storyboard(ctx: dict[str, Any]) -> dict[str, Any]:
         "character_description": "Maya, mid-30s, short dark hair, soft knit sweater, calm expression, early-morning light on her face.",
         "palette_notes": f"Palette: {pal}.",
     }
+    pl = ctx.get("lang") == "pl"
     shots = []
     for i, b in enumerate(ctx.get("beats", []), start=1):
         role = b.get("role", "proof")
         fx, fy = FOCAL.get(role, (0.5, 0.55))
-        shots.append({"beat_index": i, "description": b["visual"], "framing": FRAMING.get(role, "medium shot"), "movement": MOVES.get(role, "zoom_in"), "image_prompt": b["visual"], "focal_x": fx, "focal_y": fy, "super_text": b.get("super_text") or ""})
+        shot = {"beat_index": i, "description": b["visual"], "framing": FRAMING.get(role, "medium shot"), "movement": MOVES.get(role, "zoom_in"), "image_prompt": b.get("visual_en") or b["visual"], "focal_x": fx, "focal_y": fy, "super_text": b.get("super_text") or ""}
+        if pl:
+            shot.update(framing=FRAMING_PL.get(role, "plan średni"), description_en=b.get("visual_en") or b["visual"], framing_en=FRAMING.get(role, "medium shot"))
+        shots.append(shot)
+    if pl:
+        return {"style_bible": _bible_pl(ctx.get("palette_names_pl") or pal), "style_bible_en": bible, "shots": shots}
     return {"style_bible": bible, "shots": shots}
 
 
 def compose_image_prompt(shot: dict[str, Any], bible: dict[str, Any], palette_hex: list[str]) -> str:
-    """Consistency by construction: every frame carries the same style bible, product/character descriptions and palette."""
+    """Consistency by construction: every frame carries the same style bible, product/character descriptions and palette.
+
+    The image model is prompted in English: for non-English campaigns the shot's ``description_en`` / ``framing_en`` and the English bible are used."""
     return (
-        f"{shot['description']} Framing: {shot['framing']}. "
+        f"{shot.get('description_en') or shot['description']} Framing: {shot.get('framing_en') or shot['framing']}. "
         f"Lighting: {bible['lighting']} Look: {bible['look']} Lens: {bible['lens']} "
         f"Product (when visible): {bible['product_description']} Person (when visible): {bible['character_description']} "
         f"{bible['palette_notes']} Brand colours as hex: {', '.join(palette_hex)}. "
         "Photographic, cinematic 3:2 composition with calm negative space in the lower third for captions. "
         "No text, no logos, no letters, no captions, no watermark, no UI."
     )
+
+
+def prompt_bible(sb: dict[str, Any]) -> dict[str, Any]:
+    """The style bible the image model reads (English)."""
+    return sb.get("style_bible_en") or sb["style_bible"]
 
 
 class GenIn(BaseModel):
@@ -99,18 +139,22 @@ async def generate_shots(request: Request, campaign_id: str, body: GenIn | None 
         kit = (await st.brand_kit(camp["brand_id"]))["kit"]
         palette = [p["hex"] for p in kit["palette"]]
         names = ", ".join(f"{p['name'].lower()} {p['hex']}" for p in kit["palette"])
-        await job.progress(0.2, "Art Director is building the shot list", step="shots")
+        await job.progress(0.2, step="shots", key="job.msg.shots.start")
         beats = script["beats"]
+        lang = campaign_lang(camp)
+        pl_names = ", ".join(f"{PALETTE_NAMES_PL.get(p['name'].lower(), p['name'].lower())} {p['hex']}" for p in kit["palette"])
         out = await s.llm.complete(
             task="storyboard.shots",
-            system=CREW_PREAMBLE + " You are the Art Director. Produce a style bible (look, lighting, lens, product and character descriptions that stay IDENTICAL across all frames, palette notes) and exactly one shot per script beat, in order. Each shot has a concrete description, framing, camera movement (zoom_in|zoom_out|pan_left|pan_right|pan_up|pan_down|parallax), an image prompt for a text-free photographic keyframe, and a focal point (0..1) where the subject sits so reframing to 9:16/1:1 keeps it in view.",
-            user=f"Brand palette: {names}\nBrand look: warm sunrise light, real textures, product = kraft bag with amber sun mark.\nScript ({script['duration_s']}s) beats:\n" + "\n".join(f"{i + 1}. [{b['role']} {b['t_start']}-{b['t_end']}s] visual: {b['visual']} | super: {b.get('super_text') or '-'}" for i, b in enumerate(beats)),
-            schema=StoryboardOut,
-            context={"beats": beats, "palette_names": names},
-            max_tokens=3500,
+            system=CREW_PREAMBLE + " You are the Art Director. Produce a style bible (look, lighting, lens, product and character descriptions that stay IDENTICAL across all frames, palette notes) and exactly one shot per script beat, in order. Each shot has a concrete description, framing, camera movement (zoom_in|zoom_out|pan_left|pan_right|pan_up|pan_down|parallax), an image prompt for a text-free photographic keyframe, and a focal point (0..1) where the subject sits so reframing to 9:16/1:1 keeps it in view."
+            + (lang_directive(lang) + " Write the style_bible and every shot's description and framing in the output language; ALSO fill style_bible_en, description_en and framing_en with the same content in English and write image_prompt in English — they feed an English-prompted image model." if lang != "en" else ""),
+            user=f"Brand palette: {names}\nBrand look: warm sunrise light, real textures, product = kraft bag with amber sun mark.\nScript ({script['duration_s']}s) beats:\n" + "\n".join(f"{i + 1}. [{b['role']} {b['t_start']}-{b['t_end']}s] visual: {b['visual']}{' (EN: ' + b['visual_en'] + ')' if b.get('visual_en') else ''} | super: {b.get('super_text') or '-'}" for i, b in enumerate(beats)),
+            schema=StoryboardOut if lang == "en" else StoryboardOutL10n,
+            context={"beats": beats, "palette_names": names, "palette_names_pl": pl_names, "lang": lang},
+            max_tokens=3500 if lang == "en" else 5000,
             effort="low",
         )
         bible = out.style_bible.model_dump()
+        bible_en = out.style_bible_en.model_dump() if isinstance(out, StoryboardOutL10n) else None
         shots = []
         for i, b in enumerate(beats):
             raw = out.shots[i] if i < len(out.shots) else None
@@ -123,23 +167,27 @@ async def generate_shots(request: Request, campaign_id: str, body: GenIn | None 
                 "role": role,
                 "duration": round(b["t_end"] - b["t_start"], 2),
                 "description": (raw.description if raw else b["visual"]),
-                "framing": (raw.framing if raw else FRAMING.get(role, "medium shot")),
+                "framing": (raw.framing if raw else (FRAMING_PL if lang == "pl" else FRAMING).get(role, "medium shot")),
                 "movement": (raw.movement if raw and raw.movement in {"zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "parallax"} else MOVES.get(role, "zoom_in")),
                 "focal": [min(1, max(0, raw.focal_x)) if raw else fx, min(1, max(0, raw.focal_y)) if raw else fy],
                 "super_text": (raw.super_text if raw else b.get("super_text") or "") or None,
                 "asset_id": None,
                 "image_status": "pending",
             }
-            sh["image_prompt"] = compose_image_prompt(sh, bible, palette)
+            if lang != "en":  # display text in the campaign language, the image model reads the English twins
+                sh["description_en"] = (getattr(raw, "description_en", None) if raw else None) or b.get("visual_en") or b["visual"]
+                sh["framing_en"] = (getattr(raw, "framing_en", None) if raw else None) or FRAMING.get(role, "medium shot")
+            sh["image_prompt"] = compose_image_prompt(sh, bible_en or bible, palette)
             shots.append(sh)
-        art = await st.create_artifact(campaign_id, "storyboard", {"title": f"Storyboard — {script['duration_s']}s", "script_id": script["id"], "duration_s": script["duration_s"], "style_bible": bible, "shots": shots}, actor=actor)
+        title = t("artifact.title.storyboard", lang, d=script["duration_s"])
+        art = await st.create_artifact(campaign_id, "storyboard", {"title": title, "lang": lang, "script_id": script["id"], "duration_s": script["duration_s"], "style_bible": bible, **({"style_bible_en": bible_en} if bible_en else {}), "shots": shots}, actor=actor)
         camp["selected_script_id"] = script["id"]
         await st.save_campaign(camp)
         await st.set_stage(campaign_id, "storyboard")
         await st.audit(campaign_id, actor, "storyboard.shots_generated", {"artifact_id": art["id"]}, {"shots": len(shots)})
         return {"artifact_id": art["id"], "shots": len(shots)}
 
-    return await submit_job(request, "storyboard.shots", run, campaign_id, "Art Director: shot list & style bible", "CS-07", wait)
+    return await submit_job(request, "storyboard.shots", run, campaign_id, "job.title.shots", "CS-07", wait)
 
 
 @router.get("")
@@ -179,8 +227,9 @@ async def _frames(request: Request, campaign_id: str, sb_id: str, body: FramesIn
             except AppError as exc:
                 if exc.code in {"daily_budget_exceeded", "campaign_budget_exceeded", "premium_requires_approval"}:
                     raise
-                sh["image_status"], sh["image_error"] = "failed", exc.message
-                errors.append(f"{sh['id']}: {exc.message}")
+                msg = exc.localized()[0]  # rendered in the request language (the stored text is shown as is)
+                sh["image_status"], sh["image_error"] = "failed", msg
+                errors.append(f"{sh['id']}: {msg}")
                 return
             except Exception as exc:
                 sh["image_status"], sh["image_error"] = "failed", f"{type(exc).__name__}: {str(exc)[:160]}"
@@ -193,9 +242,9 @@ async def _frames(request: Request, campaign_id: str, sb_id: str, body: FramesIn
             sh.update(asset_id=asset["id"], image_status="ready", image_error=None, image_model=res.model, image_quality=res.quality, cost_usd=res.cost_usd)
             cost += res.cost_usd
             done += 1
-            await job.progress(0.1 + 0.7 * done / len(todo), f"Keyframe {done}/{len(todo)} ready", step=f"frame-{sh['id']}")
+            await job.progress(0.1 + 0.7 * done / len(todo), step=f"frame-{sh['id']}", key="job.msg.frames.frame", params={"done": done, "total": len(todo)})
 
-    await job.progress(0.05, f"Generating {len(todo)} keyframes ({body.model}, {body.quality})", step="frames")
+    await job.progress(0.05, step="frames", key="job.msg.frames.start", params={"total": len(todo), "model": body.model, "quality": body.quality})
     if body.anchor and len(todo) > 1:
         await one(todo[0], None)
         if todo[0].get("asset_id"):
@@ -205,7 +254,7 @@ async def _frames(request: Request, campaign_id: str, sb_id: str, body: FramesIn
         await asyncio.gather(*(one(sh, None) for sh in todo))
     sb["frames_quality"] = body.quality
     await st.save_artifact(sb)
-    await job.progress(0.85, "Brand Guardian is checking palette, safety and rights", step="guardian")
+    await job.progress(0.85, step="guardian", key="job.msg.frames.guardian")
     subject, images = await subject_from_storyboard(st, camp, sb)
     report, _ = await evaluate(s, subject, image_bytes=images)
     sb["guardian"] = summarize(report)
@@ -213,7 +262,7 @@ async def _frames(request: Request, campaign_id: str, sb_id: str, body: FramesIn
     await st.save_artifact(sb)
     await st.audit(campaign_id, actor, "storyboard.frames_generated", {"artifact_id": sb["id"]}, {"frames": done, "cost_usd": round(cost, 4), "quality": body.quality})
     if done == 0 and errors:
-        raise AppError("No keyframes could be generated: " + "; ".join(errors[:2]), code="image_failed", status=502)
+        raise AppError("No keyframes could be generated: " + "; ".join(errors[:2]), code="image_failed", status=502, params={"errors": "; ".join(errors[:2])})
     return {"artifact_id": sb["id"], "frames": done, "failed": len(errors), "cost_usd": round(cost, 4), "guardian": sb["guardian"]}
 
 
@@ -225,7 +274,7 @@ async def generate_frames(request: Request, campaign_id: str, sb_id: str, body: 
     async def run(job: JobContext) -> dict[str, Any]:
         return await _frames(request, campaign_id, sb_id, body, actor, job)
 
-    return await submit_job(request, "storyboard.frames", run, campaign_id, f"Art Director: keyframes ({body.quality})", "CS-07", wait, timeout=175)
+    return await submit_job(request, "storyboard.frames", run, campaign_id, "job.title.frames", "CS-07", wait, timeout=175, title_params={"quality": body.quality})
 
 
 class ShotPatch(BaseModel):
@@ -247,13 +296,15 @@ async def patch_shot(request: Request, campaign_id: str, sb_id: str, shot_id: st
     kit = (await st.brand_kit(camp["brand_id"]))["kit"]
     if body.description is not None:
         sh["description"] = body.description
+        if "description_en" in sh:
+            sh["description_en"] = body.description  # a hand-edited line is the best English-prompt we have for the model
     if body.movement:
         sh["movement"] = body.movement
     if body.focal:
         sh["focal"] = [min(1, max(0, v)) for v in body.focal]
     if body.super_text is not None:
         sh["super_text"] = body.super_text or None
-    sh["image_prompt"] = compose_image_prompt(sh, sb["style_bible"], [p["hex"] for p in kit["palette"]]) + (f" Art direction note: {body.prompt_tweak}" if body.prompt_tweak else "")
+    sh["image_prompt"] = compose_image_prompt(sh, prompt_bible(sb), [p["hex"] for p in kit["palette"]]) + (f" Art direction note: {body.prompt_tweak}" if body.prompt_tweak else "")
     if body.description is not None or body.prompt_tweak:
         sh["image_status"] = "stale"
     sb["status"] = "draft"

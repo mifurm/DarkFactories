@@ -55,13 +55,24 @@ async def list_assets(request: Request, q: str | None = None, kind: str | None =
 async def semantic_search(request: Request, q: str, kind: str | None = None, k: int = 12) -> dict[str, Any]:
     """Semantic search over asset name/tags/description/prompt (text-embedding-3-small; in-process cosine index)."""
     st = studio(request)
-    hits = await svc(request).vectors.search("library", q[:300], k=min(max(k, 1), 30))
-    out = []
+    vectors = svc(request).vectors
+    wanted = min(max(k, 1), 30)
+    hits = await vectors.search("library", q[:300], k=min(wanted * 4, 120))  # over-fetch: vectors of deleted assets must not push live ones out of the top-k
+    out: list[dict[str, Any]] = []
+    stale: set[str] = set()
     for h in hits:
         aid = h.get("meta", {}).get("asset_id")
         a = await st.repo.get("assets", aid) if aid else None
-        if a and (not kind or a["kind"] == kind):
+        if a is None:
+            if aid:
+                stale.add(aid)
+            continue
+        if not kind or a["kind"] == kind:
             out.append({**public(a), "score": h["score"]})
+        if len(out) >= wanted:
+            break
+    for aid in stale:  # self-heal vectors left behind by assets that were deleted before they were removed together
+        await vectors.delete_where("library", {"meta.asset_id": aid})
     return {"query": q, "results": out}
 
 
@@ -126,12 +137,12 @@ async def _read_upload(request: Request, file: UploadFile) -> tuple[bytes, str, 
     s = svc(request)
     data = await file.read(s.settings.max_upload_bytes + 1)
     if len(data) > s.settings.max_upload_bytes:
-        raise PayloadTooLarge(f"upload exceeds {s.settings.max_upload_bytes // 1048576} MB")
+        raise PayloadTooLarge(f"upload exceeds {s.settings.max_upload_bytes // 1048576} MB", key="err.payload_too_large.upload_mb", params={"mb": s.settings.max_upload_bytes // 1048576})
     name = safe_filename(file.filename or "upload.bin")
     ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
     mime = EXT_MIME.get(ext) or (file.content_type or "application/octet-stream")
     if mime not in ALLOWED:
-        raise AppError(f"file type {mime!r} is not allowed", code="unsupported_media", status=415)
+        raise AppError(f"file type {mime!r} is not allowed", code="unsupported_media", status=415, key="err.unsupported_media.mime", params={"mime": mime})
     if mime.startswith("image/"):
         import io
 
@@ -204,6 +215,7 @@ async def delete_asset(request: Request, asset_id: str, actor: Actor = Depends(r
     a = await st.asset(asset_id)
     await svc(request).blobs.delete(a["blob"])
     await st.repo.delete("assets", asset_id, pk=a["pk"])
+    await svc(request).vectors.delete_where("library", {"meta.asset_id": asset_id})
     await st.audit(a.get("campaign_id"), actor, "library.asset_deleted", {"asset_id": asset_id})
     return {"deleted": asset_id}
 
@@ -218,7 +230,7 @@ async def link_rights(request: Request, asset_id: str, body: RightsLink, actor: 
     a = await st.asset(asset_id)
     for rid in body.rights_ids:
         if not await st.repo.get("rights", rid, pk="northwind"):
-            raise NotFound(f"rights entry {rid} not found", code="rights_not_found")
+            raise NotFound(f"rights entry {rid} not found", code="rights_not_found", key="err.rights_not_found.id", params={"id": rid})
     a["rights_ids"] = sorted(set(body.rights_ids))
     await st.save_asset(a)
     await st.audit(a.get("campaign_id"), actor, "library.rights_linked", {"asset_id": asset_id}, {"rights_ids": a["rights_ids"]})

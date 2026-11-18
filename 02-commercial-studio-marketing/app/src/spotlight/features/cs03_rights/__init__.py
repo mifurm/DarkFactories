@@ -9,7 +9,9 @@ from pydantic import BaseModel, Field
 
 from ...deps import mutate_limit
 from ...domain.rights import RightsEntry, check_use, expiring, find_entry, is_cleared
+from ...domain.text import fold
 from ...errors import NotFound
+from ...i18n import current_locale, label, t
 from ...registry import Feature
 from ...roles import Actor, require
 from ...util import new_id
@@ -44,11 +46,26 @@ async def list_rights(request: Request, kind: str | None = None, status: str | N
     reg = await _registry(request)
     rows = await studio(request).repo.query("rights", pk=BRAND)
     rows = [r for r in rows if (not kind or r["kind"] == kind) and (not status or r["status"] == status)]
-    rows.sort(key=lambda r: (r["kind"], r["title"]))
+    rows.sort(key=lambda r: (r["kind"], fold(r["title"]).lower()))
     exp = {e["id"]: e for e in expiring(reg, 45)}
+    loc = current_locale()
     for r in rows:
         r["expiry"] = exp.get(r["id"])
+        r.update(_localized_view(r, loc))
     return {"entries": rows, "alerts": list(exp.values()), "counts": {k: sum(1 for r in rows if r["kind"] == k) for k in ("music", "talent", "stock", "font", "other")}}
+
+
+def _localized_view(r: dict[str, Any], loc: str) -> dict[str, Any]:
+    """Registry text in the viewer's language: the row's own notes / licensor are kept as the content (``usage_notes`` stays the stored text);
+    ``usage_notes_label`` / ``licensor_label`` / territory + channel names are rendered for ``loc``."""
+    over = (r.get("i18n") or {}).get(loc) or {}
+    return {
+        "usage_notes_label": over.get("usage_notes") or r.get("usage_notes", ""),
+        "licensor_label": over.get("licensor") or r.get("licensor"),
+        "kind_label": label("label.rkind", r["kind"], loc),
+        "territory_labels": [label("label.territory", t, loc) for t in r.get("territories", [])],
+        "channel_labels": [label("label.channel", c, loc) for c in r.get("channels", [])],
+    }
 
 
 @router.post("", dependencies=[Depends(mutate_limit)])
@@ -101,9 +118,10 @@ async def check_use_endpoint(request: Request, body: UseIn) -> dict[str, Any]:
     reg = await _registry(request)
     e = find_entry(reg, body.kind, body.title, body.rights_id)
     if e is None:
-        return {"cleared": False, "entry": None, "verdicts": [{"ok": False, "code": "rights.unlicensed", "severity": "block", "message": f"No {body.kind} record for “{body.title or body.rights_id}” in the registry"}]}
+        who = body.title or body.rights_id or ""
+        return {"cleared": False, "entry": None, "verdicts": [{"ok": False, "code": "rights.unlicensed", "severity": "block", "message": t("rights.no_record", kind={"en": body.kind, "pl": label("label.rkind", body.kind, "pl")}, title=who), "key": "rights.no_record", "params": {"kind": body.kind, "title": who}}]}
     verdicts = check_use(e, body.markets, body.channels, body.air_start, body.air_end, ai_synthesis=body.ai_synthesis, usage=body.usage)
-    return {"cleared": is_cleared(verdicts), "entry": e.model_dump(), "verdicts": [v.model_dump() for v in verdicts]}
+    return {"cleared": is_cleared(verdicts), "entry": {**e.model_dump(), **_localized_view(e.model_dump(), current_locale())}, "verdicts": [v.model_dump() for v in verdicts]}
 
 
 @router.get("/alerts")

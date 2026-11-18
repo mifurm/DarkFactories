@@ -20,7 +20,7 @@ def reframe(spec: RenderSpec, aspect: str) -> RenderSpec:
     new = spec.model_copy(deep=True)
     new.id = new_id("spec")
     new.aspect = aspect  # type: ignore[assignment]
-    new.lineage = Lineage(kind="format", parent_id=spec.id, notes=[f"reframed {spec.aspect} → {aspect} with per-scene focal points"])
+    new.lineage = Lineage(kind="format", parent_id=spec.id, notes=[f"reframed {spec.aspect} → {aspect} with per-scene focal points"], note_keys=[{"key": "format.note.reframed", "params": {"src": spec.aspect, "dst": aspect}}])
     return new
 
 
@@ -78,8 +78,10 @@ def plan_cutdown(spec: RenderSpec, target_s: int) -> tuple[RenderSpec, dict[str,
     new.id = new_id("spec")
     new.scenes = scenes
     new.vo = kept
-    new.captions = make_captions(kept)
+    new.captions = make_captions(kept, lang=spec.lang)
     if new.endcard:
         new.endcard.duration = round(ec_dur, 2)
-    new.lineage = Lineage(kind="cutdown", parent_id=spec.id, cutdown_s=target_s, notes=[f"{len(chosen)}/{len(spec.scenes)} scenes kept by priority (hook → product → proof)", *([f"dropped VO lines that no longer fit: {dropped}"] if dropped else [])])
+    notes = [f"{len(chosen)}/{len(spec.scenes)} scenes kept by priority (hook → product → proof)", *([f"dropped VO lines that no longer fit: {dropped}"] if dropped else [])]
+    note_keys = [{"key": "format.note.cutdown_scenes", "params": {"kept": len(chosen), "total": len(spec.scenes)}}, *([{"key": "format.note.cutdown_dropped", "params": {"lines": list(dropped)}}] if dropped else [])]
+    new.lineage = Lineage(kind="cutdown", parent_id=spec.id, cutdown_s=target_s, notes=notes, note_keys=note_keys)
     return new, {"scenes_kept": [spec.scenes[i].id for i in chosen], "vo_dropped": dropped, "duration": new.duration}

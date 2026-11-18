@@ -78,6 +78,7 @@ class VectorIndex:
                     "title": it.get("title", ""),
                     "source": it.get("source", ""),
                     "meta": it.get("meta", {}),
+                    "lang": it.get("lang") or "en",
                     "embedding": encode_vec(vec),
                     "dim": len(vec),
                     "model": getattr(self.embedder, "mode", "?"),
@@ -121,7 +122,11 @@ class VectorIndex:
         self._cache[key] = (mat, meta)
         return self._cache[key]
 
-    async def search(self, namespace: str, query: str, *, k: int = 5, version: str | list[str] | None = None, min_score: float = -1.0) -> list[dict[str, Any]]:
+    async def search(
+        self, namespace: str, query: str, *, k: int = 5, version: str | list[str] | None = None, min_score: float = -1.0, prefer_lang: str | None = None, lang_boost: float = 0.06
+    ) -> list[dict[str, Any]]:
+        """Cosine search. ``prefer_lang`` re-ranks passages written in that language ahead of equally relevant ones in another language
+        (embeddings are multilingual, so a Polish query still finds English passages — and vice versa — just a little lower)."""
         mat, meta = await self._load(namespace, version)
         if not meta:
             return []
@@ -131,5 +136,8 @@ class VectorIndex:
         n = float(np.linalg.norm(q))
         q = q / n if n else q
         scores = mat @ q
-        order = np.argsort(-scores)[:k]
-        return [{**meta[i], "score": round(float(scores[i]), 4)} for i in order if scores[i] >= min_score]
+        ranked = scores
+        if prefer_lang:
+            ranked = scores + lang_boost * np.array([1.0 if (m.get("lang") or "en") == prefer_lang else 0.0 for m in meta], dtype=np.float32)
+        order = np.argsort(-ranked)[:k]
+        return [{**meta[i], "score": round(float(scores[i]), 4), "lang": meta[i].get("lang") or "en"} for i in order if scores[i] >= min_score]

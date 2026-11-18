@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..domain.pl_morph import DEFAULT_PL_FORBIDDEN, DEFAULT_PL_REPLACEMENTS, HYPE_PATTERNS_PL
 from ..util import days_from_now, now_iso
+from .pl_claims import claims_pl
 
 BRAND_ID = "northwind"
-SEED_VERSION = "2026.11.1"
+SEED_VERSION = "2026.11.3"  # 2026.11.3: Polish copy edit (brand book, kit overlay, claims texts, rights notes, sample brief); 2026.11.2: Polish content pack (brand book, kit overlay, claims pack, rights notes, sample campaign)
 
 GUIDELINES_MD = """# Northwind Coffee Roasters — Brand Book (synthetic sample)
 
@@ -56,6 +58,56 @@ compostable valve.
 without hurry." "Wake up slowly."
 """
 
+GUIDELINES_MD_PL = """# Northwind Coffee Roasters — Księga marki (przykład syntetyczny)
+
+## Kim jesteśmy
+Northwind Coffee Roasters to mała palarnia kawy założona w 2011 roku w Portland. Palimy w partiach po 60 kg, próbujemy każdą partię
+i kupujemy ziarna od partnerskich plantacji, które odwiedzamy co roku. Wierzymy, że poranki są lepsze bez pośpiechu.
+Nasza obietnica jest prosta i cicha: dobra kawa, uczciwie palona. Nasze hasło marki to „Obudź się powoli.”
+
+## Głos i ton
+Brzmimy ciepło, niespiesznie, szczerze i z cichą pewnością siebie. Mówimy jak sąsiad, który przy okazji prowadzi palarnię kawy — nie jak marka
+napojów energetycznych. Używamy krótkich zdań i konkretnych szczegółów, które da się poczuć: para, światło, pierwszy łyk. Nigdy nie krzyczymy.
+W jednym materiale używamy najwyżej jednego wykrzyknika i nie obiecujemy żadnych skutków zdrowotnych. Nie mówimy „tani”, „cudowny”, „detoks”,
+„hack” ani „gwarantowany”. Wolimy „rytuał” i „powolny poranek” od „kopa” i „paliwa”.
+
+## Rejestr: „ty”, nie „Pan/Pani”
+W komunikacji reklamowej zwracamy się do odbiorcy na „ty”. Wybieramy tę formę świadomie: marka mówi jak życzliwy sąsiad, a nie jak
+instytucja, więc „Nalej sobie kawy. Nic więcej nie musi się dziać.” brzmi u nas naturalniej niż „Proszę nalać sobie kawy”. „Ty” oznacza
+bliskość, nigdy poufałość: bez slangu, bez żartów kosztem odbiorcy i bez nacisku. W tekstach prawnych, regulaminach i obsłudze klienta
+używamy formy neutralnej i grzecznościowej („Niezalecane dla dzieci i kobiet w ciąży”, „Prosimy o kontakt”).
+
+## Zasady: co robimy, a czego nie
+Zawsze zaczynamy od ludzkiej chwili, a dopiero potem pokazujemy produkt. Zawsze pokazujemy bursztynowe słońce na opakowaniu.
+Zawsze kończymy hasłem „Obudź się powoli.”
+Nigdy nie przypisujemy kawie działania leczniczego ani zdrowotnego (leczy, łagodzi, zapobiega, uzdrawia). Nigdy nie wskazujemy konkurentów
+z nazwy w porównaniach. Nigdy nie używamy muzyki, której licencji nie ma w rejestrze praw. Nigdy nie nazywamy naszej kawy „najlepszą na świecie”.
+
+## Identyfikacja wizualna
+Paleta: Espresso #2B1A12 (główny kolor ciemny), Bursztyn świtu #F2A03D (akcent), Krem #F6EBDD (tło), Czerwień palarni #B5452B (drugi akcent)
+i Szałwia #5C7A5E (kolor uzupełniający). Fotografia: niskie, ciepłe światło wschodu słońca, długie miękkie cienie i prawdziwe
+faktury: para, ceramika, papier kraft. Typografia: Fraunces w nagłówkach, Inter w tekście. Logo to logotyp NORTHWIND z bursztynowym
+znakiem słońca; musi zajmować co najmniej 12% szerokości kadru, a wokół niego trzeba zachować pole ochronne równe połowie wysokości logo.
+
+## Produkty
+Dawn Roast: średnie palenie, 100% arabika, nuty karmelu, skórki pomarańczy i kakao; torba z papieru kraft 340 g z bursztynowym
+znakiem słońca. Midnight Blend: ciemne palenie, intensywne i gładkie, na wieczorny rytuał. Cold Brew w puszkach: powoli zaparzany na zimno
+przez 18 godzin, puszki 250 ml. Wszystkie produkty zawierają kofeinę. Niezalecane dla dzieci i kobiet w ciąży.
+
+## Odbiorcy
+Maja, 34 lata, pielęgniarka z OIOM-u, pracuje na pierwszej zmianie: chce spokojnie wypić pierwszą kawę przed trudnym dniem. Darek, 41 lat, tata
+dojeżdżający do pracy: chce dziesięciu cichych minut, zanim dom się obudzi. Lena, 26 lat, projektantka pracująca zdalnie: chce rytuału,
+który wyznacza początek dnia pracy.
+
+## Pochodzenie i zrównoważony rozwój
+Kupujemy 100% arabikę od partnerskich plantacji w Kolumbii, Etiopii i Gwatemali. Certyfikat Fairtrade (2026) obejmuje partie Dawn Roast
+i Midnight Blend. Nie deklarujemy neutralności węglowej. Opakowania wykonujemy z papieru kraft nadającego się do recyklingu, z kompostowalnym zaworkiem.
+
+## Przykładowe zdania, które brzmią jak my
+„Są poranki, które zasługują na wolniejszy początek.” „Światło wstaje. Para się unosi. Reszta może poczekać.” „Palona w małych partiach,
+nalewana bez pośpiechu.” „Obudź się powoli.”
+"""
+
 PALETTE = [
     {"name": "Espresso", "hex": "#2B1A12", "role": "Primary dark"},
     {"name": "Dawn Amber", "hex": "#F2A03D", "role": "Accent"},
@@ -63,6 +115,14 @@ PALETTE = [
     {"name": "Roast Red", "hex": "#B5452B", "role": "Secondary accent"},
     {"name": "Sage", "hex": "#5C7A5E", "role": "Supporting"},
 ]
+# Polish names and roles of the palette colours, as written in the Polish Brand Book (the kit itself keeps the English names).
+PALETTE_PL = {
+    "Espresso": ("Espresso", "główny kolor ciemny"),
+    "Dawn Amber": ("Bursztyn świtu", "akcent"),
+    "Cream": ("Krem", "tło"),
+    "Roast Red": ("Czerwień palarni", "drugi akcent"),
+    "Sage": ("Szałwia", "kolor uzupełniający"),
+}
 
 KIT: dict[str, Any] = {
     "tagline": "Wake up slowly.",
@@ -81,7 +141,7 @@ KIT: dict[str, Any] = {
             {"term": "Dawn Roast", "translate": False},
             {"term": "Northwind", "translate": False},
             {"term": "Midnight Blend", "translate": False},
-            {"term": "Wake up slowly", "translate": True, "translations": {"de": "Wach langsam auf", "fr": "Réveillez-vous lentement", "pl": "Obudź się powoli", "es": "Despierta despacio", "it": "Svegliati piano", "pt": "Acorde devagar", "nl": "Word rustig wakker"}},
+            {"term": "Wake up slowly", "translate": True, "translations": {"en": "Wake up slowly", "de": "Wach langsam auf", "fr": "Réveillez-vous lentement", "pl": "Obudź się powoli", "es": "Despierta despacio", "it": "Svegliati piano", "pt": "Acorde devagar", "nl": "Word rustig wakker"}},
         ],
     },
     "products": [
@@ -96,9 +156,83 @@ KIT: dict[str, Any] = {
     ],
     "markets": ["US", "DE", "FR", "PL"],
     "category": "beverage",
+    # Per-language overlays (the Polish Brand Book content: register, voice rules, personas, products, sourcing text).
+    "i18n": {
+        "pl": {
+            "tagline": "Obudź się powoli.",
+            "register": "ty",
+            "register_note": "W reklamie zwracamy się do odbiorcy na „ty” (ciepło, jak sąsiad, bez poufałości). W tekstach prawnych, regulaminach i obsłudze używamy formy neutralnej i grzecznościowej („Prosimy…”, „Niezalecane dla…”).",
+            "voice": {
+                "tone": ["ciepły", "niespieszny", "szczery", "z cichą pewnością siebie"],
+                "dos": [
+                    "Zacznij od ludzkiej chwili, dopiero potem pokaż produkt",
+                    "Pisz krótkimi zdaniami i odwołuj się do zmysłów",
+                    "Zakończ hasłem „Obudź się powoli.”",
+                    "Zwracaj się do odbiorcy na „ty” — ciepło, ale bez poufałości",
+                ],
+                "donts": ["Żadnych claimów medycznych ani zdrowotnych", "Żadnych superlatywów reklamowych", "Żadnego wskazywania konkurentów z nazwy", "Żadnej muzyki bez licencji"],
+                "forbidden_words": DEFAULT_PL_FORBIDDEN,
+                "replacements": DEFAULT_PL_REPLACEMENTS,
+                "hype_terms": HYPE_PATTERNS_PL,
+                "max_exclamations": 1,
+                "max_sentence_words": 20,
+                "pronunciations": {"Dawn Roast": "dołn rołst", "Northwind": "nortłind", "Midnight Blend": "midnajt blend"},
+            },
+            "products": [
+                {"id": "dawn-roast", "name": "Dawn Roast", "description": "Średnie palenie, 100% arabika, nuty karmelu, skórki pomarańczy i kakao. Torba z papieru kraft 340 g z bursztynowym znakiem słońca."},
+                {"id": "midnight-blend", "name": "Midnight Blend", "description": "Ciemne palenie, intensywne i gładkie — na wieczorny rytuał."},
+                {"id": "cold-brew-cans", "name": "Cold Brew w puszkach", "description": "Powoli zaparzany na zimno przez 18 godzin; puszki 250 ml."},
+            ],
+            "personas": [
+                {"id": "maya", "name": "Maja, 34 lata — pielęgniarka z OIOM-u (pierwsza zmiana)", "needs": "Spokojna pierwsza filiżanka przed trudnym dniem"},
+                {"id": "dev", "name": "Darek, 41 lat — tata dojeżdżający do pracy", "needs": "Dziesięć cichych minut, zanim dom się obudzi"},
+                {"id": "lena", "name": "Lena, 26 lat — projektantka pracująca zdalnie", "needs": "Rytuał, który wyznacza początek dnia pracy"},
+            ],
+            "sourcing": "Kupujemy 100% arabikę od partnerskich plantacji w Kolumbii, Etiopii i Gwatemali, które odwiedzamy co roku. Certyfikat Fairtrade (2026) obejmuje partie Dawn Roast i Midnight Blend. "
+            "Nie deklarujemy neutralności węglowej. Opakowania wykonujemy z papieru kraft nadającego się do recyklingu, z kompostowalnym zaworkiem.",
+            "logo": {"notes": "Bursztynowy znak słońca nad logotypem; nie rozciągaj, nie obrysowuj ani nie zmieniaj kolorów."},
+        }
+    },
 }
 
 DISCLAIMER_CAFFEINE = "Contains caffeine. Not recommended for children or pregnant women."
+
+# Polish descriptions of the English claim rules (shown when a Polish-speaking user reads a finding raised by an English rule).
+CLAIM_TEXT_PL = {
+    "clm-cure": "Claimy o leczeniu, łagodzeniu lub zapobieganiu chorobom",
+    "clm-weight": "Claimy o odchudzaniu, spalaniu tłuszczu lub detoksie",
+    "clm-clinical": "„Klinicznie / naukowo udowodnione” bez badań w dokumentacji",
+    "clm-energy": "Claimy o energii i czujności (kofeina) wymagają informacji o kofeinie",
+    "clm-arabica": "100% arabika",
+    "clm-smallbatch": "Palona w małych partiach",
+    "clm-fairtrade": "Certyfikat Fairtrade / etyczne pozyskiwanie",
+    "clm-green": "Neutralność węglowa / 100% zrównoważone / przyjazne środowisku (ryzyko greenwashingu)",
+    "clm-best": "Nieudokumentowane superlatywy („najlepsza kawa na świecie”)",
+    "clm-organic": "„Ekologiczna” / „bio” bez certyfikatu",
+    "clm-eu-health": "UE: dozwolone są wyłącznie oświadczenia zdrowotne z unijnego wykazu (rozporządzenie (WE) nr 1924/2006)",
+    "clm-fin-1": "Gwarantowany zysk / inwestycja bez ryzyka",
+    "clm-fin-2": "Wzmianki o zyskach lub stopie zwrotu wymagają ostrzeżenia o ryzyku utraty kapitału",
+    "clm-ph-1": "Farmacja: claimy o skuteczności wymagają odesłania do ulotki",
+    "clm-al-1": "Alkohol: bez claimów o poprawie wyników i sukcesie towarzyskim; wymagany komunikat o odpowiedzialnym piciu",
+}
+# English descriptions of the Polish rules (for English-speaking viewers).
+CLAIM_TEXT_EN_OF_PL = {
+    "clm-pl-cure": "Claims to cure, soothe or prevent a disease or ailment (Polish wording)",
+    "clm-pl-weight": "Weight-loss, fat-burning or detox claims (Polish wording)",
+    "clm-pl-clinical": "'Clinically / scientifically proven' without a study on file (Polish wording)",
+    "clm-pl-energy": "Energy / stimulation statements (caffeine) need the caffeine disclaimer (Polish wording)",
+    "clm-pl-arabica": "100% Arabica (Polish wording)",
+    "clm-pl-smallbatch": "Roasted in small batches (Polish wording)",
+    "clm-pl-fairtrade": "Fairtrade certificate / ethical sourcing (Polish wording)",
+    "clm-pl-green": "Carbon-neutral / 100% sustainable / eco-friendly — greenwashing risk (Polish wording)",
+    "clm-pl-best": "Unsubstantiated superlatives ('best coffee in the world') (Polish wording)",
+    "clm-pl-organic": "'Organic' / 'bio' without a certificate (Polish wording)",
+    "clm-pl-eu-health": "EU: only authorised health claims (Reg. 1924/2006) (Polish wording)",
+    "clm-pl-fin-1": "Guaranteed / risk-free returns (Polish wording)",
+    "clm-pl-fin-2": "Return statements need the capital-at-risk disclaimer (Polish wording)",
+    "clm-pl-ph-1": "Pharma: efficacy claims need the leaflet disclaimer (Polish wording)",
+    "clm-pl-al-1": "Alcohol: no performance/social-success claims; responsibility message required (Polish wording)",
+}
 
 
 def claims() -> list[dict[str, Any]]:
@@ -155,6 +289,31 @@ def rights() -> list[dict[str, Any]]:
     ]
 
 
+def all_claims() -> list[dict[str, Any]]:
+    """English rules (with Polish descriptions) + the Polish pack (with English descriptions) — what the seeder loads."""
+    en = [{**c, "lang": "en", "text_i18n": {"pl": CLAIM_TEXT_PL[c["id"]]}} if c["id"] in CLAIM_TEXT_PL else c for c in claims()]
+    pl = [{**c, "text_i18n": {"en": CLAIM_TEXT_EN_OF_PL[c["id"]]}} for c in claims_pl()]
+    return en + pl
+
+
+# Polish rendering of the registry's descriptive text (names of people, companies and tracks are proper nouns and stay as they are).
+RIGHTS_I18N_PL: dict[str, dict[str, str]] = {
+    "mus-dawn-pad": {"usage_notes": "Licencjonowany utwór z biblioteki muzycznej — generowany proceduralnie przez Spotlight; bez opłat licencyjnych.", "licensor": "Biblioteka proceduralna Spotlight (generowana, CC0)"},
+    "mus-morning-pulse": {"usage_notes": "Licencjonowany utwór z biblioteki muzycznej — generowany proceduralnie; bez opłat licencyjnych.", "licensor": "Biblioteka proceduralna Spotlight (generowana, CC0)"},
+    "mus-slow-ember": {"usage_notes": "Licencjonowany utwór z biblioteki muzycznej — generowany proceduralnie; bez opłat licencyjnych.", "licensor": "Biblioteka proceduralna Spotlight (generowana, CC0)"},
+    "mus-golden-hour": {"usage_notes": "Negocjacje w toku — brak zgody na użycie w płatnych mediach społecznościowych i na rynkach UE."},
+    "tal-maya": {"usage_notes": "Zgoda na użycie głosu jako lektora, także w postaci głosu syntetyzowanego z pomocą AI; BRAK zgody na wykorzystanie wizerunku."},
+    "tal-jonas": {"usage_notes": "Zgoda wygasła 31.12.2025 — odnowienie jeszcze nie nastąpiło."},
+    "tal-amara": {"usage_notes": "Talent występujący przed kamerą; zgoda wkrótce wygasa (demonstracja alertu o wygasaniu)."},
+    "stk-latte": {"usage_notes": "Tylko USA."},
+    "fnt-fraunces": {"licensor": "Open source (SIL OFL)"},
+}
+
+
+def all_rights() -> list[dict[str, Any]]:
+    return [{**r, "i18n": {"pl": RIGHTS_I18N_PL[r["id"]]}} if r["id"] in RIGHTS_I18N_PL else r for r in rights()]
+
+
 DAWN_ROAST_BRIEF = """Brief — Dawn Roast launch (Northwind Coffee Roasters)
 
 We launch Dawn Roast, our new medium roast, in the US, Germany, France and Poland this September.
@@ -169,6 +328,20 @@ Music: something like "Sunrise Anthem" by the Goldfinch Kids — our CEO loves i
 Talent: Maya Okafor (voice-over).
 """
 
+DAWN_ROAST_BRIEF_PL = """Brief — premiera Dawn Roast w Polsce (Northwind Coffee Roasters)
+
+Wprowadzamy na rynek Dawn Roast, naszą nową kawę średnio paloną — w styczniu, w Polsce.
+Cel: zachęcić do pierwszego zakupu osoby, które zaczynają dzień przed siódmą rano — 120 000 zakupów próbnych w 8 tygodni.
+Odbiorcy: 28–45 lat, ranne ptaszki — pielęgniarki, piekarze, rodzice dojeżdżający do pracy i osoby pracujące zdalnie, które zaczynają dzień przed 7:00.
+Kanały: YouTube (pre-roll), Meta/Instagram (reels), TikTok, CTV.
+Budżet: media 1 500 000 PLN; produkcja nie powinna przekroczyć 120 000 PLN.
+Harmonogram: koncepcja w ciągu tygodnia, finalne spoty w ciągu 3 tygodni, emisja od 12 stycznia.
+Elementy obowiązkowe: zakończyć hasłem „Obudź się powoli.”; pokazać torbę z bursztynowym słońcem; dział prawny chce w spocie zdanie „Dawn Roast leczy poranny niepokój.”
+Ton: ciepły, niespieszny, szczery.
+Muzyka: coś w stylu „Sunrise Anthem” zespołu Goldfinch Kids — nasz prezes uwielbia ten kawałek.
+Lektor: Maya Okafor.
+"""
+
 
 def campaigns() -> list[dict[str, Any]]:
     return [
@@ -179,6 +352,7 @@ def campaigns() -> list[dict[str, Any]]:
             "brand_id": BRAND_ID,
             "status": "draft",
             "stage": "brief",
+            "language": "en",
             "markets": ["US", "DE", "FR", "PL"],
             "channels": ["youtube", "meta", "tiktok", "ctv"],
             "product_id": "dawn-roast",
@@ -198,6 +372,7 @@ def campaigns() -> list[dict[str, Any]]:
             "brand_id": BRAND_ID,
             "status": "published",
             "stage": "performance",
+            "language": "en",
             "markets": ["US", "DE"],
             "channels": ["youtube", "meta", "tiktok"],
             "product_id": "midnight-blend",
@@ -210,4 +385,30 @@ def campaigns() -> list[dict[str, Any]]:
             "history": True,
             "created_at": "2026-01-02T09:00:00+00:00",
         },
+    ]
+
+
+def campaigns_pl() -> list[dict[str, Any]]:
+    """The Polish sample campaign, seeded next to the English one (deterministic id; never overwritten once it exists)."""
+    return [
+        {
+            "id": "dawn-roast-premiera-pl",
+            "campaign_id": "dawn-roast-premiera-pl",
+            "name": "Dawn Roast — premiera w Polsce",
+            "brand_id": BRAND_ID,
+            "status": "draft",
+            "stage": "brief",
+            "language": "pl",
+            "markets": ["PL"],
+            "channels": ["youtube", "meta", "tiktok", "ctv"],
+            "product_id": "dawn-roast",
+            "category": "beverage",
+            "air_start": "2027-01-12",
+            "air_end": "2027-03-31",
+            "budget_cap_usd": 2.0,
+            "premium_approved": False,
+            "synthetic": True,
+            "demo_brief": DAWN_ROAST_BRIEF_PL,
+            "created_at": "2026-11-17T00:00:00+00:00",
+        }
     ]

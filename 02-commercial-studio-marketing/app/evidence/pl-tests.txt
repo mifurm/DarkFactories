@@ -1,0 +1,24 @@
+Spotlight — Polish localization (pl): local test evidence (final working tree)
+
+pytest (cd app && .venv/bin/python -m pytest tests -q)         384 passed, 0 failed, ~67 s
+  baseline (pre-Polish, unchanged, all green)                    97   test_compositor 10, test_domain 22, test_features_api 17, test_guardian 19, test_pipeline_api 7, test_platform 22
+  Polish (new)                                                  287
+    test_pl_guardian.py       165   claims pack, positives, negative controls (look-alike stems, compliant copy), diacritic-insensitive, auto-revise in Polish,
+                                    Polish Content-Safety word lists + prompt-injection pre-check (positives and benign look-alikes)
+    test_pl_i18n.py            61   locale negotiation, catalog parity en/pl, plurals, formats, errors with stable codes, read-time rendering, Polish injection refused via the API
+    test_pl_pipeline.py        26   brief -> strategy -> scripts -> storyboard -> VO -> captions/typography -> MP4 frame check -> localization both ways
+    test_pl_platform.py        13   jobs, audit, approvals, notifications, team, export, cost/ROI/ops, provenance human summary
+    test_pl_voice_timing.py    10   calibrated pl-PL speaking model, line-too-long check, trim/rebalance, stub voice
+    test_pl_insights.py         7   variants / insights / planner in Polish
+    test_pl_seed.py             3   idempotent reseed on already-deployed data, user work kept, English seeds unchanged
+    test_pl_error_catalog.py    2   every AppError raise site (AST scan, 125 sites) has a Polish message + hint
+coverage (pytest --cov=spotlight)                                90 % total (9,496 statements); domain 94 % (17 modules, lowest pl_morph 82 %), i18n 91 %, video 92 %, core 87 %, features 86 %
+ruff check src tests ../scripts                                  All checks passed
+mypy (app/pyproject.toml)                                        Success: no issues found in 42 source files
+
+smoke (scripts/smoke_test.py), offline stubs, local server        --lang both: 44/44 (30 English + 14 Polish)  |  --lang en: 30/30   (pl-smoke-offline.txt, smoke-en-offline-after-pl.txt)
+smoke, REAL Azure AI on hybrid backends (memory repo, local blobs) --lang pl: 17/17 (3 infra + 14 PL), AI spend US$0.140        (pl-smoke-hybrid-realmodel.txt)
+  never pointed at the live Cosmos DB / Blob storage (startup line: mode=azure repo=memory blobs=localdir ai=azure)
+real-model probe (Guardian LLM rewrite in Polish, PL->DE, EN->PL)  US$0.059                                                   (pl-realmodel-guardian-localization.txt)
+English parity vs HEAD                                           0 unexplained differences in 83 API responses; 14/15 English LLM prompts byte-identical; English captions identical on 1,500 random lines (pl-english-parity.txt)
+live (deployed) Polish smoke / FE E2E                            pending live run (orchestrator, after deploy)

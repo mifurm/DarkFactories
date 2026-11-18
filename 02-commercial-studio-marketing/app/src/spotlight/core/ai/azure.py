@@ -16,11 +16,23 @@ from PIL import Image
 from ...config import Settings
 from ...errors import ProviderUnavailable
 from ...util import stable_hash
-from . import pricing
+from . import pricing, safety_rules
 from .base import ImageResult, SafetyResult, SpeechResult, T, VoiceInfo, current_ctx
 from .voices import catalog, default_voice, fallback_voice, locale_for
 
 SCOPE = "https://cognitiveservices.azure.com/.default"
+
+# Azure neural voices pad every utterance (~0.8 s of trailing silence, ~1 s between sentences in Polish), which eats the beat windows of a 15 s spot.
+# Absolute silences (SSML ``mstts:silence``, ``*-exact`` types) pin them to ad-friendly values. Calibrated on pl-PL-ZofiaNeural, see REPORT §Polish.
+NEURAL_SILENCE_MS = {"Leading-exact": 30, "Tailing-exact": 60, "Sentenceboundary-exact": 260, "Comma-exact": 130, "Semicolon-exact": 180}
+NEURAL_SSML_VERSION = "silence2"  # part of the neural cache key: audio cached before the silence tags / trimming is never reused
+
+
+def _tight_wav(mp3: bytes) -> bytes:
+    """Neural voice output without its padding: decoded, leading / trailing silence trimmed, as a WAV (the mixer decodes every line to PCM anyway)."""
+    from ...video import media
+
+    return media.encode_wav(media.trim_silence(media.decode_audio(mp3)))
 
 
 def make_credential(client_id: str | None = None) -> Any:
@@ -94,8 +106,12 @@ class AzureLLM:
             if choice.finish_reason == "length" and attempt == 1:
                 tokens = min(tokens * 2, 16000)
                 continue
-            raise ProviderUnavailable(f"LLM task {task!r} returned no usable output ({choice.finish_reason}; refusal={getattr(choice.message, 'refusal', None)})", code="llm_empty")
-        raise ProviderUnavailable(f"LLM task {task!r} failed", code="llm_failed")
+            raise ProviderUnavailable(
+                f"LLM task {task!r} returned no usable output ({choice.finish_reason}; refusal={getattr(choice.message, 'refusal', None)})",
+                code="llm_empty",
+                params={"task": task, "finish": choice.finish_reason, "refusal": getattr(choice.message, "refusal", None)},
+            )
+        raise ProviderUnavailable(f"LLM task {task!r} failed", code="llm_failed", params={"task": task})
 
     async def complete(self, *, task: str, system: str, user: str, schema: type[T], role: str = "chat", max_tokens: int = 2500, effort: str = "minimal", context: dict[str, Any] | None = None, fresh: bool = False) -> T:
         out, _ = await self._chat(task=task, system=system, user=user, schema=schema, role=role, max_tokens=max_tokens, effort=effort, fresh=fresh)
@@ -204,26 +220,21 @@ class AzureSpeech:
         r = await self.client.audio.speech.create(model=self.settings.model_tts, voice=name, input=text, response_format="mp3", speed=max(0.5, min(speed, 1.6)))
         return r.content
 
-    async def _neural_tts(self, name: str, text: str, speed: float, lang: str) -> bytes:
+    @staticmethod
+    def _ssml(name: str, text: str, speed: float, lang: str, tight: bool = True) -> str:
         rate = f"{round((speed - 1.0) * 100):+d}%"
         loc = name.rsplit("-", 1)[0] if "-" in name else locale_for(lang)
-        ssml = (
-            f"<speak version='1.0' xml:lang='{loc}'><voice name='{name}'><prosody rate='{rate}'>"
-            f"{xml_escape(text)}</prosody></voice></speak>"
-        )
+        silence = "".join(f"<mstts:silence type='{kind}' value='{ms}ms'/>" for kind, ms in NEURAL_SILENCE_MS.items()) if tight else ""
+        return f"<speak version='1.0' xmlns:mstts='http://www.w3.org/2001/mstts' xml:lang='{loc}'><voice name='{name}'>{silence}<prosody rate='{rate}'>{xml_escape(text)}</prosody></voice></speak>"
+
+    async def _neural_tts(self, name: str, text: str, speed: float, lang: str) -> bytes:
         url = f"{self.settings.ai_endpoint.rstrip('/')}/tts/cognitiveservices/v1"
-        r = await self._http.post(
-            url,
-            content=ssml.encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {await self._token()}",
-                "Content-Type": "application/ssml+xml",
-                "X-Microsoft-OutputFormat": "audio-24khz-96kbitrate-mono-mp3",
-                "User-Agent": "spotlight-studio",
-            },
-        )
+        headers = {"Authorization": f"Bearer {await self._token()}", "Content-Type": "application/ssml+xml", "X-Microsoft-OutputFormat": "audio-24khz-96kbitrate-mono-mp3", "User-Agent": "spotlight-studio"}
+        r = await self._http.post(url, content=self._ssml(name, text, speed, lang).encode("utf-8"), headers=headers)
+        if r.status_code == 400:  # a voice that does not accept the silence tags still speaks, with its natural padding
+            r = await self._http.post(url, content=self._ssml(name, text, speed, lang, tight=False).encode("utf-8"), headers=headers)
         if r.status_code != 200:
-            raise ProviderUnavailable(f"Azure AI Speech returned {r.status_code}: {r.text[:200]}", code="speech_failed")
+            raise ProviderUnavailable(f"Azure AI Speech returned {r.status_code}: {r.text[:200]}", code="speech_failed", params={"status": r.status_code, "detail": r.text[:200]})
         return r.content
 
     async def _call(self, voice: str, text: str, speed: float, lang: str) -> tuple[bytes, str]:
@@ -235,12 +246,12 @@ class AzureSpeech:
     async def synthesize(self, text: str, *, voice: str = "openai:nova", lang: str = "en", speed: float = 1.0, fresh: bool = False) -> SpeechResult:
         if not text.strip():
             raise ProviderUnavailable("empty text for speech synthesis", code="speech_empty")
-        key = stable_hash(["tts", voice, lang, round(speed, 2), text])
+        key = stable_hash(["tts", voice, lang, round(speed, 2), text, *([NEURAL_SSML_VERSION] if voice.startswith("neural:") else [])])
         if not fresh:
             hit = await self.cache.get_bytes(key)
             if hit:
                 await self.meter.record(kind="tts", model=hit[1].get("kind", "tts-hd"), units={"chars": len(text), "cache": "hit"}, cost_usd=0.0, cached=True)
-                return SpeechResult(hit[0], "audio/mpeg", voice, lang, len(text), hit[1].get("kind", "tts-hd"), True, 0.0, "azure")
+                return SpeechResult(hit[0], hit[1].get("mime", "audio/mpeg"), voice, lang, len(text), hit[1].get("kind", "tts-hd"), True, 0.0, "azure")
         kind = "neural" if voice.startswith("neural:") else "tts-hd"
         await self.guard.authorize(pricing.tts_cost(kind, len(text)), kind="tts", model=kind)
         used_voice = voice
@@ -250,10 +261,13 @@ class AzureSpeech:
             self.fallbacks += 1
             used_voice = fallback_voice(voice, lang)
             data, kind = await self._call(used_voice, text, speed, lang)
+        mime = "audio/mpeg"
+        if kind == "neural":  # the service still pads short utterances: cut the padding so the line occupies only its speech
+            data, mime = await asyncio.to_thread(_tight_wav, data), "audio/wav"
         cost = pricing.tts_cost(kind, len(text))
         await self.meter.record(kind="tts", model=kind, units={"chars": len(text), "voice": used_voice}, cost_usd=cost)
-        await self.cache.put_bytes(key, data, {"kind": kind, "voice": used_voice}, "audio/mpeg")
-        return SpeechResult(data, "audio/mpeg", used_voice, lang, len(text), kind, False, cost, "azure")
+        await self.cache.put_bytes(key, data, {"kind": kind, "voice": used_voice, "mime": mime}, mime)
+        return SpeechResult(data, mime, used_voice, lang, len(text), kind, False, cost, "azure")
 
     async def ping(self) -> dict[str, Any]:
         r = await self._http.get(f"{self.settings.ai_endpoint.rstrip('/')}/tts/cognitiveservices/voices/list", headers={"Authorization": f"Bearer {await self._token()}"})
@@ -282,7 +296,7 @@ class AzureSafety:
                 continue
             break
         if r.status_code != 200:
-            raise ProviderUnavailable(f"Content Safety {path} returned {r.status_code}: {r.text[:200]}", code="safety_failed")
+            raise ProviderUnavailable(f"Content Safety {path} returned {r.status_code}: {r.text[:200]}", code="safety_failed", params={"path": path, "status": r.status_code, "detail": r.text[:200]})
         await self.meter.record(kind="safety", model=f"content-safety-{kind}", units={"records": 1, "api": path}, cost_usd=pricing.safety_cost(kind))
         return r.json()
 
@@ -309,6 +323,9 @@ class AzureSafety:
         return bool(data.get("protectedMaterialAnalysis", {}).get("detected"))
 
     async def shield_prompt(self, user_prompt: str, documents: list[str] | None = None) -> bool:
+        # Prompt Shields' documented languages exclude Polish: a deterministic local pre-check (EN + PL patterns) runs first, as defence in depth.
+        if safety_rules.local_attack(" ".join([user_prompt, *(documents or [])[:5]])):
+            return True
         body = {"userPrompt": user_prompt[:9500], "documents": [d[:9500] for d in (documents or [])[:5]]}
         data = await self._post("text:shieldPrompt", body)
         if data.get("userPromptAnalysis", {}).get("attackDetected"):

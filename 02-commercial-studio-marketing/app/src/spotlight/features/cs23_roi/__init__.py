@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from ...core.ai.meter import cost_per_approved_asset
 from ...deps import svc
 from ...errors import ValidationFailed
+from ...i18n import t
 from ...registry import Feature
 from ...vendor import model
 from ..common import studio
@@ -63,14 +64,14 @@ async def compute(body: ComputeIn) -> dict[str, Any]:
     specs = model.override_specs()
     for k, v in (body.overrides or {}).items():
         if k not in specs:
-            raise ValidationFailed(f"unknown override {k!r}", code="bad_override")
+            raise ValidationFailed(f"unknown override {k!r}", code="bad_override", key="err.bad_override.unknown", params={"key": repr(k)})
         spec = specs[k]
         vals = v if isinstance(v, list) else [v]
         for x in vals:
             if not isinstance(x, (int, float)) or isinstance(x, bool):
-                raise ValidationFailed(f"override {k!r} must be numeric", code="bad_override")
+                raise ValidationFailed(f"override {k!r} must be numeric", code="bad_override", key="err.bad_override.numeric", params={"key": repr(k)})
             if not (spec["min"] <= x <= spec["max"]):
-                raise ValidationFailed(f"override {k!r} must be between {spec['min']} and {spec['max']}", code="bad_override")
+                raise ValidationFailed(f"override {k!r} must be between {spec['min']} and {spec['max']}", code="bad_override", key="err.bad_override.range", params={"key": repr(k), "min": spec["min"], "max": spec["max"]})
     return model.compute(assumptions(), body.scenario, body.overrides)
 
 
@@ -132,12 +133,12 @@ async def live(request: Request) -> dict[str, Any]:
         "kpi": kpi,
         "agency_baseline_source": "business-case/assumptions.json → baseline_cost_adapted_video (base)",
         "cycle_time_hours_measured": round(sum(cycle_hours) / len(cycle_hours), 2) if cycle_hours else None,
-        "cycle_time_reference": "Agency baseline: 6–10 weeks from brief to final delivery (brief §4).",
+        "cycle_time_reference": t("roi.cycle_time_reference"),
         "variants_per_campaign": round(sum(len(e["variants"]) for e in exps) / max(1, len({e["campaign_id"] for e in exps})), 1) if exps else 0,
         "azure_consumption_today_usd": {k: v["cost_usd"] for k, v in by_kind.items()},
         "approved_assets": len(assets),
         "simulated_prices": s.meter.simulated,
-        "note": "Metered AI consumption of this demo deployment at list-price estimates; the full ACR model is computed by /api/roi/compute.",
+        "note": t("roi.live_note"),
     }
 
 

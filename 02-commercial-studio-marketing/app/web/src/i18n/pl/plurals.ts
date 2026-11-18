@@ -1,0 +1,72 @@
+import type { PluralForms } from "../core";
+
+/**
+ * Plural messages. Key = the English "other" form used at the tn() call site; Polish needs one (1), few (2–4, 22–24 …), many (0, 5–21 …) and other (fractions).
+ * `{n}` is the count, formatted for the locale.
+ */
+const p = (one: string, few: string, many: string, other: string): PluralForms => ({ one, few, many, other });
+
+export const plurals: Record<string, PluralForms> = {
+  "{n} blocks": p("{n} blokada", "{n} blokady", "{n} blokad", "{n} blokady"),
+  "{n} block": p("{n} blokada", "{n} blokady", "{n} blokad", "{n} blokady"),
+  "{n} warn": p("{n} ostrz.", "{n} ostrz.", "{n} ostrz.", "{n} ostrz."),
+  "{n} blocking": p("{n} blokująca uwaga", "{n} blokujące uwagi", "{n} blokujących uwag", "{n} blokującej uwagi"),
+  "{n} warning(s)": p("{n} ostrzeżenie", "{n} ostrzeżenia", "{n} ostrzeżeń", "{n} ostrzeżenia"),
+  "{n} finding(s)": p("{n} uwaga", "{n} uwagi", "{n} uwag", "{n} uwagi"),
+  "{n} fix(es) applied": p("zastosowano {n} poprawkę", "zastosowano {n} poprawki", "zastosowano {n} poprawek", "zastosowano {n} poprawki"),
+  "{n} passages embedded and indexed": p("Zwektoryzowano i zaindeksowano {n} fragment", "Zwektoryzowano i zaindeksowano {n} fragmenty", "Zwektoryzowano i zaindeksowano {n} fragmentów", "Zwektoryzowano i zaindeksowano {n} fragmentu"),
+  "{n} passages": p("{n} fragment", "{n} fragmenty", "{n} fragmentów", "{n} fragmentu"),
+  "{n} chars": p("{n} znak", "{n} znaki", "{n} znaków", "{n} znaku"),
+  "{n} version(s)": p("{n} wersja", "{n} wersje", "{n} wersji", "{n} wersji"),
+  "{n} document(s)": p("{n} dokument", "{n} dokumenty", "{n} dokumentów", "{n} dokumentu"),
+  "{n} expiry alert(s) sent": p("Wysłano {n} alert o wygasaniu", "Wysłano {n} alerty o wygasaniu", "Wysłano {n} alertów o wygasaniu", "Wysłano {n} alertu o wygasaniu"),
+  "expired {n} d ago": p("wygasło {n} dzień temu", "wygasło {n} dni temu", "wygasło {n} dni temu", "wygasło {n} dnia temu"),
+  "{n} d left": p("został {n} dzień", "zostały {n} dni", "zostało {n} dni", "zostało {n} dnia"),
+  "expired {n}d ago": p("wygasło {n} dzień temu", "wygasło {n} dni temu", "wygasło {n} dni temu", "wygasło {n} dnia temu"),
+  "{n}d left": p("został {n} dzień", "zostały {n} dni", "zostało {n} dni", "zostało {n} dnia"),
+  "{n} iteration(s)": p("{n} iteracja", "{n} iteracje", "{n} iteracji", "{n} iteracji"),
+  "Write {list}s scripts": p("Napisz scenariusz {list}\u00A0s", "Napisz scenariusze {list}\u00A0s", "Napisz scenariusze {list}\u00A0s", "Napisz scenariusze {list}\u00A0s"),
+  "{n} words/s": p("{n} słowo/s", "{n} słowa/s", "{n} słów/s", "{n} słowa/s"),
+  "{n} line(s) too long for their beat": p("{n} kwestia za długa na swój segment", "{n} kwestie za długie na swoje segmenty", "{n} kwestii za długich na swoje segmenty", "{n} kwestii za długich na swoje segmenty"),
+  "{n} cues, monotonic timing": p("{n} linijka napisów, czasy rosnące", "{n} linijki napisów, czasy rosnące", "{n} linijek napisów, czasy rosnące", "{n} linijki napisów, czasy rosnące"),
+  "{n} line(s) need review": p("{n} linia wymaga przeglądu", "{n} linie wymagają przeglądu", "{n} linii wymaga przeglądu", "{n} linii wymaga przeglądu"),
+  "Glossary enforcement: {n} issue(s) detected, {fixed} auto-repaired.": p(
+    "Egzekwowanie glosariusza: wykryto {n} problem, naprawiono automatycznie: {fixed}.",
+    "Egzekwowanie glosariusza: wykryto {n} problemy, naprawiono automatycznie: {fixed}.",
+    "Egzekwowanie glosariusza: wykryto {n} problemów, naprawiono automatycznie: {fixed}.",
+    "Egzekwowanie glosariusza: wykryto {n} problemu, naprawiono automatycznie: {fixed}.",
+  ),
+  "{n} version(s) approved": p("Zatwierdzono {n} wersję", "Zatwierdzono {n} wersje", "Zatwierdzono {n} wersji", "Zatwierdzono {n} wersji"),
+  "{n} refused by the Guardian": p("{n} wersja odrzucona przez Strażnika", "{n} wersje odrzucone przez Strażnika", "{n} wersji odrzuconych przez Strażnika", "{n} wersji odrzuconej przez Strażnika"),
+  "chain verified · {n} entries": p("łańcuch zweryfikowany · {n} wpis", "łańcuch zweryfikowany · {n} wpisy", "łańcuch zweryfikowany · {n} wpisów", "łańcuch zweryfikowany · {n} wpisu"),
+  "{n} served from prompt cache (no spend)": p(
+    "{n} obsłużone z pamięci podręcznej promptów (bez kosztów)",
+    "{n} obsłużone z pamięci podręcznej promptów (bez kosztów)",
+    "{n} obsłużonych z pamięci podręcznej promptów (bez kosztów)",
+    "{n} obsłużonego z pamięci podręcznej promptów (bez kosztów)",
+  ),
+  "{n} refusal(s) since start": p("{n} odmowa od startu", "{n} odmowy od startu", "{n} odmów od startu", "{n} odmowy od startu"),
+  "{n} calls": p("{n} wywołanie", "{n} wywołania", "{n} wywołań", "{n} wywołania"),
+  "Experiment created with {n} variants": p("Utworzono eksperyment z {n} wariantem", "Utworzono eksperyment z {n} wariantami", "Utworzono eksperyment z {n} wariantami", "Utworzono eksperyment z {n} wariantu"),
+  "{n} variants in the matrix": p("{n} wariant w macierzy", "{n} warianty w macierzy", "{n} wariantów w macierzy", "{n} wariantu w macierzy"),
+  "Create {n} variants": p("Utwórz {n} wariant", "Utwórz {n} warianty", "Utwórz {n} wariantów", "Utwórz {n} wariantu"),
+  "{n} variants": p("{n} wariant", "{n} warianty", "{n} wariantów", "{n} wariantu"),
+  "{n} rows ingested": p("Wczytano {n} wiersz", "Wczytano {n} wiersze", "Wczytano {n} wierszy", "Wczytano {n} wiersza"),
+  "{n} row(s) rejected": p("{n} wiersz odrzucony", "{n} wiersze odrzucone", "{n} wierszy odrzuconych", "{n} wiersza odrzuconego"),
+  "{n} insight(s)": p("{n} wniosek", "{n} wnioski", "{n} wniosków", "{n} wniosku"),
+  "{n} rows": p("{n} wiersz", "{n} wiersze", "{n} wierszy", "{n} wiersza"),
+  "{n} new learning(s) written to the Brand Brain": p(
+    "{n} nowy wniosek zapisany w Brand Brain",
+    "{n} nowe wnioski zapisane w Brand Brain",
+    "{n} nowych wniosków zapisanych w Brand Brain",
+    "{n} nowego wniosku zapisanego w Brand Brain",
+  ),
+  "{n} approval(s) pending": p("{n} zatwierdzenie oczekuje", "{n} zatwierdzenia oczekują", "{n} zatwierdzeń oczekuje", "{n} zatwierdzenia oczekuje"),
+  "{n} approved videos": p("{n} zatwierdzone wideo", "{n} zatwierdzone wideo", "{n} zatwierdzonych wideo", "{n} zatwierdzonego wideo"),
+  "{n} spot(s)": p("{n} spot", "{n} spoty", "{n} spotów", "{n} spotu"),
+  "{n} files": p("{n} plik", "{n} pliki", "{n} plików", "{n} pliku"),
+  "{n} asset(s)": p("{n} zasób", "{n} zasoby", "{n} zasobów", "{n} zasobu"),
+  "{n} override(s) active": p("{n} nadpisanie aktywne", "{n} nadpisania aktywne", "{n} nadpisań aktywnych", "{n} nadpisania aktywnego"),
+  "{n} active categories": p("{n} aktywna kategoria", "{n} aktywne kategorie", "{n} aktywnych kategorii", "{n} aktywnej kategorii"),
+  "{n} years": p("{n} rok", "{n} lata", "{n} lat", "{n} roku"),
+};

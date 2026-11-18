@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .text import normalize
+from .text import fold, normalize
 
 LANGS = {"en": "English", "de": "German", "fr": "French", "es": "Spanish", "it": "Italian", "pl": "Polish", "pt": "Portuguese", "nl": "Dutch"}
 LANG_MARKET = {"en": "US", "de": "DE", "fr": "FR", "es": "ES", "it": "IT", "pl": "PL", "pt": "PT", "nl": "NL"}
@@ -54,31 +54,39 @@ def missing_placeholders(text: str, mapping: dict[str, str]) -> list[str]:
     return [ph for ph in mapping if ph not in text]
 
 
-def forced_translations(source: str, glossary: list[dict[str, Any]], lang: str) -> list[tuple[str, str]]:
-    """(source term, required translation) pairs that apply to this source text."""
+def source_form(g: dict[str, Any], lang: str) -> str | None:
+    """A glossary term as written in ``lang``: ``term`` is the English form, ``translations[lang]`` the others."""
+    return g["term"] if lang == "en" else (g.get("translations") or {}).get(lang)
+
+
+def forced_translations(source: str, glossary: list[dict[str, Any]], lang: str, source_lang: str = "en") -> list[tuple[str, str]]:
+    """(source-language term, required translation) pairs that apply to this source text (any direction: PL->EN, EN->PL, PL->DE …)."""
     out = []
     for g in glossary:
-        if g.get("translate", True) and g.get("translations", {}).get(lang) and re.search(re.escape(g["term"]), source, re.IGNORECASE):
-            out.append((g["term"], g["translations"][lang]))
+        if not g.get("translate", True):
+            continue
+        src, tgt = source_form(g, source_lang), source_form(g, lang)
+        if src and tgt and src != tgt and re.search(re.escape(fold(src)), fold(source), re.IGNORECASE):
+            out.append((src, tgt))
     return out
 
 
-def check_terms(source: str, localized: str, glossary: list[dict[str, Any]], lang: str) -> list[dict[str, str]]:
-    """Glossary / do-not-translate violations of a localized line."""
-    issues: list[dict[str, str]] = []
+def check_terms(source: str, localized: str, glossary: list[dict[str, Any]], lang: str, source_lang: str = "en") -> list[dict[str, Any]]:
+    """Glossary / do-not-translate violations of a localized line. Issues carry ``key`` + ``params`` (rendered in the viewer's language at read time)."""
+    issues: list[dict[str, Any]] = []
     for g in glossary:
         if not g.get("translate", True) and re.search(re.escape(g["term"]), source) and g["term"] not in localized:
-            issues.append({"term": g["term"], "rule": "do_not_translate", "message": f"“{g['term']}” must stay untranslated"})
-    for term, req in forced_translations(source, glossary, lang):
+            issues.append({"term": g["term"], "rule": "do_not_translate", "message": f"“{g['term']}” must stay untranslated", "key": "loc.issue.dnt", "params": {"term": g["term"]}})
+    for term, req in forced_translations(source, glossary, lang, source_lang):
         if normalize(req) not in normalize(localized):
-            issues.append({"term": term, "rule": "glossary", "message": f"“{term}” must be rendered as “{req}” in {LANGS.get(lang, lang)}"})
+            issues.append({"term": term, "rule": "glossary", "message": f"“{term}” must be rendered as “{req}” in {LANGS.get(lang, lang)}", "key": "loc.issue.glossary", "params": {"term": term, "required": req, "language": lang}})
     return issues
 
 
-def repair_terms(source: str, localized: str, glossary: list[dict[str, Any]], lang: str) -> str:
+def repair_terms(source: str, localized: str, glossary: list[dict[str, Any]], lang: str, source_lang: str = "en") -> str:
     """Last-resort deterministic repair: ensure forced translations / DNT terms appear (appends nothing destructive)."""
     out = localized
-    for _term, req in forced_translations(source, glossary, lang):
+    for _term, req in forced_translations(source, glossary, lang, source_lang):
         if normalize(req) not in normalize(out):
             out = (out.rstrip(". ") + f" — {req}") if not out.strip().endswith(req) else out
     for g in glossary:
@@ -87,14 +95,36 @@ def repair_terms(source: str, localized: str, glossary: list[dict[str, Any]], la
     return out
 
 
+SOURCE_WORD = {"en": "Source", "pl": "Źródło", "de": "Quelle", "fr": "Source", "es": "Fuente", "it": "Fonte", "pt": "Fonte", "nl": "Bron"}
+DISCLAIMER_BY_LANG = {"en": DISCLAIMER, **DISCLAIMER_TRANSLATIONS}
+_SOURCE_LINE = re.compile(r"^\s*(?:" + "|".join(sorted({re.escape(w) for w in SOURCE_WORD.values()})) + r")\s*:\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def translate_legal(line: str, source_lang: str, target_lang: str) -> str:
+    """Legal supers are fixed wording, not creative copy: the caffeine disclaimer and "Source: <url>" lines map to the target language."""
+    stripped = line.strip()
+    if fold(stripped).lower() == fold(DISCLAIMER_BY_LANG.get(source_lang, DISCLAIMER)).lower():
+        return DISCLAIMER_BY_LANG.get(target_lang, line)
+    m = _SOURCE_LINE.match(stripped)
+    if m:
+        return f"{SOURCE_WORD.get(target_lang, 'Source')}: {m.group(1)}"
+    return line
+
+
 def _trigrams(s: str) -> set[str]:
     s = f"  {normalize(s)}  "
     return {s[i : i + 3] for i in range(len(s) - 2)}
 
 
-def similarity(a: str, b: str) -> float:
-    """Average of token Jaccard and character-trigram Dice — robust for short marketing lines (used for back-translation QA)."""
-    ta, tb = set(normalize(a).split()), set(normalize(b).split())
+def _tokens(text: str, lang: str) -> set[str]:
+    toks = normalize(text).split()
+    return {t[:5] for t in toks} if lang == "pl" else set(toks)  # Polish inflects: 5-letter stems make "początek" / "początku" match
+
+
+def similarity(a: str, b: str, lang: str = "en") -> float:
+    """Average of token Jaccard and character-trigram Dice — robust for short marketing lines (used for back-translation QA).
+    ``lang`` is the language of both strings (Polish tokens are compared by stem)."""
+    ta, tb = _tokens(a, lang), _tokens(b, lang)
     jac = len(ta & tb) / max(1, len(ta | tb))
     ga, gb = _trigrams(a), _trigrams(b)
     dice = 2 * len(ga & gb) / max(1, len(ga) + len(gb))

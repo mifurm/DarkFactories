@@ -14,6 +14,7 @@ from typing import Any
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .errors import PayloadTooLarge, RateLimited
+from .i18n import t
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 
@@ -64,7 +65,7 @@ class SecurityMiddleware:
             if msg["type"] == "http.request":
                 seen += len(msg.get("body", b""))
                 if seen > self.max_body:
-                    raise PayloadTooLarge(f"request body exceeds {self.max_body} bytes")
+                    raise PayloadTooLarge(f"request body exceeds {self.max_body} bytes", key="err.payload_too_large.body", params={"limit": self.max_body})
             return msg
 
         async def send_wrapper(message: Message) -> None:
@@ -88,7 +89,7 @@ class SecurityMiddleware:
             request_id_var.reset(token)
 
     async def _reject(self, send: Send, rid: str) -> None:
-        body = json.dumps({"error": {"code": "payload_too_large", "message": f"request body exceeds {self.max_body} bytes", "request_id": rid}}).encode()
+        body = json.dumps({"error": {"code": "payload_too_large", "message": t("err.payload_too_large.body", limit=self.max_body), "request_id": rid}}, ensure_ascii=False).encode()
         await send({"type": "http.response.start", "status": 413, "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
         await send({"type": "http.response.body", "body": body})
 
@@ -111,7 +112,9 @@ class RateLimiter:
         if tokens < 1.0:
             self.rejections[scope] += 1
             retry = max(1, int((1.0 - tokens) * 60.0 / per_min) + 1)
-            raise RateLimited(f"Rate limit reached for {scope} requests ({per_min}/min). Retry in ~{retry}s.", hint=f"Retry-After: {retry}", details={"retry_after_s": retry})
+            raise RateLimited(
+                f"Rate limit reached for {scope} requests ({per_min}/min). Retry in ~{retry}s.", hint=f"Retry-After: {retry}", details={"retry_after_s": retry}, params={"scope": scope, "per_min": per_min, "retry": retry}
+            )
         self._buckets[bkey] = (tokens - 1.0, now)
         if len(self._buckets) > 20000:
             self._buckets.clear()

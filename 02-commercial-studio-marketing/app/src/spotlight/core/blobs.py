@@ -57,7 +57,7 @@ class MemoryBlobStore:
     async def get(self, path: str) -> bytes:
         _check_path(path)
         if path not in self._blobs:
-            raise NotFound(f"blob {path} not found", code="blob_not_found")
+            raise NotFound(f"blob {path} not found", code="blob_not_found", params={"path": path})
         return self._blobs[path][0]
 
     async def exists(self, path: str) -> bool:
@@ -97,7 +97,7 @@ class LocalDirBlobStore(MemoryBlobStore):
         _check_path(path)
         f = self.root / path
         if not f.is_file():
-            raise NotFound(f"blob {path} not found", code="blob_not_found")
+            raise NotFound(f"blob {path} not found", code="blob_not_found", params={"path": path})
         return f.read_bytes()
 
     async def exists(self, path: str) -> bool:
@@ -151,7 +151,7 @@ class AzureBlobStore:
             stream = await self._container.download_blob(path)
             return await stream.readall()
         except ResourceNotFoundError as exc:
-            raise NotFound(f"blob {path} not found", code="blob_not_found") from exc
+            raise NotFound(f"blob {path} not found", code="blob_not_found", params={"path": path}) from exc
 
     async def exists(self, path: str) -> bool:
         return await self._container.get_blob_client(_check_path(path)).exists()

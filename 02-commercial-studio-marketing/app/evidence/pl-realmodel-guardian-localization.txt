@@ -1,0 +1,24 @@
+{"ts": "2026-11-18T10:04:32.722Z", "level": "INFO", "logger": "spotlight", "msg": "Spotlight started: mode=azure repo=memory blobs=localdir ai=azure interrupted_jobs=0", "request_id": "-"}
+{"ts": "2026-11-18T10:04:46.868Z", "level": "INFO", "logger": "spotlight.notify", "msg": "event job.succeeded {'job_id': 'job_234bcc61bd95', 'kind': 'script.generate', 'campaign_id': 'probe-guardian-pl-c3826d', 'title': 'Agent scenariusza: 15 s'}", "request_id": "c338d626f2c046af"}
+{"ts": "2026-11-18T10:04:55.030Z", "level": "INFO", "logger": "spotlight.notify", "msg": "event job.succeeded {'job_id': 'job_080ff4fadb77', 'kind': 'localization.generate', 'campaign_id': 'probe-guardian-pl-c3826d', 'title': 'Lokalizator: DE'}", "request_id": "4a9b857bf6844f1b"}
+{"ts": "2026-11-18T10:05:13.296Z", "level": "INFO", "logger": "spotlight.notify", "msg": "event job.succeeded {'job_id': 'job_411e19808718', 'kind': 'script.generate', 'campaign_id': 'probe-en-to-pl-8bb721', 'title': 'Script agent: 15 s'}", "request_id": "006c2e91ff0e450a"}
+{"ts": "2026-11-18T10:05:18.103Z", "level": "INFO", "logger": "spotlight.notify", "msg": "event job.succeeded {'job_id': 'job_e5cb824629eb', 'kind': 'localization.generate', 'campaign_id': 'probe-en-to-pl-8bb721', 'title': 'Localizer: PL'}", "request_id": "d02a6fe960984a25"}
+edit: 200
+before: block ['rights.unlicensed', 'voice.exclamations', 'voice.forbidden_word', 'voice.hype']
+revise: converged True verdict warn iterations 2 ops ['replace_text', 'swap_music']
+    hook 'Jeszcze chwila dla siebie.'
+    product 'Rewolucyjna, wyjątkowa kawa, która zmieni twoje życie na zawsze...'
+    proof 'Palona w małych partiach.'
+    brand 'Wolniejszy początek dnia. Obudź się powoli.'
+PL-> de minsim 0.244 review ['b2:vo', 'b4:vo'] issues [] tagline Wach langsam auf
+    'Jeszcze chwila dla siebie.' -> 'Noch ein Moment nur für dich.' | back: 'Jeszcze tylko chwila dla ciebie.' 0.629
+    'Najpierw ty.' -> 'Erst du.' | back: 'Najpierw ty.' 1.0
+    'Rewolucyjna, wyjątkowa kawa, która zmieni twoje życie na zawsze...' -> 'Kaffee aus 100 % Arabica, der deinen Alltag begleitet.' | back: 'Kawa z 100% Arabiki, która towarzyszy twojej codzienności.' 0.244
+    '100% arabiki' -> '100 % Arabica' | back: '100% Arabica' 0.857
+EN-> pl minsim 0.385 review ['b3:vo'] issues [] tagline Obudź się powoli legal []
+    'Some mornings ask for less.' -> 'Niektóre poranki proszą o mniej.' | back: 'Some mornings ask for less.' 1.0
+    'Some mornings ask less' -> 'Niektóre poranki proszą o mniej' | back: 'Some mornings ask for less' 0.842
+    'Dawn Roast, our new medium roast, is 100% Arabica, roasted in small batches.' -> 'Dawn Roast, nasza nowa średnia paloność, to 100% Arabica, palona w małych partiach.' | back: 'Dawn Roast, our new medium roast, is 100% Arabica, roasted in small batches.' 1.0
+    '100% Arabica' -> '100% Arabica' | back: '100% Arabica' 1.0
+    'Dawn Roast cures morning anxiety.' -> 'Dawn Roast pomaga spokojnie zacząć poranek.' | back: 'Dawn Roast helps you start the morning calmly.' 0.385
+spend 0.059103 {'safety': 0.0405, 'llm': 0.018524, 'embedding': 7.9e-05}

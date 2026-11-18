@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from ...core.audit import render_entry
 from ...core.gates import GATE_BY_ID, GATES, stage_overview
 from ...core.guardian_service import (
     evaluate,
@@ -21,6 +22,7 @@ from ...core.guardian_service import (
 )
 from ...deps import mutate_limit, svc
 from ...errors import AppError, Conflict, Forbidden, GuardianBlocked, NotFound, ValidationFailed
+from ...i18n import label
 from ...registry import Feature
 from ...roles import Actor, Role, get_actor, require
 from ...util import new_id, now, now_iso, parse_iso
@@ -62,7 +64,14 @@ def _sla(doc: dict[str, Any]) -> str:
 
 
 def _public(doc: dict[str, Any]) -> dict[str, Any]:
-    return {**doc, "sla_state": _sla(doc), "pending_roles": [r for r in doc["required_roles"] if r not in {d["role"] for d in doc.get("decisions", []) if d["decision"] == "approve"}]}
+    """An approval for display: the stage and state names are rendered in the viewer's language at read time (ids and roles never change)."""
+    return {
+        **doc,
+        "stage_label": label("label.gate", doc["stage"]),
+        "state_label": label("label.state", doc["state"]),
+        "sla_state": _sla(doc),
+        "pending_roles": [r for r in doc["required_roles"] if r not in {d["role"] for d in doc.get("decisions", []) if d["decision"] == "approve"}],
+    }
 
 
 class RequestIn(BaseModel):
@@ -78,10 +87,10 @@ async def request_approval(request: Request, campaign_id: str, body: RequestIn, 
     camp = await st.campaign(campaign_id)
     gate = GATE_BY_ID.get(body.stage)
     if not gate:
-        raise ValidationFailed(f"unknown stage {body.stage!r}; use one of {[g['id'] for g in GATES]}", code="bad_stage")
+        raise ValidationFailed(f"unknown stage {body.stage!r}; use one of {[g['id'] for g in GATES]}", code="bad_stage", params={"stage": repr(body.stage), "stages": ", ".join(g["id"] for g in GATES)})
     art = await (st.artifact(campaign_id, body.artifact_id, gate["kind"]) if body.artifact_id else st.gate_artifact(camp, gate["kind"]))
     if not art:
-        raise NotFound(f"nothing to approve yet for stage '{gate['label']}'", code="artifact_missing")
+        raise NotFound(f"nothing to approve yet for stage '{gate['label']}'", code="artifact_missing", params={"stage": gate["id"]})
     existing = await st.repo.query("approvals", {"type": "approval", "artifact_id": art["id"], "stage": body.stage, "state": "pending"}, pk=campaign_id)
     if existing:
         raise Conflict("An approval request is already pending for this version.", code="already_pending", details={"approval_id": existing[0]["id"]})
@@ -96,7 +105,7 @@ async def request_approval(request: Request, campaign_id: str, body: RequestIn, 
     }
     await st.repo.upsert("approvals", doc)
     await st.audit(campaign_id, actor, "approval.requested", {"approval_id": doc["id"], "stage": body.stage, "artifact_id": art["id"]}, {"guardian": rep.verdict, "roles": gate["roles"]})
-    await s.notifier.emit("approval.requested", {"campaign_id": campaign_id, "campaign": camp["name"], "stage": gate["label"], "roles": gate["roles"], "guardian": rep.verdict})
+    await s.notifier.emit("approval.requested", {"campaign_id": campaign_id, "campaign": camp["name"], "stage": gate["label"], "stage_id": gate["id"], "roles": gate["roles"], "guardian": rep.verdict})
     return _public(doc)
 
 
@@ -127,7 +136,7 @@ async def campaign_approvals(request: Request, campaign_id: str) -> dict[str, An
     st = studio(request)
     await st.campaign(campaign_id)
     rows = await st.repo.query("approvals", {"type": "approval"}, pk=campaign_id, order_by="created_at", desc=True)
-    return {"approvals": [_public(r) for r in rows], "pipeline": await stage_overview(st, campaign_id), "gates": GATES}
+    return {"approvals": [_public(r) for r in rows], "pipeline": await stage_overview(st, campaign_id), "gates": [{**g, "label": label("label.gate", g["id"])} for g in GATES]}
 
 
 class DecideIn(BaseModel):
@@ -144,14 +153,14 @@ async def decide(request: Request, approval_id: str, body: DecideIn, actor: Acto
     if not doc or doc.get("type") != "approval":
         raise NotFound("approval not found", code="approval_not_found")
     if doc["state"] != "pending":
-        raise Conflict(f"This request is already {doc['state']}.", code="already_decided")
+        raise Conflict(f"This request is already {doc['state']}.", code="already_decided", params={"state": doc["state"]})
     pending = [r for r in doc["required_roles"] if r not in {d["role"] for d in doc["decisions"] if d["decision"] == "approve"}]
     if actor.role == Role.ADMIN:
         role = body.as_role if body.as_role in pending else (pending[0] if pending else doc["required_roles"][0])
     elif actor.role.value in pending:
         role = actor.role.value
     else:
-        raise Forbidden(f"Only {', '.join(pending)} may decide this gate (you are {actor.role.value}).", code="role_forbidden", details={"required_roles": pending})
+        raise Forbidden(f"Only {', '.join(pending)} may decide this gate (you are {actor.role.value}).", code="role_forbidden", details={"required_roles": pending}, key="err.role_forbidden.gate", params={"required": pending, "actor_role": actor.role.value})
     camp = await st.campaign(doc["campaign_id"])
     art = await st.artifact(doc["campaign_id"], doc["artifact_id"])
     if body.decision == "approve":
@@ -160,13 +169,15 @@ async def decide(request: Request, approval_id: str, body: DecideIn, actor: Acto
         for earlier in order[: order.index(doc["stage"])]:
             ov = next(o for o in await stage_overview(st, doc["campaign_id"]) if o["gate"] == earlier)
             if ov["artifact_status"] != "approved":
-                raise Conflict(f"The '{GATE_BY_ID[earlier]['label']}' gate must be approved before '{doc['stage_label']}'.", code="gate_order", details={"blocked_by": earlier})
+                raise Conflict(f"The '{GATE_BY_ID[earlier]['label']}' gate must be approved before '{doc['stage_label']}'.", code="gate_order", details={"blocked_by": earlier}, params={"earlier": earlier, "gate": doc["stage"]})
         g = await _fresh_guardian(st, s, camp, art)
         if g["blocking"]:
             await st.audit(doc["campaign_id"], actor, "approval.refused_guardian", {"approval_id": approval_id}, {"blocking": [f.rule_id for f in g["blocking"]]})
+            first = "; ".join(f.message for f in g["blocking"][:3])
             raise GuardianBlocked(
-                f"Cannot approve with {len(g['blocking'])} open Guardian failure(s): " + "; ".join(f.message for f in g["blocking"][:3]),
+                f"Cannot approve with {len(g['blocking'])} open Guardian failure(s): " + first,
                 code="guardian_blocked", hint="Run auto-revise, fix the findings, or have Legal waive them with a justification.", details={"findings": [{"id": f.id, "rule": f.rule_id, "message": f.message} for f in g["blocking"]]},
+                key="err.guardian_blocked.approve", params={"count": len(g["blocking"]), "first": first},
             )
     entry = {"role": role, "by": actor.name, "acted_as": actor.role.value, "decision": body.decision, "comment": body.comment, "at": now_iso()}
     doc["decisions"].append(entry)
@@ -188,7 +199,7 @@ async def decide(request: Request, approval_id: str, body: DecideIn, actor: Acto
     if doc["state"] == "approved":
         await _on_approved(st, camp, doc, art)
     await st.audit(doc["campaign_id"], actor, f"approval.{body.decision}", {"approval_id": approval_id, "stage": doc["stage"], "artifact_id": art["id"]}, {"role": role, "state": doc["state"], "comment": body.comment})
-    await s.notifier.emit(f"approval.{doc['state']}", {"campaign_id": doc["campaign_id"], "campaign": camp["name"], "stage": doc["stage_label"], "by": actor.name, "decision": body.decision})
+    await s.notifier.emit(f"approval.{doc['state']}", {"campaign_id": doc["campaign_id"], "campaign": camp["name"], "stage": doc["stage_label"], "stage_id": doc["stage"], "by": actor.name, "decision": body.decision})
     return _public(doc)
 
 
@@ -228,7 +239,7 @@ async def audit_log(request: Request, campaign_id: str, limit: int = 100) -> dic
     s = svc(request)
     entries = await s.audit.entries(campaign_id)
     ver = await s.audit.verify(campaign_id)
-    return {"chain": campaign_id, "verification": ver, "entries": list(reversed(entries))[: min(limit, 500)], "total": len(entries)}
+    return {"chain": campaign_id, "verification": ver, "entries": [render_entry(e) for e in list(reversed(entries))[: min(limit, 500)]], "total": len(entries)}
 
 
 @router.get("/api/audit/verify")

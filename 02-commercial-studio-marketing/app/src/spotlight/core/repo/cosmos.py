@@ -92,7 +92,7 @@ class CosmosRepository:
         try:
             res = await self._container(collection).create_item(doc)
         except cex.CosmosResourceExistsError as exc:
-            raise Conflict(f"{collection}/{doc['id']} already exists") from exc
+            raise Conflict(f"{collection}/{doc['id']} already exists", params={"collection": collection, "id": doc["id"]}) from exc
         return _strip(res)
 
     async def upsert(self, collection: str, doc: dict[str, Any]) -> dict[str, Any]:

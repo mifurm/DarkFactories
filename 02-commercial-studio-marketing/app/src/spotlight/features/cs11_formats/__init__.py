@@ -12,6 +12,7 @@ from ...core.jobs import JobContext
 from ...deps import mutate_limit, spend_limit
 from ...domain.formats import plan_cutdown, reframe
 from ...errors import GuardianBlocked, NotFound, ValidationFailed
+from ...i18n import render_message, t
 from ...registry import Feature
 from ...roles import Actor, require
 from ...video.spec import ASPECTS, SAFE_AREAS, RenderSpec
@@ -20,6 +21,13 @@ from ..cs08_spot import post_render, render_spec_to_asset
 from ..jobs_util import submit_job
 
 router = APIRouter(prefix="/api/campaigns/{campaign_id}/formats", tags=["CS-11 Format Factory"])
+
+
+def _format_progress(label: str, variant: dict[str, Any], n: int, total: int) -> dict[str, Any]:
+    """Catalog key + params for the 'rendering this version' progress line (a cutdown is named by its length, an aspect by its ratio)."""
+    if variant.get("cutdown_s") is not None:
+        return {"key": "job.msg.formats.cutdown", "params": {"seconds": variant["cutdown_s"], "n": n + 1, "total": total}}
+    return {"key": "job.msg.formats.render", "params": {"label": label, "n": n + 1, "total": total}}
 
 
 class FormatsIn(BaseModel):
@@ -41,14 +49,14 @@ async def generate(request: Request, campaign_id: str, body: FormatsIn | None = 
     body = body or FormatsIn()
     bad = [a for a in body.aspects if a not in ASPECTS] + ([body.cutdown_aspect] if body.cutdown_aspect not in ASPECTS else [])
     if bad:
-        raise ValidationFailed(f"unsupported aspect(s) {bad}; use {list(ASPECTS)}", code="bad_aspect")
+        raise ValidationFailed(f"unsupported aspect(s) {bad}; use {list(ASPECTS)}", code="bad_aspect", params={"aspects": ", ".join(bad), "supported": ", ".join(ASPECTS)})
     if len(body.aspects) + len(body.cutdowns) > 8:
         raise ValidationFailed("at most 8 versions per request", code="too_many")
     st = studio(request)
     camp = await st.campaign(campaign_id)
     master = await _master(st, camp, body.spot_id)
     if (master.get("guardian") or {}).get("verdict") == "block":
-        raise GuardianBlocked("The master spot has open Guardian failures; fix them (auto-revise) before deriving formats.", code="guardian_blocked")
+        raise GuardianBlocked("The master spot has open Guardian failures; fix them (auto-revise) before deriving formats.", code="guardian_blocked", key="err.guardian_blocked.master")
 
     async def run(job: JobContext) -> dict[str, Any]:
         s = request.app.state.services
@@ -65,7 +73,7 @@ async def generate(request: Request, campaign_id: str, body: FormatsIn | None = 
             plan.append((f"{c}s cutdown", spec, {"aspect": spec.aspect, "lang": base.lang, "cutdown_s": c}, info))
         out = []
         for n, (label, spec, variant, info) in enumerate(plan):
-            await job.progress(0.05 + 0.9 * n / max(1, len(plan)), f"Rendering {label} ({n + 1}/{len(plan)})", step=label)
+            await job.progress(0.05 + 0.9 * n / max(1, len(plan)), step=label, **_format_progress(label, variant, n, len(plan)))
             art = await render_spec_to_asset(s, st, camp, spec, script_id=master.get("script_id"), storyboard_id=master.get("storyboard_id"), voice_id=master.get("voice_id"), talent=master.get("talent", []), actor=actor, job=None, parent_id=master["id"], lineage_kind=spec.lineage.kind, variant=variant, markets=master.get("markets"))
             art["format_notes"] = info
             art = await post_render(s, st, camp, art, actor)
@@ -73,7 +81,7 @@ async def generate(request: Request, campaign_id: str, body: FormatsIn | None = 
         await st.audit(campaign_id, actor, "formats.generated", {"master": master["id"]}, {"versions": [o["label"] for o in out]})
         return {"versions": out, "master_id": master["id"]}
 
-    return await submit_job(request, "formats.generate", run, campaign_id, f"Format factory: {len(body.aspects)} formats + {len(body.cutdowns)} cutdown(s)", "CS-11", wait, timeout=178)
+    return await submit_job(request, "formats.generate", run, campaign_id, "job.title.formats", "CS-11", wait, timeout=178, title_params={"formats": len(body.aspects), "cutdowns": len(body.cutdowns)})
 
 
 @router.get("/tree")
@@ -85,8 +93,11 @@ async def tree(request: Request, campaign_id: str) -> dict[str, Any]:
     nodes = []
     for a in spots:
         v = a.get("variant") or {}
-        label = " · ".join(x for x in [v.get("aspect"), (f"{v['cutdown_s']}s cutdown" if v.get("cutdown_s") else None), (v.get("lang", "").upper() if a.get("lineage_kind") == "localized" else None)] if x) or "master"
-        nodes.append({"id": a["id"], "parent_id": a.get("parent_id"), "kind": a.get("lineage_kind", "master"), "label": label, "aspect": a["spec"]["aspect"], "lang": a["spec"]["lang"], "duration": a["probe"]["duration"], "status": a["status"], "guardian": a.get("guardian"), "video_asset_id": a["assets"]["video"], "poster_asset_id": a["assets"]["poster"], "created_at": a["created_at"], "version": a["version"], "notes": (a["spec"].get("lineage") or {}).get("notes", [])})
+        label = " · ".join(x for x in [v.get("aspect"), (t("format.label.cutdown", s=v["cutdown_s"]) if v.get("cutdown_s") else None), (v.get("lang", "").upper() if a.get("lineage_kind") == "localized" else None)] if x) or t("format.label.master")
+        lineage = a["spec"].get("lineage") or {}
+        keys = lineage.get("note_keys") or []
+        notes = [render_message(k.get("key"), k.get("params"), n) for k, n in zip(keys, lineage.get("notes", []), strict=False)] if keys else lineage.get("notes", [])
+        nodes.append({"id": a["id"], "parent_id": a.get("parent_id"), "kind": a.get("lineage_kind", "master"), "label": label, "aspect": a["spec"]["aspect"], "lang": a["spec"]["lang"], "duration": a["probe"]["duration"], "status": a["status"], "guardian": a.get("guardian"), "video_asset_id": a["assets"]["video"], "poster_asset_id": a["assets"]["poster"], "created_at": a["created_at"], "version": a["version"], "notes": notes})
     return {"nodes": nodes, "roots": [n["id"] for n in nodes if not n["parent_id"]]}
 
 
@@ -118,7 +129,7 @@ async def approve_versions(request: Request, campaign_id: str, body: ApproveVers
         done.append(sid)
         await st.audit(campaign_id, actor, "formats.version_approved", {"artifact_id": sid}, {"label": (art.get("variant") or {})})
     if not done and refused:
-        raise GuardianBlocked("None of the versions could be approved: open Guardian failures.", code="guardian_blocked", details={"refused": refused})
+        raise GuardianBlocked("None of the versions could be approved: open Guardian failures.", code="guardian_blocked", details={"refused": refused}, key="err.guardian_blocked.versions")
     return {"approved": done, "refused": refused}
 
 

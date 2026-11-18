@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -26,10 +27,13 @@ def font(size: int, bold: bool = False, serif: bool = False) -> ImageFont.FreeTy
     return ImageFont.truetype(str(FONT_DIR / name), max(8, int(size)))
 
 
+_SEP = re.compile(r"[ \t\r\n]+")  # ASCII whitespace only: NBSP (typeset glue between single-letter words, numbers and units) is NOT a break opportunity
+
+
 def wrap(text: str, fnt: ImageFont.FreeTypeFont, max_w: float) -> list[str]:
     lines: list[str] = []
     cur = ""
-    for word in text.split():
+    for word in (w for w in _SEP.split(text) if w):
         trial = f"{cur} {word}".strip()
         if fnt.getlength(trial) <= max_w or not cur:
             cur = trial
@@ -39,6 +43,18 @@ def wrap(text: str, fnt: ImageFont.FreeTypeFont, max_w: float) -> list[str]:
     if cur:
         lines.append(cur)
     return lines
+
+
+def fit_wrap(text: str, size: int, max_w: float, max_lines: int = 99, *, bold: bool = False, serif: bool = False, min_size: int = 14) -> tuple[int, ImageFont.FreeTypeFont, list[str]]:
+    """Largest font size <= ``size`` at which ``text`` wraps into at most ``max_lines`` lines that all fit ``max_w``: a very long (Polish)
+    word shrinks the type instead of running out of the frame."""
+    while True:
+        f = font(size, bold, serif)
+        lines = wrap(text, f, max_w)
+        widest = max((f.getlength(x) for x in lines), default=0.0)
+        if (len(lines) <= max_lines and widest <= max_w) or size <= min_size:
+            return size, f, lines
+        size = max(min_size, int(size * 0.92))
 
 
 def spaced_text(draw: ImageDraw.ImageDraw, xy: tuple[float, float], text: str, fnt: ImageFont.FreeTypeFont, fill: Any, spacing: float) -> float:
@@ -91,9 +107,8 @@ def draw_logo(width: int, wordmark: str = "NORTHWIND", sub: str = "COFFEE ROASTE
 def render_caption(text: str, w: int, h: int, aspect: str) -> tuple[np.ndarray, int, int]:
     safe = SAFE_AREAS[aspect]
     size = int(min(w, h) * (0.058 if aspect in ("9:16", "4:5") else 0.05))
-    f = font(size, bold=True)
     max_w = w * (1 - safe["left"] - safe["right"]) * 0.92
-    lines = wrap(text, f, max_w - size)
+    size, f, lines = fit_wrap(text, size, max_w - size, bold=True)
     lh = int(size * 1.28)
     pad = int(size * 0.42)
     bw = int(max(f.getlength(ln) for ln in lines) + pad * 2)
@@ -117,12 +132,7 @@ def render_super(text: str, w: int, h: int, aspect: str, accent: str = "#F2A03D"
     safe = SAFE_AREAS[aspect]
     size = int(min(w, h) * (0.092 if aspect in ("9:16", "4:5") else 0.082))
     max_w = w * (1 - safe["left"] - safe["right"]) * 0.86
-    while True:
-        f = font(size, bold=True, serif=True)
-        lines = wrap(text, f, max_w)
-        if len(lines) <= 3 or size <= 18:
-            break
-        size = int(size * 0.92)
+    size, f, lines = fit_wrap(text, size, max_w, 3, bold=True, serif=True, min_size=18)
     lines = lines[:4]
     lh = int(size * 1.18)
     bw = int(max(f.getlength(ln) for ln in lines)) + 30
@@ -199,8 +209,7 @@ def endcard_layout(spec: RenderSpec, w: int, h: int) -> dict[str, Any]:
     y = logo_y + logo_h + gap
     elements: list[dict[str, Any]] = []
     hl_size = int(min(w, h) * (0.078 if vertical else 0.068))
-    hf = font(hl_size, bold=True, serif=True)
-    hl_lines = wrap((ec.headline if ec else ""), hf, w * 0.84)[:2]
+    hl_size, hf, hl_lines = fit_wrap((ec.headline if ec else ""), hl_size, w * 0.84, 2, bold=True, serif=True, min_size=18)
     hl_h = int(hl_size * 1.2) * max(1, len(hl_lines))
     if ec and ec.headline:
         elements.append({"name": "headline", "x": (w - max(hf.getlength(x) for x in hl_lines)) / 2, "y": y, "w": max(hf.getlength(x) for x in hl_lines), "h": hl_h})
@@ -209,6 +218,9 @@ def endcard_layout(spec: RenderSpec, w: int, h: int) -> dict[str, Any]:
     if ec and ec.cta:
         cs = int(min(w, h) * 0.04)
         cf = font(cs, bold=True)
+        while cf.getlength(ec.cta) + cs * 2.2 > w * 0.9 and cs > 14:  # a long (Polish) call to action shrinks instead of leaving the frame
+            cs = int(cs * 0.92)
+            cf = font(cs, bold=True)
         bw, bh = cf.getlength(ec.cta) + cs * 2.2, cs * 2.3
         cta_box = {"name": "cta", "x": (w - bw) / 2, "y": y, "w": bw, "h": bh, "size": cs}
         elements.append(cta_box)

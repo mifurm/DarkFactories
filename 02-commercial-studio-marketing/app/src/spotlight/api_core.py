@@ -13,9 +13,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import __version__
+from .core.jobs import render_job
 from .deps import mutate_limit, svc
+from .i18n import DEFAULT, LANGUAGE_NAMES, SUPPORTED, current_locale, label, t
 from .registry import CATALOG, EPICS, registry_view
-from .roles import PERMISSIONS, ROLE_LABELS, Role, get_actor, require
+from .roles import PERMISSIONS, Role, get_actor, require
 from .services import Services
 
 router = APIRouter()
@@ -79,6 +81,10 @@ async def meta(request: Request) -> dict[str, Any]:
         "region": st.azure_region,
         "instance": st.instance_id,
         "uptime_s": round(time.time() - s.started_at, 1),
+        "languages": list(SUPPORTED),
+        "default_language": DEFAULT,
+        "language": current_locale(),
+        "language_names": dict(LANGUAGE_NAMES),
         "backends": {
             "repository": s.repo.mode,
             "blob_storage": s.blobs.mode,
@@ -96,7 +102,7 @@ async def meta(request: Request) -> dict[str, Any]:
             "campaign_ai_budget_usd": st.campaign_ai_budget_usd,
             "max_body_bytes": st.max_body_bytes,
         },
-        "disclaimer": "Synthetic data / simulated environment: sample brand, simulated ad platforms and audience panel. AI generation, storage and rendering are real in azure mode.",
+        "disclaimer": t("meta.disclaimer"),
     }
 
 
@@ -114,10 +120,10 @@ async def epics() -> dict[str, Any]:
 async def me(request: Request) -> dict[str, Any]:
     actor = get_actor(request)
     return {
-        "actor": actor.to_dict(),
+        "actor": {**actor.to_dict(), "label": label("label.role", actor.role.value)},
         "permissions": sorted(p for p, roles in PERMISSIONS.items() if actor.role in roles),
-        "roles": [{"id": r.value, "label": ROLE_LABELS[r]} for r in Role],
-        "auth": "demo-header (self-declared); Entra ID built-in auth is an optional Bicep switch",
+        "roles": [{"id": r.value, "label": label("label.role", r.value)} for r in Role],
+        "auth": t("me.auth"),
     }
 
 
@@ -131,17 +137,17 @@ async def usage(request: Request, campaign_id: str | None = None) -> dict[str, A
 
 @router.get("/api/jobs", tags=["platform"])
 async def list_jobs(request: Request, campaign_id: str | None = None, limit: int = 30) -> list[dict[str, Any]]:
-    return await svc(request).jobs.list(campaign_id, min(limit, 100))
+    return [render_job(j) for j in await svc(request).jobs.list(campaign_id, min(limit, 100))]
 
 
 @router.get("/api/jobs/{job_id}", tags=["platform"])
 async def get_job(request: Request, job_id: str) -> dict[str, Any]:
-    return await svc(request).jobs.require(job_id)
+    return render_job(await svc(request).jobs.require(job_id))
 
 
 @router.post("/api/jobs/{job_id}/cancel", tags=["platform"], dependencies=[Depends(mutate_limit)])
 async def cancel_job(request: Request, job_id: str, _: Any = Depends(require("generate"))) -> dict[str, Any]:
-    return await svc(request).jobs.cancel(job_id)
+    return render_job(await svc(request).jobs.cancel(job_id))
 
 
 @router.get("/api/stream/jobs/{job_id}", tags=["platform"])

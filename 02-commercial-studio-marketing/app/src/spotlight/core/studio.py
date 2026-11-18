@@ -11,7 +11,10 @@ from typing import Any
 
 from ..domain import colors as col
 from ..domain.claims import ClaimRule
-from ..domain.guardian import BrandRules, GuardianContext, GuardianSubject, SafetyObs
+from ..domain.guardian import BrandRules, GuardianContext, GuardianSubject, SafetyObs, VoicePack
+from ..domain.kit import localized_kit
+from ..domain.perfsim import localize_learning
+from ..domain.pl_morph import DEFAULT_PL_FORBIDDEN, DEFAULT_PL_REPLACEMENTS, HYPE_PATTERNS_PL
 from ..domain.rights import RightsEntry
 from ..errors import NotFound
 from ..roles import Actor
@@ -20,6 +23,22 @@ from .ai.base import current_ctx
 
 RESERVED = {"id", "pk", "campaign_id", "kind", "version", "status", "parent_id", "created_at", "updated_at", "created_by", "guardian"}
 KIND_BY_MIME = {"image": "image", "video": "video", "audio": "audio"}
+
+
+def campaign_lang(campaign: dict[str, Any] | None) -> str:
+    """The campaign's content language ("en" for campaigns created before languages existed)."""
+    return (campaign or {}).get("language") or "en"
+
+
+def _voice_pack(voice: dict[str, Any], lang: str) -> VoicePack:
+    """A language's voice rules from a kit overlay; Polish falls back to the built-in pack for any missing part."""
+    pl = lang == "pl"
+    return VoicePack(
+        forbidden_words=voice.get("forbidden_words") or (DEFAULT_PL_FORBIDDEN if pl else []),
+        replacements=voice.get("replacements") or (DEFAULT_PL_REPLACEMENTS if pl else {}),
+        hype_terms=voice.get("hype_terms") or (HYPE_PATTERNS_PL if pl else []),
+        max_sentence_words=voice.get("max_sentence_words"),
+    )
 
 
 def asset_kind_for(mime: str, name: str = "") -> str:
@@ -42,7 +61,8 @@ class Studio:
     async def campaign(self, campaign_id: str) -> dict[str, Any]:
         c = await self.repo.get("campaigns", campaign_id, pk=campaign_id)
         if not c:
-            raise NotFound(f"campaign {campaign_id} not found", code="campaign_not_found")
+            raise NotFound(f"campaign {campaign_id} not found", code="campaign_not_found", params={"id": campaign_id})
+        c.setdefault("language", "en")  # campaigns created before content languages existed are English
         return c
 
     async def save_campaign(self, c: dict[str, Any]) -> dict[str, Any]:
@@ -75,7 +95,7 @@ class Studio:
     async def artifact(self, campaign_id: str, artifact_id: str, kind: str | None = None) -> dict[str, Any]:
         a = await self.repo.get("artifacts", artifact_id, pk=campaign_id)
         if not a or (kind and a["kind"] != kind):
-            raise NotFound(f"{kind or 'artifact'} {artifact_id} not found", code="artifact_not_found")
+            raise NotFound(f"{kind or 'artifact'} {artifact_id} not found", code="artifact_not_found", params={"kind": kind or "artifact", "id": artifact_id})
         return a
 
     async def artifacts(self, campaign_id: str, kind: str | None = None) -> list[dict[str, Any]]:
@@ -163,7 +183,7 @@ class Studio:
         if not a and campaign_id:
             a = await self.repo.get("assets", asset_id, pk=None)
         if not a:
-            raise NotFound(f"asset {asset_id} not found", code="asset_not_found")
+            raise NotFound(f"asset {asset_id} not found", code="asset_not_found", params={"id": asset_id})
         return a
 
     async def asset_bytes(self, asset: dict[str, Any]) -> bytes:
@@ -181,7 +201,7 @@ class Studio:
     async def brand(self, brand_id: str) -> dict[str, Any]:
         b = await self.repo.get("brands", brand_id, pk=brand_id)
         if not b:
-            raise NotFound(f"brand {brand_id} not found", code="brand_not_found")
+            raise NotFound(f"brand {brand_id} not found", code="brand_not_found", params={"id": brand_id})
         return b
 
     async def brand_kit(self, brand_id: str) -> dict[str, Any]:
@@ -189,33 +209,41 @@ class Studio:
         v = await self.repo.get("brands", f"{brand_id}@{b['active_version']}", pk=brand_id)
         return {**b, "kit": (v or {}).get("kit", {})}
 
-    async def brand_context(self, brand_id: str, query: str, k: int = 4) -> dict[str, Any]:
-        """Grounding pack for every agent: kit summary, voice, retrieved passages (with citations), learnings."""
+    async def brand_context(self, brand_id: str, query: str, k: int = 4, lang: str = "en") -> dict[str, Any]:
+        """Grounding pack for every agent: kit summary, voice, retrieved passages (with citations), learnings — in the campaign language.
+
+        Retrieval prefers passages written in ``lang`` but is cross-lingual (a Polish query can cite an English passage and vice versa)."""
         b = await self.brand_kit(brand_id)
-        kit = b["kit"]
-        hits = await self.s.vectors.search(brand_id, query, k=k, version=["docs", f"kit-{b['active_version']}", "learnings"])
+        kit = localized_kit(b["kit"], lang)
+        hits = await self.s.vectors.search(brand_id, query, k=k, version=["docs", f"kit-{b['active_version']}", "learnings"], prefer_lang=lang)
         learnings = await self.repo.query("learnings", pk=brand_id, order_by="created_at", desc=True, limit=6)
+        learnings = [localize_learning(x, lang) for x in learnings]
         return {
             "brand": {"id": brand_id, "name": b["name"], "version": b["active_version"], "tagline": kit.get("tagline"), "category": kit.get("category")},
+            "lang": lang,
             "kit": kit,
             "voice": kit.get("voice", {}),
             "palette": [p["hex"] for p in kit.get("palette", [])],
-            "citations": [{"chunk_id": h["id"], "title": h.get("title") or h.get("source"), "source": h.get("source"), "score": h["score"], "text": h["text"]} for h in hits],
+            "citations": [{"chunk_id": h["id"], "title": h.get("title") or h.get("source"), "source": h.get("source"), "score": h["score"], "text": h["text"], "lang": h.get("lang", "en")} for h in hits],
             "learnings": [{"id": x["id"], "statement": x["statement"], "confidence": x.get("confidence")} for x in learnings],
         }
 
     async def guardian_context(self, brand_id: str, waivers: list[str] | None = None) -> GuardianContext:
         b = await self.brand_kit(brand_id)
-        v = b["kit"].get("voice", {})
-        logo = b["kit"].get("logo", {})
+        kit = b["kit"]
+        v = kit.get("voice", {})
+        logo = kit.get("logo", {})
+        packs = {lang: _voice_pack(loc.get("voice") or {}, lang) for lang, loc in (kit.get("i18n") or {}).items()}
+        packs.setdefault("pl", _voice_pack({}, "pl"))  # the Polish rules always apply, even for a kit version saved before they existed
         rules = BrandRules(
-            palette=[p["hex"] for p in b["kit"].get("palette", [])] or BrandRules().palette,
+            palette=[p["hex"] for p in kit.get("palette", [])] or BrandRules().palette,
             forbidden_words=v.get("forbidden_words", []),
             replacements=v.get("replacements", {}),
             max_exclamations=v.get("max_exclamations", 1),
             max_sentence_words=v.get("max_sentence_words", 22),
             logo_min_width_pct=logo.get("min_width_pct", 12.0),
             logo_clear_space_ratio=logo.get("clear_space_ratio", 0.5),
+            packs=packs,
         )
         claims = [ClaimRule(**{k: v for k, v in c.items() if k in ClaimRule.model_fields}) for c in await self.repo.query("claims", pk=brand_id)]
         rights = [RightsEntry(**{k: v for k, v in r.items() if k in RightsEntry.model_fields}) for r in await self.repo.query("rights", pk=brand_id)]

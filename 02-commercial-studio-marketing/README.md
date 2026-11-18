@@ -108,15 +108,49 @@ SPOTLIGHT_MODE=azure COSMOS_ENDPOINT=… BLOB_ACCOUNT_URL=… AZURE_OPENAI_ENDPO
 
 ```bash
 cd app
-.venv/bin/pytest --cov                                  # 97 tests, ~45 s, offline stubs + real ffmpeg (88 % line coverage)
+.venv/bin/pytest --cov                                  # 1,206 passed + 8 strict xfail (97 English baseline + Polish / regression), ~1–2 min, offline stubs + real ffmpeg
+.venv/bin/pytest tests/test_pl_*.py -q                  # the Polish suites only (Guardian, i18n contract, pipeline, platform, seed, timing)
 .venv/bin/ruff check src tests ../scripts e2e && .venv/bin/mypy
 (cd web && npm run build)                               # tsc -b (strict) + vite build
 # browser journeys (+ 1600×900 deck screenshots) against any running instance:
 /path/to/playwright-venv/bin/python e2e/journeys.py --base-url http://127.0.0.1:8102 --screens ../deck/assets/screens
-# end-to-end smoke of a DEPLOYED instance (real Azure OpenAI / Cosmos / Blob; ≈ US$0.16–0.17 per run):
-python ../scripts/smoke_test.py --base-url https://<app>.azurecontainerapps.io --expect-mode azure --langs de,fr,pl
+# end-to-end smoke of a DEPLOYED instance (real Azure OpenAI / Cosmos / Blob; ≈ US$0.16–0.17 per English run, ≈ US$0.14 for the Polish steps):
+python ../scripts/smoke_test.py --base-url https://<app>.azurecontainerapps.io --expect-mode azure --langs de,fr,pl      # English narrative + Polish PL-* steps
+python ../scripts/smoke_test.py --base-url https://<app>.azurecontainerapps.io --lang pl [--evidence-dir ../evidence]  # Polish steps only (+ saves the extracted frames)
 python ../scripts/load_test.py  --base-url https://<app>.azurecontainerapps.io          # p50/p95 on read endpoints
 ```
+
+## Languages
+
+The Studio speaks **English and Polish**. Two things are independent:
+
+* **UI / message language** — what the person at the keyboard reads (labels, errors, Guardian explanations, audit lines, job progress, notifications). Resolved per request:
+  `?lang=pl` → `X-UI-Lang` header → `Accept-Language` → `en`. `/api/meta` lists `languages`, `default_language` and the resolved `language`; every response carries `Content-Language`.
+  The web app's language switcher sets `X-UI-Lang`.
+* **Content language** — the language a campaign is *made in*: `campaign.language` (always returned; defaults to the request language when the campaign is created). It decides the
+  output language of every LLM call (explicit language directive; offline stubs write Polish too), the Guardian rule set (Polish claims pack, forbidden words, disclaimers), the voice-over
+  voice (`pl-PL` neural voices), caption/end-card typography and the AI-disclosure badge ("Wygenerowano przez AI").
+
+How it works: deterministic text is stored as a **stable code + params** and rendered when it is read, in the reader's language — Guardian findings, script timing issues, voice warnings,
+audit one-liners, job titles/progress/errors, approval stages, webhook cards, scorecard tips, insight sentences, provenance summaries (the signed manifest's machine fields stay English).
+Error responses keep `error.code` stable and localize `message`/`hint`. Content (briefs, scripts, claims, Brand Book, glossary) is produced and stored *in* its language with a `lang` tag.
+Polish specifics: inflection-aware, diacritic-insensitive claim patterns (`zdrowa`/`zdrowy`/`zdrowie`, ł→l, "najlepsza kawa na świecie" without Polish letters), replacements that agree in
+gender/case, numbers/units/dates read as inflected words for the voice (`spoken_text`), NBSP after single-letter words and caption cues that break at sentence ends / commas (never a one-word cue), a speaking-rate model calibrated on real `pl-PL-ZofiaNeural`
+audio (line-too-long check, trimming, beat rebalancing), bidirectional localization with glossary / do-not-translate enforcement and a back-translation check that compares Polish word stems.
+
+**Add a language** (e.g. `de`):
+
+1. `app/src/spotlight/i18n/messages_de.py` — copy `messages_en.py` (same keys, same `{placeholders}`, plural dicts with the CLDR forms of the language); register it in `i18n/catalog.py` (`CATALOGS`) and
+   `i18n/locale.py` (`SUPPORTED`, `LANGUAGE_NAMES`). `tests/test_pl_i18n.py::test_catalog_parity_…` fails until keys/placeholders/plural forms match.
+2. Content: a Brand Book + kit overlay (`seed/data.py`, `KIT["i18n"]["de"]`), a claims pack (`seed/<lang>_claims.py`, patterns on `fold()`-ed text, one rule per English `concept`), forbidden words + replacements.
+3. Language code: `domain/text.py::detect_lang`/`syllables`, `domain/timing.py` speaking model (measure real synthesis with `scripts/calibrate_tts.py --lang de --voice neural:<voice> --lines lines.txt`, ≈ US$0.02),
+   `i18n/directive.py`
+   (LLM output-language directive), `core/ai/voices.py` (default voice per language), `core/ai/stubs.py` (offline copy), `domain/localize.py` (phrasebook, market notes, glossary translations).
+4. Typography: fonts must contain the alphabet (DejaVu ships Latin/Cyrillic/Greek); NBSP rules in `domain/polish.py`-style module if the language needs them.
+5. Tests: golden positives **and** negative controls for the claims pack, catalog parity, one end-to-end pipeline run (offline), smoke steps.
+
+Known limits: CJK/Arabic need fonts that are not shipped; the English UI strings of the web app live in `app/web/src/i18n` (owned by the front end); legal wording is demo content, not legal advice.
+
 
 ## Deploy to Azure (idempotent)
 
@@ -167,3 +201,5 @@ See `app/src/spotlight/config.py`.
 CJK / Arabic captions need extra fonts (not shipped; Latin, Cyrillic, Greek are). Generative video, catalog-scale content, audience
 personalization and the clean-room data platform are **expansion levers** modelled in the ROI calculator (E1–E4; Base = off), not Release-1 code. The vendored business-case model is re-synced with `scripts/sync_business_case.py` (copies `model.py`, `assumptions.json`, `outputs.json` together and verifies parity).
 Rate limits are per replica (in-process). The demo identity is self-declared. See ARCHITECTURE.md → *Implemented vs target*.
+Polish (pl): **deployed and verified live** (smoke 44/44 on the deployed app incl. 14 Polish steps; 1,206 backend tests, hybrid run on the real models — see REPORT → *Polish localization*). Neural voices are
+the default for Polish; the speaking-rate model was calibrated for `pl-PL-ZofiaNeural` only (another voice may need its own constants). Polish legal wording (EU 1924/2006 health claims, AI disclosure) is factual demo content, not legal advice.

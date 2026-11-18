@@ -7,9 +7,10 @@ from typing import Any
 
 from fastapi import Request
 
-from ..core.jobs import JobContext
+from ..core.jobs import JobContext, render_job
 from ..deps import svc
 from ..errors import AppError
+from ..i18n import DEFAULT, has
 
 
 async def submit_job(
@@ -21,18 +22,24 @@ async def submit_job(
     feature: str,
     wait: bool = False,
     timeout: float = 170.0,  # noqa: ASYNC109 - upper bound for wait=true (scripts/tests); jobs themselves are not cancelled
+    title_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run long work as a persisted job. ``wait=true`` blocks until it finishes (scripts/tests); the UI streams progress."""
+    """Run long work as a persisted job. ``wait=true`` blocks until it finishes (scripts/tests); the UI streams progress.
+
+    ``title`` is a ``job.title.*`` catalog key (rendered in the viewer's language, with ``title_params``) or, for ad-hoc jobs, plain text."""
     s = svc(request)
-    job = await s.jobs.submit(kind, fn, campaign_id=campaign_id, title=title, feature=feature)
+    if has(title, DEFAULT):
+        job = await s.jobs.submit(kind, fn, campaign_id=campaign_id, feature=feature, title_key=title, title_params=title_params)
+    else:
+        job = await s.jobs.submit(kind, fn, campaign_id=campaign_id, title=title, feature=feature)
     if not wait:
-        return job
+        return render_job(job)
     try:
         job = await s.jobs.wait(job["id"], timeout)
     except TimeoutError:
-        return await s.jobs.require(job["id"])
+        return render_job(await s.jobs.require(job["id"]))
     if job["status"] == "failed":
         code = job.get("error_code") or "job_failed"
         status = 402 if "budget" in code or code == "premium_requires_approval" else (422 if code in {"guardian_blocked", "validation_failed", "prompt_injection"} else 500)
-        raise AppError(job.get("error") or "job failed", code=code, status=status, hint=job.get("error_hint"), details={"job_id": job["id"]})
-    return job
+        raise AppError(job.get("error") or "job failed", code=code, status=status, hint=job.get("error_hint"), details={"job_id": job["id"]}, params=job.get("error_params"), key=job.get("error_key") or None)
+    return render_job(job)

@@ -23,6 +23,7 @@ from ..video import media
 
 CELL = 32  # mesh cell size (px): the warp is piecewise-bilinear between these vertices
 BASE_SCALE = 1.2  # the working image is 20 % larger than the frame so the camera can push / drift without showing edges
+SHIMMER_RATE = 1.3  # speed of the travelling waves (with their amplitude: the part of the motion no camera move explains, see quality.py)
 WARM = (255, 222, 170)
 STEAM = (248, 240, 230)
 
@@ -53,10 +54,11 @@ def animate(image: bytes, width: int, height: int, num_frames: int, fps: int, se
     drift = np.array([rng.uniform(-1, 1), rng.uniform(-0.6, 0.6)]) * np.array([0.028 * width, 0.02 * height])
     rot_amp = math.radians(rng.uniform(0.5, 1.7)) * rng.choice([-1, 1])
     rot_phase = rng.uniform(0, math.tau)
-    shimmer_px = rng.uniform(1.4, 2.6)
-    lam = rng.uniform(0.45, 0.85, size=2) * np.array([width, height])
+    tall = min(1.0, max(0.0, height / width - 1.0))  # a tall frame crops the keyframe to a narrow, less textured strip, where the same breathing scores lower: give it a little more
+    shimmer_px = rng.uniform(3.8, 5.6) * math.sqrt(width * height) / 768 * (1.0 + 0.45 * tall)  # the "breathing" is what a camera move cannot explain: it has to be clearly more than the measurement's noise floor (quality.py); relative to the frame area, like the analysis size
+    lam = rng.uniform(0.35, 0.7, size=2) * np.array([width, height])  # shorter waves than the frame: a long wave is mostly an affine trend, which the measurement takes for camera motion
     sh_phase = rng.uniform(0, math.tau, size=4)
-    sh_speed = rng.uniform(0.7, 1.4, size=2)
+    sh_speed = rng.uniform(1.0, 1.8, size=2)
 
     n_steam = int(rng.integers(7, 11))
     steam = [
@@ -101,7 +103,7 @@ def animate(image: bytes, width: int, height: int, num_frames: int, fps: int, se
             cx = base_w / 2 + drift[0] * (e - 0.5)
             cy = base_h / 2 + drift[1] * (e - 0.5)
             # displacement shimmer: two slow travelling waves per axis
-            tt = f / fps
+            tt = f / fps * SHIMMER_RATE
             ox = shimmer_px * (np.sin(math.tau * (gyv / lam[1] + sh_speed[0] * tt * 0.35) + sh_phase[0]) + 0.6 * np.sin(math.tau * (gxv / lam[0] - 0.7 * sh_speed[1] * tt * 0.3) + sh_phase[1]))
             oy = shimmer_px * (np.cos(math.tau * (gxv / lam[0] + sh_speed[1] * tt * 0.33) + sh_phase[2]) + 0.6 * np.cos(math.tau * (gyv / lam[1] - 0.6 * sh_speed[0] * tt * 0.3) + sh_phase[3]))
             sx = cx + (uu * c - vv * s) / z + ox

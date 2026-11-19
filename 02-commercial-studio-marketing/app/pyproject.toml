@@ -21,6 +21,7 @@ dependencies = [
   "aiohttp>=3.10,<4.0",
   "httpx>=0.27,<1.0",
   "numpy>=2.0,<3.0",
+  "opencv-python-headless>=4.10,<5.0",  # motion quality gate: Farneback optical flow on the generated clips (abi3 wheels: Python 3.13 on linux/macOS)
   "pillow>=10.4",
   "python-multipart>=0.0.9",
   "pypdf>=5.0,<7.0",

@@ -1,0 +1,96 @@
+# Cinematic motion (CS-25): deployed Azure resources — captured 2026-11-18T23:50:19Z with az (subscription 1217c203-6c76-47b4-b61c-9bba62dc8e02, rg-swarmai-studio)
+
+## Container Apps environment workload profiles
+Result
+-----------
+Consumption
+gpu-a100
+
+## ca-studio-motion (GPU worker): profile, ingress, identity, scale rule, grace, resources, image
+{
+  "graceSeconds": 600,
+  "identity": [
+    "/subscriptions/1217c203-6c76-47b4-b61c-9bba62dc8e02/resourcegroups/rg-swarmai-studio/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-studio-motion"
+  ],
+  "image": "acrstudiovh4ojwexsajyg.azurecr.io/swarmai-studio/motion-worker:live1",
+  "ingress": null,
+  "profile": "gpu-a100",
+  "resources": {
+    "cpu": 8,
+    "ephemeralStorage": "",
+    "memory": "64Gi"
+  },
+  "scale": {
+    "cooldownPeriod": 420,
+    "maxReplicas": 1,
+    "minReplicas": 0,
+    "pollingInterval": 15,
+    "rules": [
+      {
+        "custom": {
+          "identity": "/subscriptions/1217c203-6c76-47b4-b61c-9bba62dc8e02/resourceGroups/rg-swarmai-studio/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-studio-motion",
+          "metadata": {
+            "accountName": "stvh4ojwexsajyg",
+            "cloud": "AzurePublicCloud",
+            "queueLength": "1",
+            "queueName": "motion-jobs"
+          },
+          "type": "azure-queue"
+        },
+        "name": "motion-queue"
+      }
+    ]
+  }
+}
+
+## Storage: shared key / public access / TLS
+{
+  "allowBlobPublicAccess": false,
+  "allowSharedKeyAccess": false,
+  "defaultToOAuthAuthentication": true,
+  "minimumTlsVersion": "TLS1_2"
+}
+
+## Queue and blob containers (Entra auth)
+motion-jobs
+Name
+-------------
+assets
+motion-in
+motion-models
+motion-out
+
+## Lifecycle policy (transport blobs expire after 3 days)
+[
+  {
+    "deleteAfterDays": 3.0,
+    "name": "motion-transport-ttl",
+    "prefix": [
+      "motion-in/",
+      "motion-out/"
+    ]
+  }
+]
+
+## Role assignments on the storage account (worker = id-studio-motion, Studio = id-studio-app). Expect: data roles on the 3 motion containers + the queue only; account scope only for the Studio app's Blob role
+-- id-studio-motion (d0128cc0-967f-442b-aa31-665fcce0e3af)
+AcrPull	acrstudiovh4ojwexsajyg
+Storage Queue Data Contributor	stvh4ojwexsajyg/queueServices/default/queues/motion-jobs
+Storage Blob Data Contributor	stvh4ojwexsajyg/blobServices/default/containers/motion-in
+Storage Blob Data Contributor	stvh4ojwexsajyg/blobServices/default/containers/motion-models
+Storage Blob Data Contributor	stvh4ojwexsajyg/blobServices/default/containers/motion-out
+-- id-studio-app (45c4ddc4-102f-4a93-ab59-c368a0b3a87e)
+AcrPull	acrstudiovh4ojwexsajyg
+Storage Blob Data Contributor	stvh4ojwexsajyg
+Storage Queue Data Contributor	stvh4ojwexsajyg/queueServices/default/queues/motion-jobs
+
+## Container Registry
+{
+  "adminUserEnabled": false,
+  "sku": "Standard"
+}
+swarmai-studio/motion-worker
+swarmai-studio/web-studio
+
+## Resource tags: untagged resources (expect 0)
+0

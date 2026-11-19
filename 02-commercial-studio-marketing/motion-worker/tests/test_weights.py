@@ -31,13 +31,19 @@ class SpyTransport(LocalTransport):
         self.lock = threading.Lock()
         self.download_delay = 0.0
         self.on_download = None
+        self.rendezvous: threading.Barrier | None = None  # the first `parties` downloads wait for each other
+        self.arrivals = 0
 
     def download_to(self, area, name, dest):
         with self.lock:
             self.active += 1
             self.max_active = max(self.max_active, self.active)
             self.events.append(("download", name))
+            self.arrivals += 1
+            first_wave = self.rendezvous is not None and self.arrivals <= self.rendezvous.parties
         try:
+            if first_wave:
+                self.rendezvous.wait(timeout=10)  # nothing can finish, so no later file can start, before the whole first wave is in flight
             time.sleep(self.download_delay)
             super().download_to(area, name, dest)
             if self.on_download:
@@ -168,15 +174,16 @@ def test_the_real_download_wrapper_passes_the_documented_arguments(env, monkeypa
 def test_mirror_download_is_parallel_size_verified_and_skips_hf(env):
     cfg, transport, hf, manager, _ = env
     files = seed_mirror(manager, transport)
-    transport.download_delay = 0.05
+    transport.rendezvous = threading.Barrier(cfg.download_workers)  # the first wave is in flight together: no assertion below depends on thread scheduling
     result = manager.ensure()
     assert result.source == "mirror"
     assert hf.calls == []
     assert weight_files(result.path) == files
-    assert 1 < transport.max_active <= cfg.download_workers
+    assert transport.max_active == cfg.download_workers
     assert sorted(transport.names("download")) == sorted(f"{manager.prefix}/{rel}" for rel in files)
-    # largest first keeps the workers busy
-    assert transport.names("download")[0].endswith("text_encoder/model.safetensors")
+    # largest first keeps the workers busy: the first wave is made of the largest files (which thread enters first within it is up to the scheduler)
+    largest = sorted(files, key=lambda rel: -len(files[rel]))[: cfg.download_workers]
+    assert sorted(transport.names("download")[: cfg.download_workers]) == sorted(f"{manager.prefix}/{rel}" for rel in largest)
     assert not list(result.path.rglob("*.part"))
     assert manager.ensure().source == "local"
 

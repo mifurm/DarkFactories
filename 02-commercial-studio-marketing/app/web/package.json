@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "export:roi-keys": "../.venv/bin/python scripts/export-roi-keys.py",
+    "export:backend-enums": "../.venv/bin/python scripts/export-backend-enums.py",
     "preview": "vite preview --port 5102"
   },
   "dependencies": {

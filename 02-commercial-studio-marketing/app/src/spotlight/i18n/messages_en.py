@@ -638,6 +638,7 @@ MESSAGES: dict[str, Any] = {
     "job.msg.motion.shot": "Shot {n}/{total}: generating AI motion ({pct:pct0})",
     "job.msg.motion.cached": "Shot {n}: AI motion reused from the library (no GPU time)",
     "job.msg.motion.fallback": "Shot {n}: AI motion unavailable — using the keyframe with a camera move instead",
+    "job.msg.motion.retry": "Shot {n}/{total}: the motion is too static — trying again with a different seed",
     "motion.reason.timeout": "the GPU worker did not answer in time",
     "motion.reason.worker_unavailable": "the GPU worker could not be reached",
     "motion.reason.internal": "the motion model reported an internal error",

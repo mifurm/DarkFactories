@@ -9,15 +9,16 @@ from typing import Any
 
 import pytest
 
-from conftest import needs_ffmpeg
+from conftest import needs_cv2, needs_ffmpeg
 from spotlight.core.ai import pricing
 from spotlight.core.ai.base import reset_ctx, set_ctx
 from spotlight.core.ai.stubs import render_stub_scene
 from spotlight.core.jobs import JobCancelled
 from spotlight.core.studio import Studio
 from spotlight.errors import AppError, BudgetExceeded
-from spotlight.i18n import has
-from spotlight.motion import wire
+from spotlight.i18n import has, t
+from spotlight.motion import orchestrator, wire
+from spotlight.motion import plan as planner
 from spotlight.motion.client import OffMotionClient
 from spotlight.motion.models import (
     FALLBACK_REASONS,
@@ -33,14 +34,17 @@ from spotlight.motion.models import (
 )
 from spotlight.motion.orchestrator import (
     FLAG_FROM,
+    RETRY_SUFFIX,
     find_cached,
     generate_clips,
     license_of,
     motion_status,
     request_warmup,
 )
+from spotlight.motion.quality import UNKNOWN, MotionQuality, level_for
 from spotlight.motion.stub_client import StubMotionClient
 from spotlight.video.spec import RenderSpec, SceneSpec
+from test_motion_quality import still_clip
 
 pytestmark = needs_ffmpeg
 CID = "camp-orch"
@@ -82,6 +86,22 @@ class ScriptedClient(StubMotionClient):
         if (err := self.script.get(len(self.requests))) is not None:
             raise err
         return await super().generate(req, on_progress, timeout_s)
+
+
+class Stubborn(ScriptedClient):
+    """A model that ignores the prompt: the calls in ``still_calls`` (1-based) return the keyframe as a clip that does not move at all, the other calls animate it."""
+
+    def __init__(self, still_calls: set[int], script: dict[int, BaseException] | None = None) -> None:
+        super().__init__(script)
+        self.still_calls = still_calls
+        self.results: list[MotionResult] = []
+
+    async def generate(self, req: MotionRequest, on_progress: Any = None, timeout_s: float = 1500.0) -> MotionResult:
+        res = await super().generate(req, on_progress, timeout_s)
+        if len(self.requests) in self.still_calls:
+            res.clip = still_clip(req.image, req.width, req.height, req.num_frames, req.fps)
+        self.results.append(res)
+        return res
 
 
 class Recorder:
@@ -488,3 +508,219 @@ async def test_the_report_names_the_model_that_really_made_the_clips(world):
     rep = (await run(s, *make_spec(1))).report()
     assert (rep["model"], rep["revision"]) == (wire.MODEL_ID, "fake") and rep["license"].startswith("n/a")
     assert (await Studio(s).repo.query("assets", {"kind": "video"}, pk=CID))[0]["meta"]["revision"] == "fake"
+
+
+# ------------------------------------------------------------------------------------------------ the motion gate: a clip that barely moves is made once more
+
+
+def scripted_scores(monkeypatch: pytest.MonkeyPatch, *scores: float) -> list[bytes]:
+    """The gate measures the clips with these non-rigid scores, in order, whatever the clips look like: what is tested is what the orchestrator does with a score.
+    Returns the clips it was asked to measure (a measurement the script has no score for fails the test)."""
+    seen: list[bytes] = []
+
+    def measure(clip: bytes, work_dir: str | None = None) -> MotionQuality:
+        seen.append(clip)
+        score = scores[len(seen) - 1]
+        return MotionQuality(score, round(score * 3, 3), level_for(score), 25)
+
+    monkeypatch.setattr(orchestrator, "measure_motion", measure)
+    return seen
+
+
+@needs_cv2
+async def test_a_clip_that_barely_moves_is_made_again_once_with_the_next_seed_and_the_moving_one_is_kept(world):
+    s = world
+    s.motion = Stubborn({1})  # the model ignores the prompt the first time: the clip is the keyframe, frozen
+    spec, images = make_spec(1)
+    out = await run(s, spec, images)
+    sp = out.plan.shots[0]
+    first, second = s.motion.requests
+    assert (first.seed, first.prompt) == (sp.seed, sp.prompt) and second.image == first.image
+    assert (second.seed, second.prompt) == ((sp.seed + 1) % 2**32, sp.prompt + RETRY_SUFFIX) and second.job_id != first.job_id
+    assert second.job_id == wire.compute_job_id(second.model, second.revision, second.prompt, second.negative_prompt, second.width, second.height, second.num_frames, second.fps, second.steps, second.guidance_scale, second.seed, second.image_sha256)
+    (shot,) = out.shots
+    assert shot.status == "generated" and shot.attempts == 2 and shot.seed == second.seed and shot.clip == s.motion.results[1].clip  # the clip that moves is the one in the spot
+    assert shot.motion is not None and shot.motion.level in {"subtle", "rich"} and (shot.motion.non_rigid or 0.0) >= 0.6
+    rep = out.report()
+    assert (rep["retries"], rep["shots_low_motion"], rep["shots_generated"], rep["shots_fallback"]) == (1, 0, 1, [])
+    row = rep["shots"][0]
+    assert row["motion"] == {"non_rigid": shot.motion.non_rigid, "total": shot.motion.total, "level": shot.motion.level, "attempts": 2}
+    assert row["seed"] == second.seed and row["prompt_sha256"] == planner.prompt_sha256(second.prompt, sp.negative)  # what made the clip that is kept
+    assert row["plan_prompt_sha256"] == planner.prompt_sha256(sp.prompt, sp.negative) != row["prompt_sha256"]  # what the storyboard asked for
+    events = await motion_events(s)  # both attempts ran on the GPU: both are metered and both are in the bill of the shot
+    assert sorted((e["units"]["shots"], e["units"]["retry"]) for e in events) == [(0, True), (1, False)] and all(e["units"]["gpu_seconds"] > 0 for e in events)
+    assert rep["gpu_seconds"] == round(sum(e["units"]["gpu_seconds"] for e in events), 2) and rep["cost_usd"] == pytest.approx(sum(e["cost_usd"] for e in events), abs=1e-6)
+    (asset,) = await Studio(s).repo.query("assets", {"kind": "video"}, pk=CID)
+    meta = asset["meta"]
+    assert (meta["attempts"], meta["seed"], meta["motion_key"], meta["plan_prompt_sha256"]) == (2, second.seed, sp.cache_key, row["plan_prompt_sha256"])
+    assert meta["motion_score"] == shot.motion.to_dict() and meta["gpu_seconds"] == rep["gpu_seconds"]  # the library remembers the score and what the clip cost
+    out.apply(spec)
+    assert spec.motion and spec.motion.shots[0].seed == sp.seed  # the recipe stays the plan's: that is what the library cache and a re-render are keyed on
+
+
+@needs_cv2
+async def test_a_clip_that_moves_is_kept_as_it_is_and_never_made_twice(world):
+    s = world
+    out = await run(s, *make_spec(2))
+    assert len(s.motion.requests) == 2 and [o.attempts for o in out.shots] == [1, 1]
+    rep = out.report()
+    assert (rep["retries"], rep["shots_low_motion"]) == (0, 0)
+    assert all(x["motion"]["level"] in {"subtle", "rich"} and x["motion"]["attempts"] == 1 and x["motion"]["non_rigid"] >= 0.6 for x in rep["shots"])  # the stub animator clears the gate with room to spare
+    assert all(a["meta"]["motion_score"]["level"] in {"subtle", "rich"} and a["meta"]["attempts"] == 1 for a in await Studio(s).repo.query("assets", {"kind": "video"}, pk=CID))
+    assert [e["units"]["retry"] for e in await motion_events(s)] == [False, False]
+
+
+@pytest.mark.parametrize(
+    ("scores", "second_kept", "level"),
+    [((0.10, 0.25), True, "low"), ((0.28, 0.12), False, "low"), ((0.10, 0.60), True, "subtle")],
+    ids=["the-retry-moves-more", "the-first-moves-more", "the-retry-is-good"],
+)
+async def test_the_clip_that_moves_more_is_kept_even_when_neither_is_good(world, monkeypatch, scores, second_kept, level):
+    s = world
+    s.motion = Stubborn(set())
+    seen = scripted_scores(monkeypatch, *scores)
+    out = await run(s, *make_spec(1))
+    sp, (shot,) = out.plan.shots[0], out.shots
+    kept = s.motion.results[1 if second_kept else 0]
+    assert seen == [r.clip for r in s.motion.results] and shot.clip == kept.clip  # both clips were measured, the better one is in the spot
+    assert (shot.attempts, shot.seed) == (2, (sp.seed + 1) % 2**32 if second_kept else sp.seed) and shot.motion is not None
+    assert (shot.motion.non_rigid, shot.motion.level) == (scores[1 if second_kept else 0], level)
+    rep = out.report()
+    assert (rep["retries"], rep["shots_low_motion"]) == (1, 1 if level == "low" else 0)
+    assert (rep["shots"][0]["prompt_sha256"] == rep["shots"][0]["plan_prompt_sha256"]) is (not second_kept)  # only the retry's prompt differs from the plan's
+    (asset,) = await Studio(s).repo.query("assets", {"kind": "video"}, pk=CID)
+    assert asset["meta"]["seed"] == shot.seed and asset["meta"]["motion_score"]["non_rigid"] == scores[1 if second_kept else 0]
+
+
+async def test_a_budget_refusal_of_the_retry_keeps_the_first_clip_and_is_no_error(world, monkeypatch):
+    s = world
+    scripted_scores(monkeypatch, 0.1)
+    real, asked = s.guard.authorize, []
+
+    async def authorize(est: float, **kw: Any) -> None:
+        if kw.get("kind") == "motion":
+            asked.append(est)
+            if len(asked) == 3:  # the up-front check and the first attempt pass; the retry is refused (other jobs spent the day's money meanwhile)
+                raise BudgetExceeded("Daily AI budget reached", code="daily_budget_exceeded")
+        await real(est, **kw)
+
+    monkeypatch.setattr(s.guard, "authorize", authorize)
+    out = await run(s, *make_spec(1))
+    (shot,) = out.shots
+    assert len(asked) == 3 and len(s.motion.requests) == 1  # the refused retry never reached the worker
+    assert shot.status == "generated" and shot.attempts == 1 and shot.motion is not None and shot.motion.level == "low"
+    rep = out.report()
+    assert (rep["retries"], rep["shots_low_motion"], rep["shots_fallback"]) == (0, 1, []) and rep["gpu_seconds"] == shot.gpu_seconds > 0
+    assert len(await motion_events(s)) == 1  # nothing was spent on the refused attempt
+
+
+async def test_a_retry_that_fails_keeps_the_first_clip_and_pays_for_the_gpu_time_it_wasted(world, monkeypatch):
+    s = world
+    s.motion = ScriptedClient({2: MotionFailed("CUDA out of memory", worker_code="oom", gpu_seconds=7.0)})
+    scripted_scores(monkeypatch, 0.1)
+    out = await run(s, *make_spec(1))
+    (shot,) = out.shots
+    assert shot.status == "generated" and shot.attempts == 2 and shot.seed == out.plan.shots[0].seed and shot.motion is not None and shot.motion.level == "low"
+    rep = out.report()
+    assert (rep["retries"], rep["shots_low_motion"], rep["shots_fallback"]) == (1, 1, [])  # the failed retry is no failed shot
+    events = await motion_events(s)
+    (failed,) = [e for e in events if e["units"].get("failed")]
+    assert failed["units"]["gpu_seconds"] == 7.0 and failed["units"]["retry"] is True and failed["units"]["shots"] == 0
+    assert rep["gpu_seconds"] == round(sum(e["units"]["gpu_seconds"] for e in events), 2) and rep["gpu_seconds"] > 7.0
+
+
+async def test_whatever_goes_wrong_with_the_retry_cannot_cost_the_clip_already_in_hand(world, monkeypatch):
+    s = world
+
+    def measure(clip: bytes, work_dir: str | None = None) -> MotionQuality:
+        if len(s.motion.requests) > 1:
+            raise RuntimeError("a bug in the second measurement")  # measure_motion never raises; this is the net under it
+        return MotionQuality(0.1, 0.3, "low", 25)
+
+    monkeypatch.setattr(orchestrator, "measure_motion", measure)
+    out = await run(s, *make_spec(1))
+    assert len(s.motion.requests) == 2 and out.shots[0].status == "generated" and out.shots[0].attempts == 1 and out.shots[0].clip == out.clips["sc-b0"]
+    s.motion = ScriptedClient({2: JobCancelled()})
+    spec, _ = make_spec(1)
+    with pytest.raises(JobCancelled):  # a cancelled job is not an "unexpected error": it stops the render
+        await run(s, spec, {"ast_k0": jpeg(9)})  # another keyframe: nothing in the library to serve it
+
+
+async def test_the_retry_can_be_switched_off_and_needs_time_left_in_the_motion_budget(world, monkeypatch):
+    s = world
+    scripted_scores(monkeypatch, 0.1)
+    monkeypatch.setattr(s.settings, "motion_retry_low_motion", False)
+    out = await run(s, *make_spec(1))
+    assert len(s.motion.requests) == 1 and out.shots[0].attempts == 1 and (out.report()["shots_low_motion"], out.report()["retries"]) == (1, 0)
+    monkeypatch.setattr(s.settings, "motion_retry_low_motion", True)
+    monkeypatch.setattr(s.settings, "motion_timeout_s", 50)  # less than a minute left after the first clip: no time for a second one
+    scripted_scores(monkeypatch, 0.1)
+    out = await run(s, *make_spec(1, per=2.0))  # (a longer scene than the clip in the library: it is generated)
+    assert len(s.motion.requests) == 2 and out.shots[0].attempts == 1  # one more request in total: the shot of this render, no retry of it
+
+
+async def test_a_clip_that_cannot_be_measured_is_used_as_it_is_and_never_retried(world, monkeypatch):
+    s = world
+    monkeypatch.setattr(orchestrator, "measure_motion", lambda clip, work_dir=None: UNKNOWN)  # no OpenCV, or a clip it cannot read
+    out = await run(s, *make_spec(1))
+    assert len(s.motion.requests) == 1 and out.shots[0].status == "generated" and out.shots[0].attempts == 1
+    rep = out.report()
+    assert rep["shots"][0]["motion"] == {"non_rigid": None, "total": None, "level": "unknown", "attempts": 1} and (rep["shots_low_motion"], rep["retries"]) == (0, 0)
+
+
+async def test_a_clip_from_the_library_is_neither_generated_nor_measured_again(world, monkeypatch):
+    s = world
+    seen = scripted_scores(monkeypatch, 0.1, 0.9)  # the first clip barely moves, the retry does: the library keeps the second one together with its score
+    spec, images = make_spec(1)
+    first = await run(s, spec, images)
+    assert len(seen) == 2 and first.shots[0].attempts == 2
+    n_requests, spent = len(s.motion.requests), (await s.meter.summary())["total_usd"]
+    again = await run(s, spec, images)  # measuring it again would be a third score the script does not have
+    (shot,) = again.shots
+    assert shot.status == "cached" and len(seen) == 2 and len(s.motion.requests) == n_requests
+    assert shot.motion == first.shots[0].motion and (shot.attempts, shot.seed) == (2, first.shots[0].seed)
+    rep, before = again.report(), first.report()
+    assert (rep["gpu_seconds"], rep["retries"], rep["shots_low_motion"], rep["shots_generated"], rep["shots_cached"]) == (0.0, 0, 0, 1, 1)  # no GPU, and this render made no retry
+    assert rep["shots"][0]["motion"] == {"non_rigid": 0.9, "total": 2.7, "level": "subtle", "attempts": 2}  # the clip remembers that it took two attempts
+    assert (rep["shots"][0]["seed"], rep["shots"][0]["prompt_sha256"]) == (before["shots"][0]["seed"], before["shots"][0]["prompt_sha256"])
+    assert (await s.meter.summary())["total_usd"] == spent
+
+
+async def test_a_library_clip_from_before_the_gate_is_measured_once_and_remembered(world, monkeypatch):
+    s, st = world, Studio(world)
+    spec, images = make_spec(1)
+    scripted_scores(monkeypatch, 0.9)
+    await run(s, spec, images)
+    (asset,) = await st.repo.query("assets", {"kind": "video"}, pk=CID)
+    del asset["meta"]["motion_score"], asset["meta"]["attempts"]  # a clip generated before the gate existed
+    await st.save_asset(asset)
+    seen = scripted_scores(monkeypatch, 0.5)
+    shot = (await run(s, spec, images)).shots[0]
+    assert shot.status == "cached" and shot.attempts == 1 and shot.motion == MotionQuality(0.5, 1.5, "subtle", 25) and len(seen) == 1
+    (asset,) = await st.repo.query("assets", {"kind": "video"}, pk=CID)
+    assert asset["meta"]["motion_score"]["non_rigid"] == 0.5  # remembered on the asset
+    assert (await run(s, spec, images)).shots[0].motion == shot.motion and len(seen) == 1  # and not measured a second time
+
+
+async def test_the_report_carries_the_gate_for_every_shot_with_a_clip_and_nothing_for_the_others(world, monkeypatch):
+    s = world
+    s.motion.script = {2: MotionFailed("the worker crashed")}
+    scripted_scores(monkeypatch, 0.9, 0.9)
+    rep = (await run(s, *make_spec(3))).report()
+    assert [x["status"] for x in rep["shots"]] == ["generated", "fallback", "generated"]
+    assert [x["motion"] is not None for x in rep["shots"]] == [True, False, True] and all(len(x["plan_prompt_sha256"]) == 64 for x in rep["shots"])
+    assert (rep["shots_low_motion"], rep["retries"], rep["shots_generated"], len(rep["shots_fallback"])) == (0, 0, 2, 1)
+
+
+async def test_a_retry_is_announced_in_catalog_keys_and_the_progress_never_moves_back(world, monkeypatch):
+    s = world
+    scripted_scores(monkeypatch, 0.1, 0.9, 0.9)  # shot 1 barely moves and is made again, shot 2 is fine
+    job = Recorder()
+    await run(s, *make_spec(2), job=job)
+    retry = [params for _, key, params in job.events if key == "job.msg.motion.retry"]
+    assert retry and all(p == {"n": 1, "total": 2} for p in retry)
+    fractions = [p for p, _, _ in job.events]
+    assert fractions == sorted(fractions) and 0.06 <= fractions[0] and fractions[-1] <= 0.55
+    assert has("job.msg.motion.retry", "en") and has("job.msg.motion.retry", "pl")
+    assert t("job.msg.motion.retry", "en", n=2, total=3) == "Shot 2/3: the motion is too static — trying again with a different seed"
+    assert t("job.msg.motion.retry", "pl", n=2, total=3) == "Ujęcie 2/3: zbyt statyczny ruch — ponawiam z innym ziarnem"

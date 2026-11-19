@@ -1,5 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { placeholders } from "./core";
+import { en } from "./en";
 import { motionEnums, motionMessages, motionPlurals } from "./pl/motion";
 
 /**
@@ -69,5 +72,55 @@ describe("Polish typography of the motion strings", () => {
     expect(texts).not.toMatch(/kompozytor/i); // never "kompozytor" for the compositor (a music composer)
     expect(texts).toContain("pamięci podręcznej");
     expect(texts).toContain("ujęcie");
+  });
+});
+
+/**
+ * Why a shot fell back to camera moves: the codes are the backend's (spotlight/motion/models.py FALLBACK_REASONS; the server also sends a localized `reason_text`, which the UI prefers —
+ * the dictionary labels payloads that carry only the code). `unavailable`, `failed` and `bad_clip` are the codes of an earlier revision: kept, so older artifacts still read well.
+ */
+const BACKEND_MODELS = path.resolve(__dirname, "../../../src/spotlight/motion/models.py");
+const EARLIER_CODES = ["unavailable", "failed", "bad_clip"];
+
+describe("Fallback reason labels", () => {
+  it("the new backend codes read as specified", () => {
+    expect(motionEnums.motionFallback).toMatchObject({ worker_unavailable: "GPU niedostępne", internal: "błąd wewnętrzny generowania", disabled: "ruch AI wyłączony na serwerze" });
+    expect(en.enums.motionFallback).toMatchObject({ worker_unavailable: "GPU unavailable", internal: "internal generation error", disabled: "AI motion turned off on the server" });
+  });
+
+  it("the earlier codes stay labelled in both languages", () => {
+    for (const code of EARLIER_CODES) {
+      expect(Object.keys(en.enums.motionFallback), code).toContain(code);
+      expect(Object.keys(motionEnums.motionFallback), code).toContain(code);
+    }
+  });
+
+  describe.runIf(fs.existsSync(BACKEND_MODELS))("against the backend list", () => {
+    const codes = [...(/FALLBACK_REASONS\s*=\s*\(([^)]*)\)/.exec(fs.readFileSync(BACKEND_MODELS, "utf8"))?.[1] ?? "").matchAll(/"(\w+)"/g)].map((m) => m[1]);
+
+    it("reads the backend list", () => {
+      expect(codes.length).toBeGreaterThanOrEqual(8);
+      expect(codes).toContain("worker_unavailable");
+    });
+
+    it("every backend code has an English and a Polish label, and nothing else is labelled but the earlier codes", () => {
+      for (const labelled of [Object.keys(en.enums.motionFallback), Object.keys(motionEnums.motionFallback)]) {
+        expect(codes.filter((c) => !labelled.includes(c))).toEqual([]);
+        expect(labelled.filter((c) => !codes.includes(c) && !EARLIER_CODES.includes(c))).toEqual([]);
+      }
+    });
+  });
+});
+
+/** The motion-quality gate's wording (levels, retry note, tooltip) as agreed; the sentences of the hint are checked where they render (components.test.tsx). */
+describe("Motion-quality labels", () => {
+  it("the three levels read as agreed, in both languages, with the same ids", () => {
+    expect(en.enums.motionLevel).toEqual({ rich: "Rich motion", subtle: "Subtle motion", low: "Low motion" });
+    expect(motionEnums.motionLevel).toEqual({ rich: "Dużo ruchu", subtle: "Subtelny ruch", low: "Mało ruchu" });
+  });
+
+  it("the retry note and the tooltip read as agreed (decimal comma and no-break spaces before the units come from the formatter and the dictionary)", () => {
+    expect(motionMessages["retried with another seed"]).toBe("ponowiono z innym ziarnem");
+    expect(motionMessages["Non-rigid motion: {value} px per 0.4 s (a still with camera moves: ≈ {still})"]).toBe("Ruch niesztywny: {value}\u00A0px na 0,4\u00A0s (ruch kamery na nieruchomej klatce: ≈ {still})");
   });
 });

@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from "react";
 import { CheckCircle2, AlertTriangle, XCircle, Info, Loader2, X } from "lucide-react";
-import { ApiError, api, onApiError, withLang } from "../api";
+import { ApiError, onApiError } from "../api";
 import { useI18n } from "../i18n";
 import { stepLabel } from "./jobSteps";
+import { fetchJobSnapshot, isTerminal, openJobStream, watchJob, type JobWatch } from "./jobWatch";
 
 export const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -307,73 +308,96 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// ---------------------------------------------------------------------------------------------- jobs (SSE)
+// ---------------------------------------------------------------------------------------------- jobs (SSE, with polling and reconnect fallbacks: jobWatch.ts)
 export function JobProgress({ jobId, onDone, compact }: { jobId: string; onDone?: (job: any) => void; compact?: boolean }) {
+  const [job, setJob] = useState<any>(null);
+  const [stalled, setStalled] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const watch = useRef<JobWatch | null>(null);
+  const onDoneRef = useRef(onDone);
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  });
+  useEffect(() => {
+    setStalled(false);
+    const w = watchJob({ jobId, openStream: openJobStream, fetchJob: fetchJobSnapshot, onJob: setJob, onDone: (j) => onDoneRef.current?.(j), onStalled: setStalled });
+    watch.current = w;
+    return () => {
+      w.stop();
+      watch.current = null;
+    };
+  }, [jobId]);
+  const retry = async () => {
+    setRetrying(true);
+    try {
+      await watch.current?.retry();
+    } finally {
+      setRetrying(false);
+    }
+  };
+  return <JobProgressView job={job} stalled={stalled} retrying={retrying} onRetry={retry} compact={compact} />;
+}
+
+export function JobProgressView({ job, stalled = false, retrying = false, onRetry, compact }: { job: any; stalled?: boolean; retrying?: boolean; onRetry?: () => void; compact?: boolean }) {
   const i18n = useI18n();
   const { t, lang } = i18n;
-  const [job, setJob] = useState<any>(null);
-  const doneRef = useRef(false);
-  useEffect(() => {
-    doneRef.current = false;
-    const es = new EventSource(withLang(`/api/stream/jobs/${jobId}`));
-    const handle = (ev: MessageEvent) => {
-      const j = JSON.parse(ev.data);
-      setJob(j);
-      if (["succeeded", "failed", "cancelled"].includes(j.status) && !doneRef.current) {
-        doneRef.current = true;
-        es.close();
-        onDone?.(j);
-      }
-    };
-    es.addEventListener("progress", handle);
-    es.addEventListener("done", handle);
-    es.onerror = async () => {
-      es.close();
-      if (doneRef.current) return;
-      try {
-        const j = await api.get(`/api/jobs/${jobId}`, { quiet: true });
-        setJob(j);
-        if (["succeeded", "failed", "cancelled"].includes(j.status)) {
-          doneRef.current = true;
-          onDone?.(j);
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    return () => es.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId]);
-  if (!job)
+  const lost = stalled && !isTerminal(job);
+  if (!job && !lost)
     return (
       <div className="flex items-center gap-2 text-[13px] text-espresso-500">
         <Spinner /> {t("Connecting…")}
       </div>
     );
-  const failed = job.status === "failed";
+  const failed = job?.status === "failed";
   // the server renders the title in the request language (with the persona and details); the dictionary is only the fallback
-  const title = job.title || (lang !== "en" && i18n.hasEnum("jobKind", job.kind) ? i18n.tEnum("jobKind", job.kind) : job.kind);
+  const title = job && (job.title || (lang !== "en" && i18n.hasEnum("jobKind", job.kind) ? i18n.tEnum("jobKind", job.kind) : job.kind));
   return (
-    <div className={cn("rounded-xl border px-4 py-3", failed ? "border-roast-500/40 bg-roast-500/5" : "border-cream-300 bg-cream-50")} data-testid="job-progress">
-      <div className="flex items-center justify-between text-[13px]">
-        <div className="flex items-center gap-2 font-medium">
-          {job.status === "running" || job.status === "queued" ? <Spinner /> : failed ? <XCircle className="h-4 w-4 text-roast-500" /> : <CheckCircle2 className="h-4 w-4 text-sage-600" />}
-          {title}
+    <div className={cn("rounded-xl border px-4 py-3", failed || lost ? "border-roast-500/40 bg-roast-500/5" : "border-cream-300 bg-cream-50")} data-testid="job-progress">
+      {job && (
+        <>
+          <div className="flex items-center justify-between text-[13px]">
+            <div className="flex items-center gap-2 font-medium">
+              {lost ? (
+                <AlertTriangle className="h-4 w-4 text-roast-500" aria-hidden="true" />
+              ) : job.status === "running" || job.status === "queued" ? (
+                <Spinner />
+              ) : failed ? (
+                <XCircle className="h-4 w-4 text-roast-500" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 text-sage-600" />
+              )}
+              {title}
+            </div>
+            <span className="tabular-nums text-espresso-500">{Math.round((job.progress || 0) * 100)}%</span>
+          </div>
+          <div className="mt-2">
+            <Meter value={job.progress || 0} tone={failed ? "bad" : undefined} />
+          </div>
+          <div className="mt-1.5 text-[12.5px] text-espresso-500">{failed ? job.error : job.message}</div>
+          {!compact && job.steps?.length > 0 && (
+            <ol className="mt-2 flex flex-wrap gap-1.5">
+              {job.steps.slice(-8).map((s: any, i: number) => (
+                <li key={i} className="rounded-full bg-cream-200 px-2 py-0.5 text-[11px] text-espresso-600">
+                  {stepLabel(i18n, s.name)}
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
+      )}
+      {lost && (
+        <div role="alert" data-testid="job-stalled" className={cn("flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[12.5px]", job && "mt-3 border-t border-roast-500/20 pt-3")}>
+          <div className="flex min-w-0 items-start gap-2">
+            {!job && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-roast-500" aria-hidden="true" />}
+            <div className="min-w-0">
+              <div className="font-semibold text-espresso-900">{t("Lost connection to the server")}</div>
+              <p className="mt-0.5 text-espresso-600">{t("The job may still be running — we keep trying to reconnect.")}</p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" loading={retrying} onClick={onRetry} data-testid="job-retry">
+            {t("Try again")}
+          </Button>
         </div>
-        <span className="tabular-nums text-espresso-500">{Math.round((job.progress || 0) * 100)}%</span>
-      </div>
-      <div className="mt-2">
-        <Meter value={job.progress || 0} tone={failed ? "bad" : undefined} />
-      </div>
-      <div className="mt-1.5 text-[12.5px] text-espresso-500">{failed ? job.error : job.message}</div>
-      {!compact && job.steps?.length > 0 && (
-        <ol className="mt-2 flex flex-wrap gap-1.5">
-          {job.steps.slice(-8).map((s: any, i: number) => (
-            <li key={i} className="rounded-full bg-cream-200 px-2 py-0.5 text-[11px] text-espresso-600">
-              {stepLabel(i18n, s.name)}
-            </li>
-          ))}
-        </ol>
       )}
     </div>
   );

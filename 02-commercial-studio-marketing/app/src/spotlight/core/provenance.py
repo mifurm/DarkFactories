@@ -77,7 +77,7 @@ async def _generative_video(st: Studio, motion: dict[str, Any], actions: list[di
         a = await st.asset(x["asset_id"])
         ingredients.append({"asset_id": a["id"], "sha256": a["sha256"], "relationship": "componentOf", "role": "motion-clip", "model": motion.get("model")})
         shots.append({"shot_id": x["shot_id"], "scene_id": x.get("scene_id"), "seed": x["seed"], "prompt_sha256": x["prompt_sha256"], "width": x.get("width"), "height": x.get("height"), "frames": x.get("frames"),
-                      "gpu_seconds": (a.get("meta") or {}).get("gpu_seconds"), "cached": x.get("status") == "cached", "asset_id": a["id"], "clip_sha256": a["sha256"]})
+                      "gpu_seconds": (a.get("meta") or {}).get("gpu_seconds"), "attempts": int((x.get("motion") or {}).get("attempts") or (a.get("meta") or {}).get("attempts") or 1), "cached": x.get("status") == "cached", "asset_id": a["id"], "clip_sha256": a["sha256"]})
     actions.append({"action": "c2pa.created", "digitalSourceType": DST_ALGORITHMIC, "softwareAgent": motion.get("model"), "when": when, "parameters": {"kind": "image-to-video", "model_revision": motion.get("revision"), "shots": len(shots)}})
     models.append({"role": "video", "deployment": motion.get("model")})
     return {

@@ -2,12 +2,14 @@
 
 **Brief → brand-safe, localized, measurable commercials.** Spotlight is an AI crew (Strategist, Copywriter, Art Director,
 Director, Sound Designer, Localizer, **Brand Guardian**, Media Analyst) that turns a marketing brief into a **rendered MP4
-commercial** (keyframes from `gpt-image`, motion, voice-over, burned-in captions + SRT, music bed, logo, AI-disclosure badge,
-brand end card, loudness-normalised) plus cutdowns, aspect-ratio reframes and localized versions — with **governance as the
+commercial** (keyframes from `gpt-image` brought to life as **AI-generated video clips with real subject and camera motion** —
+*Cinematic*, on a serverless A100 GPU inside your own Azure tenant — or camera moves on the stills in *Preview*; voice-over,
+burned-in captions + SRT, music bed, logo, AI-disclosure badge, brand end card, loudness-normalised) plus cutdowns, aspect-ratio
+reframes and localized versions — with **governance as the
 differentiator**: claims library, rights registry, hash-chained approvals/audit, signed provenance manifests, a deterministic
 Brand Guardian that blocks violations before approval, and cost guardrails that fail closed.
 
-All 24 Release-1 features (**CS-01 … CS-24**) are implemented end to end (backend + API + UI + tests) and deployed to Azure.
+All 25 Release-1 features (**CS-01 … CS-25**) are implemented end to end (backend + API + UI + tests) and deployed to Azure.
 Everything runs on a **fictional sample brand** (Northwind Coffee Roasters, campaign *Dawn Roast*); see "Real vs simulated".
 
 | | |
@@ -38,18 +40,21 @@ Everything runs on a **fictional sample brand** (Northwind Coffee Roasters, camp
               │  /api/*  (JSON, SSE job progress)
  ┌────────────▼──────────────────────────────────────────────────────────────────────────────┐
  │ FastAPI (Python 3.13) — app factory auto-discovers features/csNN_*/  →  /api/features        │
- │  routers: CS-01 … CS-24   ·   deps: roles (X-Studio-Role) · rate limits · budget guard       │
+ │  routers: CS-01 … CS-25   ·   deps: roles (X-Studio-Role) · rate limits · budget guard       │
  │  core: repo (Cosmos│memory) · blobs (Azure│localdir│memory) · job runner (persisted, SSE)    │
  │        AI clients (Azure OpenAI chat/image/TTS/embeddings · Content Safety · AI Speech)       │
  │        meter + BudgetGuard · audit hash-chain · provenance (Ed25519) · vector index          │
  │  domain: guardian · claims · rights · colors · disclosure · script · localize · bandit · …    │
  │  video: compositor (Pillow/numpy frames → ffmpeg) behind a VideoProvider interface            │
+ │  motion: MotionClient (queue + blob contract v1) · planner · clip cache · offline animator    │
  └───────────┬───────────────┬───────────────┬───────────────┬───────────────────────────────┘
         Cosmos DB        Blob Storage     Azure OpenAI     Content Safety / AI Speech     App Insights
        (serverless,      (private, RBAC)  gpt-5.4(-mini),  (text, image, protected         (OpenTelemetry,
-        data-plane RBAC)                  gpt-image-1.5,   material, Prompt Shields,        Entra-authenticated)
-                                          tts-hd, embed    neural voices)
- Identity: one user-assigned managed identity for every call — no keys, no connection strings, no secrets.
+        data-plane RBAC)  + Queue motion-  gpt-image-1.5,   material, Prompt Shields,        Entra-authenticated)
+                          jobs (CS-25)     tts-hd, embed    neural voices)
+                               │
+                               └─► ca-studio-motion: Wan 2.2 image→video on a serverless A100 (scale-to-zero, no ingress, own identity)
+ Identity: user-assigned managed identities (app + GPU worker) for every call — no keys, no connection strings, no secrets.
 ```
 
 * **Offline mode** (`SPOTLIGHT_MODE=offline`, the default when no Azure endpoints are configured) runs the *same code paths*
@@ -69,7 +74,7 @@ Everything runs on a **fictional sample brand** (Northwind Coffee Roasters, camp
 | CS-05 | Strategy agent (3+ territories grounded with citations) | Strategy tab | `/api/campaigns/{id}/strategy/*` |
 | CS-06 | Script & copy agent (6/15/30 s beats, mandatories verbatim) | Script tab | `/api/campaigns/{id}/script/*` |
 | CS-07 | Storyboard & art direction (style bible, `gpt-image` keyframes, hero quality gated) | Storyboard tab | `/api/campaigns/{id}/storyboard/*` |
-| CS-08 | Spot compositor (ffmpeg MP4, captions, music, end card, −16/−23 LUFS) | Video tab | `/api/campaigns/{id}/spot/*` |
+| CS-08 | Spot compositor (ffmpeg MP4, captions, music, end card, −16/−23 LUFS; Preview = camera moves on stills) | Video tab | `/api/campaigns/{id}/spot/*` |
 | CS-09 | Voice & audio (tts-hd / neural voices, beat-timed VO, SRT, licensed procedural music) | Voice & audio tab | `/api/campaigns/{id}/audio/*` |
 | CS-10 | Localization (8 languages, glossary/DNT, back-translation QA, local-market Guardian) | Localization tab | `/api/campaigns/{id}/localization/*` |
 | CS-11 | Format factory (16:9 / 9:16 / 1:1 / 4:5, 6/15/30 s cutdowns, version tree) | Formats tab | `/api/campaigns/{id}/formats/*` |
@@ -86,6 +91,42 @@ Everything runs on a **fictional sample brand** (Northwind Coffee Roasters, camp
 | CS-22 | Collaboration & integrations (roles, Teams/Slack webhooks, campaign pack) | `/team` | `/api/team/*`, `/api/campaigns/{id}/export` |
 | CS-23 | ROI & ACR calculator (vendored business-case model v1.1.0: scenarios, expansion levers E1–E4, 5 tiers, live comparison) | `/roi` | `/api/roi/*` |
 | CS-24 | Observability, security & IaC (health, metrics, OpenTelemetry, Bicep) | `/ops` | `/healthz`, `/readyz`, `/api/ops/*`, `/api/meta`, `/api/usage` |
+| CS-25 | **Cinematic motion** — generative video: each keyframe becomes an AI clip (Wan 2.2 on a serverless A100), estimate + budget check, GPU warm-up, per-shot fallback | Video tab (render quality), Storyboard tab (motion prompt) | `/api/motion/*`, `/api/campaigns/{id}/spot/estimate`, `…/spot/render {quality}` |
+
+## Cinematic motion — from slideshow to film
+
+*Preview* is the compositor animating stills (Ken-Burns / pan / parallax): fast, free, and still a slideshow. *Cinematic* turns every
+approved keyframe — the **opening frame** of the shot — into a **generated video clip** with real subject and camera motion
+(a hand lifts the mug, steam curls, light moves, the camera pushes in), then the same compositor edits the clips: dissolves, supers,
+captions, logo, AI badge, voice-over + music, EBU R128, end card.
+
+```
+Studio ─ keyframe + motion prompt ─► Storage Queue ──(KEDA, identity auth)──► ca-studio-motion  (Wan 2.2 TI2V-5B, serverless A100, min 0 / max 1, no ingress)
+   ▲                                  Blob motion-in/out/models                      │ clip.mp4 + status + result
+   └──────────── clip asset (library) ◄──────────────────────────────────────────────┘ → compositor → spot (Guardian frame checks, signed manifest)
+```
+
+| | |
+|---|---|
+| Model | **Wan 2.2 TI2V-5B**, Apache-2.0 (no territory restrictions), pinned revision; weights mirrored into the tenant's Blob. Azure OpenAI Sora 2 is **retired** (2 Nov 2026) and no other first-party video model exists, so the model runs in *your* environment: data never leaves the tenant |
+| Compute | Container Apps **serverless A100** (`gpu-a100` profile of the Studio environment), 8 vCPU / 64 GiB, scale-to-zero, per-second billing: **US$0.00108 / s** (A100 0.000688 + vCPU + memory, swedencentral retail) |
+| Measured | 1024×576, 20 steps: **≈ 0.75 s of GPU per frame** (3 s clip = 55 s, 4.9 s clip = 95 s). Cold start **≈ 3.7 min** (node + image ≈ 2 min, weights from the Blob mirror ≈ 1 min, model load 11 s); KEDA starts the worker 16 s after the first message |
+| Cost | ≈ **US$0.08–0.10 per shot**, **≈ US$0.35–0.45 per four-shot spot** (+ ≈ US$0.26 when the worker has to cold-start); a cached shot — re-render, localization, cut-down — is **US$0** and calls no GPU |
+| Limits | **One A100 per environment** (quota) → shots render one after another; ≤ 5 s per clip; clips are silent (Studio mixes VO + music); a generative model can still draw an imperfect hand → Content Safety frame checks, per-shot fallback to the still, human approval gate |
+| Governance | Worker identity = queue + blob only (no Cosmos, no OpenAI); estimate and budget check before spending; actual GPU seconds metered as kind `motion`; manifest records model, revision, licence, host, per-shot seed + prompt digest; AI badge burned in |
+
+```bash
+# local, no GPU, no Azure: the Studio's offline mode animates keyframes procedurally (MOTION_MODE=stub is the offline default)
+SPOTLIGHT_MODE=offline .venv/bin/uvicorn spotlight.main:app --port 8102
+# the real worker contract on your laptop (fake pipeline + local-dir transport, CPU only)
+cd motion-worker && MOTION_PIPELINE=fake MOTION_TRANSPORT=local MOTION_LOCAL_DIR=/tmp/motion python -m motion_worker
+# deploy / update the GPU worker (ACR build + revision switch while the queue is idle — the environment holds ONE A100)
+scripts/deploy_motion.sh [tag]
+```
+Settings (env, set by Bicep): `MOTION_MODE` (`auto|azure|local|stub|off`), `MOTION_QUEUE_URL`, `MOTION_QUEUE_NAME`, `MOTION_BLOB_ACCOUNT_URL`,
+`MOTION_IN_CONTAINER`, `MOTION_OUT_CONTAINER`, `MOTION_STEPS` (20), `MOTION_GUIDANCE` (4.0), `MOTION_HIGH` (1280×704), `MOTION_PRICE_PER_GPU_SECOND`
+(0.00108), `MOTION_TIMEOUT_S`, `MOTION_COLD_START_S`. Contract and schemas: [contracts/](contracts/README.md) · worker: [motion-worker/](motion-worker/README.md) ·
+design: [ARCHITECTURE.md §7.2](ARCHITECTURE.md), ADR-16/17.
 
 ## Run it locally
 
@@ -173,8 +214,8 @@ exemption rationale are in the report.
 
 Configuration (all via environment variables, set by Bicep; **no secrets**): `SPOTLIGHT_MODE`, `AZURE_CLIENT_ID`,
 `COSMOS_ENDPOINT`, `BLOB_ACCOUNT_URL`, `AZURE_OPENAI_ENDPOINT`, `AI_ENDPOINT`, `MODEL_*` deployment names,
-`DAILY_AI_BUDGET_USD` (default 5), `CAMPAIGN_AI_BUDGET_USD` (default 2), `APPLICATIONINSIGHTS_CONNECTION_STRING`.
-See `app/src/spotlight/config.py`.
+`DAILY_AI_BUDGET_USD` (default 15 — Cinematic spots cost ≈ US$0.4–0.6 of GPU time; it was 5), `CAMPAIGN_AI_BUDGET_USD` (default 5; was 2), `MOTION_*` (see *Cinematic motion*), `APPLICATIONINSIGHTS_CONNECTION_STRING`.
+See `app/src/spotlight/config.py`. The GPU layer adds: the `gpu-a100` workload profile (Studio environment), `ca-studio-motion`, a second managed identity `id-studio-motion`, Storage Queue `motion-jobs`, blob containers `motion-in` / `motion-out` / `motion-models` (3-day lifecycle on the transport blobs) and Container Registry **Standard** (the worker image is 7 GiB). Deploy the worker with `scripts/deploy_motion.sh`; revert the budget raise with `PUT /api/budget/caps {"daily_cap_usd": 5}` and `CAMPAIGN_AI_BUDGET_USD=2` if you do not use Cinematic.
 
 ## Security, governance & responsible AI
 
@@ -192,14 +233,16 @@ See `app/src/spotlight/config.py`.
 |---|---|
 | Azure OpenAI chat + structured output, image generation, TTS, embeddings; Content Safety; AI Speech voices | Brand, claims library, rights registry entries, talent, people, campaigns — all fictional |
 | Cosmos DB, Blob Storage, managed identity, RBAC, App Insights telemetry | Ad platforms (Google/Meta/TikTok/LinkedIn connectors), audience panel, bandit "ground truth", media-planner curves, performance history |
-| ffmpeg rendering, loudness normalisation, ffprobe verification, captions/SRT, procedural CC0-style music | Video *generation* models (Sora-2 is deprecated in this region): a `VideoProvider` interface is in place; the compositor animates keyframes |
+| ffmpeg rendering, loudness normalisation, ffprobe verification, captions/SRT, procedural CC0-style music | **Live-action footage** (shots are generated, not filmed); Cinematic clips are generated by an open model, so imperfect hands/objects can occur — hence the frame checks, fallback and human approval |
+| **Generative video: Wan 2.2 on a real serverless A100**, queue + blob contract, KEDA scale-from-zero, metered GPU seconds (CS-25) | Offline mode: the clips come from a procedural animator, not a model (labelled "offline motion simulator") |
 | Hash-chained audit log, Ed25519 provenance signatures, approvals & role enforcement | Provenance format is "C2PA-style" (hash-based, signed) — not a certified C2PA Content Credential; signing key is app-managed (production: Key Vault/HSM) |
 | Metered AI spend (list-price estimates) | ROI/ACR figures: illustrative business case with labelled assumptions (see `business-case/`) |
 
 ## Known limitations
 
-CJK / Arabic captions need extra fonts (not shipped; Latin, Cyrillic, Greek are). Generative video, catalog-scale content, audience
-personalization and the clean-room data platform are **expansion levers** modelled in the ROI calculator (E1–E4; Base = off), not Release-1 code. The vendored business-case model is re-synced with `scripts/sync_business_case.py` (copies `model.py`, `assumptions.json`, `outputs.json` together and verifies parity).
+CJK / Arabic captions need extra fonts (not shipped; Latin, Cyrillic, Greek are). Catalog-scale content, audience
+personalization and the clean-room data platform are **expansion levers** modelled in the ROI calculator (E1–E4; Base = off), not Release-1 code (E1, generative video for *hero footage*, is priced on hosted per-second meters; the in-product Cinematic motion of CS-25 is a different, self-hosted path). The vendored business-case model is re-synced with `scripts/sync_business_case.py` (copies `model.py`, `assumptions.json`, `outputs.json` together and verifies parity).
+**Cinematic motion limits:** one A100 per environment (shots render sequentially), ≈ 3.7 min cold start (hidden by the warm-up and a 7-minute cooldown), clips ≤ 5 s and silent, no guarantee of perfect hands or product details — a flagged or failed shot falls back to the still. The partner video models in Foundry (fal: Kling, LTX, MiniMax) are **not enabled**: they run outside Microsoft's facilities and the Microsoft DPA does not apply.
 Rate limits are per replica (in-process). The demo identity is self-declared. See ARCHITECTURE.md → *Implemented vs target*.
 Polish (pl): **deployed and verified live** (smoke 44/44 on the deployed app incl. 14 Polish steps; 1,206 backend tests, hybrid run on the real models — see REPORT → *Polish localization*). Neural voices are
 the default for Polish; the speaking-rate model was calibrated for `pl-PL-ZofiaNeural` only (another voice may need its own constants). Polish legal wording (EU 1924/2006 health claims, AI disclosure) is factual demo content, not legal advice.

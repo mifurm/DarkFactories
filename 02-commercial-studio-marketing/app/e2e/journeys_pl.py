@@ -698,6 +698,13 @@ def main() -> int:
             need_campaign("the render")
             run.go(page, f"/campaigns/{run.cid}/video")
             page.get_by_test_id("quality-preview").click()  # Cinematic (AI video, real GPU time) is the default whenever the server can do it: this journey renders the cheap preview
+            if page.get_by_test_id("quality-cinematic").is_enabled():  # the Cinematic panel (nothing is rendered): quality picker, GPU status and the per-shot estimate, in Polish
+                page.get_by_test_id("quality-cinematic").check()
+                expect(page.get_by_test_id("motion-estimate")).to_be_visible(timeout=30000)
+                run.check(page, "cinematic-panel")
+                page.evaluate("document.querySelector('[data-testid=render-quality]').scrollIntoView({block: 'start'})")
+                run.shot(page, "07b-cinematic-render-panel")
+                page.get_by_test_id("quality-preview").click()
             page.get_by_role("button", name=run.T(page, "Render spot")).click()
             wait_job(300_000)
             expect(page.get_by_test_id("video-player").first).to_be_visible(timeout=ai(60000))

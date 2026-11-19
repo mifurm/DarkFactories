@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     motion_price_per_gpu_second: float = 0.00108
     motion_timeout_s: int = 1500  # the whole motion phase of one render (cold start included)
     motion_cold_start_s: int = 240
+    motion_retry_low_motion: bool = True  # a clip that barely moves (motion gate, see motion/quality.py) gets ONE more attempt with another seed; false: measure and report only
 
     @property
     def mode(self) -> str:

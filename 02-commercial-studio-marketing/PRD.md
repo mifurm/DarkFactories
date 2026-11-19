@@ -24,7 +24,7 @@
 2. **Governance first** — claims & compliance library, **Rights & Consent Registry**, Azure AI Content Safety, AI-disclosure labels, C2PA-style provenance, hash-chained audit.
 3. **Closed loop** — variant matrix + Thompson-sampling allocation + performance ingestion; insights flow back into the Brand Brain.
 4. **FinOps for creative** — metered **cost per approved asset**, budget caps and premium-generation approval; the ROI story is live in the product.
-5. **Pluggable model layer** — Azure OpenAI text, image and speech today; a `VideoProvider` for any video model tomorrow, with an ffmpeg spot compositor that works now (Azure OpenAI Sora is deprecated in the target region).
+5. **Pluggable model layer** — Azure OpenAI text, image and speech, plus a self-hosted open **video model on serverless GPU** behind `VideoProvider` / `MotionClient` (Cinematic quality: real generated motion, in the customer's tenant). Azure OpenAI Sora 2 was retired on 2 Nov 2026; the ffmpeg compositor keeps every spot deliverable and is the per-shot fallback.
 6. **Enterprise-ready** — DAM with semantic search, roles incl. agency guests, Teams/Slack-compatible notifications, campaign-pack export, REST API.
 
 **The business case — Contoso Consumer Brands, 3 years, list prices *(outputs.json)***. Conservative and Base are the **Release-1 campaign studio**; Upside also switches on the four Release-2+ expansion levers (below).
@@ -257,6 +257,7 @@ Each requirement maps to one or more Release-1 features (see [FEATURES.md](FEATU
 | FR-B3 | 6/15/30/60 s scripts with beats within the speech-rate budget; channel copy within limits; tone variants; claim-aware; targeted revision | CS-06 | P0 |
 | FR-B4 | Shot list and consistent storyboard frames from a style bible; single-frame regeneration with versions | CS-07 | P0 |
 | FR-B5 | Render a timeline spec through a `VideoProvider` (ffmpeg compositor default): motion, transitions, VO, music bed, captions (burned-in + SRT), end-card, EBU R128 loudness, H.264/AAC | CS-08 | P0 |
+| FR-B6 | **Cinematic quality**: turn each approved storyboard keyframe (the opening frame of a shot) into a generated video clip with real subject and camera motion; storyboard separates *opening frame* from *motion*; estimate and budget check before spending; clips cached and reused by re-renders, formats, cut-downs and localizations; per-shot fallback to the still path; Guardian frame checks; provenance of model, seed and prompt; worker scales to zero and runs inside the tenant | CS-25 | P0 |
 | FR-B6 | Voice-over from approved voices in multiple languages, fitted to the beat plan; SRT; rights-cleared music only; refuse cloning/celebrity imitation | CS-09 | P0 |
 | FR-B7 | Transcreation to ≥ 8 languages with glossary and do-not-translate enforcement, back-translation check, per-market claim re-check, length fitting | CS-10 | P1 |
 | FR-B8 | Reformat a master to 16:9, 9:16, 1:1, 4:5 and 6/15/30 s with safe-area reframing, overlays and legal supers; version tree with stale tracking | CS-11 | P0 |
@@ -542,7 +543,7 @@ The Release 2+ backlog is in [FEATURES.md](FEATURES.md#release-2-roadmap); none 
 | R3 | **Brand safety incident** | L / H | Guardian hard-fails block approval; Content Safety on prompts and outputs; human gates; kill-switch and takedown via campaign pack status | CS-12, CS-13 |
 | R4 | **Hallucinated or unsubstantiated claims** | M / H | Claim-aware generation; claims library with substantiation expiry; Guardian claim matching by rule, embedding and judge; legal sign-off | CS-02, CS-06, CS-12 |
 | R5 | **Model drift / vendor model changes** | M / M | Pinned deployments; evaluation sets and regression before upgrades (R2-12); provider abstraction; offline stubs in CI | CS-24 |
-| R6 | **Model availability** (e.g. Sora deprecation) | H / M | `VideoProvider` abstraction; compositor ships now; capability negotiation | CS-08 |
+| R6 | **Model availability** (Azure OpenAI Sora 2 retired on 2 Nov 2026; no other first-party video model in any region) | H / M | Self-hosted open model (Wan 2.2, Apache-2.0) on Container Apps serverless GPU behind `VideoProvider` (CS-25); per-shot fallback to stills so a spot always renders; model, revision and licence recorded in every manifest; partner models (fal on Foundry) only after an explicit legal decision | CS-08, CS-25 |
 | R7 | **Regulatory change** (AI Act guidance, green-claims rules, platform policies) | H / M | Rules as data in the claims and disclosure libraries; regulatory packs (R2-16); counsel review; EU Code of Practice alignment | CS-02, CS-14 |
 | R8 | **Prompt injection / data leakage** | M / H | Untrusted-content handling; tool allow-lists; output validation; Prompt Shields; PII redaction; keyless identity; tenant isolation | CS-01, CS-12, CS-24 |
 | R9 | **Cost overrun** of generation | M / M | Metering, per-campaign and daily caps, premium approval; fail closed | CS-15 |
@@ -602,7 +603,7 @@ The Release 2+ backlog is in [FEATURES.md](FEATURES.md#release-2-roadmap); none 
 * Preferred disclosure policy per platform and market; appetite for EU icons.
 * Data residency requirement (EU Data Zone versus regional deployments) and customer-managed keys?
 * Agency commercial model for guest users and chargeback.
-* Which video model (if any) the customer licenses for the `VideoProvider` in Release 2.
+* Whether the customer keeps Cinematic on tenant-local GPU (default) or also accepts hosted partner video models that run outside Microsoft's facilities (fal on Foundry: higher fidelity and native audio, but data leaves the tenant and the Microsoft DPA does not apply), and how much serverless-GPU quota (one A100 per environment today) the rollout needs.
 
 ---
 

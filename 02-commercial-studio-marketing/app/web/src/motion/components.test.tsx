@@ -382,7 +382,8 @@ describe("RenderQualityPicker — Polish", () => {
 });
 
 describe("SpotMotionChip / SpotMotionDetails", () => {
-  const info = (over: Partial<typeof MOTION> = {}, quality: "cinematic" | "preview" | null = "cinematic"): SpotMotionInfo => readSpotMotion({ quality, render: { motion: { ...MOTION, ...over } } });
+  const info = (over: Partial<typeof MOTION> & { shots?: unknown[]; shots_low_motion?: number; retries?: number } = {}, quality: "cinematic" | "preview" | null = "cinematic"): SpotMotionInfo =>
+    readSpotMotion({ quality, render: { motion: { ...MOTION, ...over } } });
 
   it("Cinematic · AI motion 4/4 shots", () => {
     const html = render(<SpotMotionChip info={info()} />);
@@ -439,6 +440,128 @@ describe("SpotMotionChip / SpotMotionDetails", () => {
     expect(plain(withText)).toContain("Fell back to camera moves on the keyframe: Shot 3 (the GPU worker did not answer in time), Shot 4 (some_new_reason)");
     const codeOnly = render(<SpotMotionDetails info={info({ shots_generated: 3, shots_fallback: [{ shot_id: "s3", reason: "timeout" }] })} />);
     expect(plain(codeOnly)).toContain("Fell back to camera moves on the keyframe: Shot 3 (timed out)");
+  });
+
+  // the backend's codes (spotlight/motion/models.py FALLBACK_REASONS), then the codes of an earlier revision, which older artifacts still carry
+  const BACKEND_REASONS = ["oom", "timeout", "safety", "budget", "worker_unavailable", "bad_request", "internal", "disabled"];
+  const EARLIER_REASONS = ["unavailable", "failed", "bad_clip"];
+  const listed = (reasons: string[]) => plain(render(<SpotMotionDetails info={info({ shots_total: reasons.length, shots_generated: 0, shots_fallback: reasons.map((reason, i) => ({ shot_id: `s${i + 1}`, reason })) })} />));
+
+  it("labels every backend reason code when only the code arrives, keeps the earlier codes readable, and shows a new code as received", () => {
+    expect(listed(BACKEND_REASONS)).toContain(
+      "Shot 1 (out of GPU memory), Shot 2 (timed out), Shot 3 (blocked by Content Safety), Shot 4 (budget limit), Shot 5 (GPU unavailable), Shot 6 (invalid request), Shot 7 (internal generation error), Shot 8 (AI motion turned off on the server)",
+    );
+    expect(listed(EARLIER_REASONS)).toContain("Shot 1 (GPU unavailable), Shot 2 (generation failed), Shot 3 (unreadable clip)");
+    expect(listed(["quantum_flux", "internal"])).toContain("Shot 1 (quantum_flux), Shot 2 (internal generation error)");
+  });
+
+  it("Polish: the same labels; an unknown code is shown as received and is not a missing key", () => {
+    setLang("pl");
+    expect(flat(listed(BACKEND_REASONS))).toContain(
+      "Ujęcie 1 (brak pamięci GPU), Ujęcie 2 (przekroczono czas), Ujęcie 3 (zablokowane przez Content Safety), Ujęcie 4 (limit budżetu), Ujęcie 5 (GPU niedostępne), Ujęcie 6 (nieprawidłowe żądanie), Ujęcie 7 (błąd wewnętrzny generowania), Ujęcie 8 (ruch AI wyłączony na serwerze)",
+    );
+    expect(flat(listed(EARLIER_REASONS))).toContain("Ujęcie 1 (GPU niedostępne), Ujęcie 2 (generowanie nie powiodło się), Ujęcie 3 (nieczytelny klip)");
+    expect(flat(listed(["quantum_flux"]))).toContain("Ujęcie 1 (quantum_flux)");
+    expect(missingKeys()).toEqual([]);
+  });
+
+  // the motion-quality gate: render.motion.shots[i].motion = { non_rigid, total, level, attempts }
+  const gate = (level: string, over: object = {}) => ({ non_rigid: 2.66, total: 3.1, level, attempts: 1, ...over });
+  const gated = [
+    { shot_id: "s1", status: "generated", motion: gate("rich") },
+    { shot_id: "s2", status: "cached", motion: gate("subtle", { non_rigid: 0.74, total: 0.9 }) },
+    { shot_id: "s3", status: "generated", motion: gate("low", { non_rigid: 0.12, total: 0.2, attempts: 2 }) },
+    { shot_id: "s4", status: "generated", motion: gate("rich", { non_rigid: 4.1, total: 4.6 }) },
+  ];
+  const levels = (html: string) => [...html.matchAll(/data-testid="motion-level" data-shot="(\d+)" data-level="(\w+)" data-attempts="(\d+)"/g)].map((m) => [Number(m[1]), m[2], Number(m[3])]);
+
+  it("a level badge per measured clip — Rich, Subtle or Low motion — and no figures in the visible text", () => {
+    const html = render(<SpotMotionDetails info={info({ shots: gated, shots_low_motion: 1, retries: 1 })} />);
+    expect(levels(html)).toEqual([[1, "rich", 1], [2, "subtle", 1], [3, "low", 2], [4, "rich", 1]]);
+    const t = plain(html);
+    expect(t).toContain("Shot 1 Rich motion");
+    expect(t).toContain("Shot 2 Subtle motion");
+    expect(t).toContain("Shot 3 Low motion");
+    expect(t).toContain("Shot 4 Rich motion");
+    expect(t).not.toMatch(/2\.66|0\.74|0\.12|4\.1\b|3\.1\b/); // the measurements live in the tooltips
+    expect(html).toContain("bg-sage-100"); // rich: good
+    expect(html).toContain("bg-sky-100"); // subtle: info
+    expect(html).toContain("bg-dawn-300/40"); // low: warn
+  });
+
+  it("each badge carries its measurement against the value of a still with camera moves (2 decimals) in a tooltip", () => {
+    const html = render(<SpotMotionDetails info={info({ shots: gated, shots_low_motion: 1 })} />);
+    expect(html).toContain('title="Non-rigid motion: 2.66 px per 0.4 s (a still with camera moves: ≈ 0.15)"');
+    expect(html).toContain('title="Non-rigid motion: 0.74 px per 0.4 s (a still with camera moves: ≈ 0.15)"');
+    expect(html).toContain('title="Non-rigid motion: 0.12 px per 0.4 s (a still with camera moves: ≈ 0.15)"');
+    expect(html).toContain('title="Non-rigid motion: 4.10 px per 0.4 s (a still with camera moves: ≈ 0.15)"');
+    const unmeasured = render(<SpotMotionDetails info={info({ shots: [{ shot_id: "s1", motion: gate("rich", { non_rigid: null, total: null }) }] })} />);
+    expect(plain(unmeasured)).toContain("Shot 1 Rich motion");
+    expect(unmeasured).not.toContain("Non-rigid motion");
+  });
+
+  it("says 'retried with another seed' next to the shots that needed a second attempt, and only those", () => {
+    const html = render(<SpotMotionDetails info={info({ shots: gated, shots_low_motion: 1, retries: 1 })} />);
+    expect(plain(html)).toContain("Shot 3 Low motion (retried with another seed)");
+    expect([...html.matchAll(/data-testid="motion-retried"/g)]).toHaveLength(1);
+    const unknownRetried = render(<SpotMotionDetails info={info({ shots: [{ shot_id: "s1", motion: gate("unknown", { non_rigid: null, total: null }) }, { shot_id: "s2", motion: gate("unknown", { non_rigid: null, total: null, attempts: 2 }) }] })} />);
+    expect(levels(unknownRetried)).toEqual([[2, "unknown", 2]]); // a clip that was not measured shows no badge, but a retry is still worth saying
+    expect(plain(unknownRetried)).toContain("Shot 2 (retried with another seed)");
+    expect(plain(unknownRetried)).not.toMatch(/motion\b.*motion/i);
+  });
+
+  it("the hint appears only when a clip stays almost still: one shot, several shots, none", () => {
+    const one = plain(render(<SpotMotionDetails info={info({ shots: gated, shots_low_motion: 1 })} />));
+    expect(one).toContain("Shot 3 has little motion. Edit its motion prompt (Storyboard tab) and render again — only that shot is regenerated.");
+    const two = [...gated.slice(0, 1), { shot_id: "s2", motion: gate("low", { non_rigid: 0.2 }) }, ...gated.slice(2)];
+    expect(plain(render(<SpotMotionDetails info={info({ shots: two, shots_low_motion: 2 })} />))).toContain(
+      "Shots 2 and 3 have little motion. Edit their motion prompts (Storyboard tab) and render again — only those shots are regenerated.",
+    );
+    const three = gated.map((s) => ({ ...s, motion: { ...s.motion, level: "low" } }));
+    expect(plain(render(<SpotMotionDetails info={info({ shots: three, shots_low_motion: 4 })} />))).toContain("Shots 1, 2, 3, and 4 have little motion.");
+
+    const rich = gated.filter((s) => s.motion.level !== "low");
+    expect(render(<SpotMotionDetails info={info({ shots: rich, shots_low_motion: 0 })} />)).not.toContain('data-testid="motion-low-hint"');
+    expect(render(<SpotMotionDetails info={info({ shots: rich })} />)).not.toContain('data-testid="motion-low-hint"'); // the count is derived from the shots when the report has none
+    expect(render(<SpotMotionDetails info={info({ shots: gated, shots_low_motion: 0 })} />)).not.toContain('data-testid="motion-low-hint"'); // the report's own count decides
+  });
+
+  it("the hint comes after the badges and before the fallbacks; fallback shots carry no badge", () => {
+    const html = render(<SpotMotionDetails info={info({ shots_generated: 3, shots_fallback: [{ shot_id: "s4", reason: "timeout" }], shots: [...gated.slice(0, 3), { shot_id: "s4", status: "fallback" }], shots_low_motion: 1 })} />);
+    const order = ['data-testid="motion-usage-line"', 'data-testid="motion-levels"', 'data-testid="motion-low-hint"', 'data-testid="motion-fallbacks"'].map((s) => html.indexOf(s));
+    expect(order.every((i) => i > 0)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(levels(html).map(([shot]) => shot)).toEqual([1, 2, 3]);
+  });
+
+  it("a report from before the gate renders exactly as it did: no badges, no retry note, no hint", () => {
+    const html = render(<SpotMotionDetails info={info({ shots_generated: 3, shots_fallback: [{ shot_id: "s4", reason: "timeout" }] })} />);
+    expect(html).not.toContain('data-testid="motion-levels"');
+    expect(html).not.toContain('data-testid="motion-low-hint"');
+    expect(html).not.toContain("title=");
+    expect(plain(html)).not.toMatch(/(Rich|Subtle|Low) motion|retried|little motion/);
+    // the same report with the gate's entries but no `motion` object in them (a backend that has not got the gate yet)
+    const plainShots = info({ shots: [{ shot_id: "s1", status: "generated" }, { shot_id: "s2", status: "cached" }] });
+    expect(render(<SpotMotionDetails info={plainShots} />)).toBe(render(<SpotMotionDetails info={info()} />));
+  });
+
+  it("Polish: the badges, the retry note, the tooltip with decimal commas, and the hint in the singular and the plural", () => {
+    setLang("pl");
+    const html = render(<SpotMotionDetails info={info({ shots: gated, shots_low_motion: 1, retries: 1 })} />);
+    const t = flat(plain(html));
+    expect(t).toContain("Ujęcie 1 Dużo ruchu");
+    expect(t).toContain("Ujęcie 2 Subtelny ruch");
+    expect(t).toContain("Ujęcie 3 Mało ruchu (ponowiono z innym ziarnem)");
+    expect(html).toContain(`title="Ruch niesztywny: 2,66${NB}px na 0,4${NB}s (ruch kamery na nieruchomej klatce: ≈ 0,15)"`);
+    expect(html).toContain(`title="Ruch niesztywny: 4,10${NB}px na 0,4${NB}s`);
+    expect(t).toContain("Ujęcie 3 ma mało ruchu. Zmień jego opis ruchu (zakładka Storyboard) i wyrenderuj ponownie — od nowa zostanie wygenerowane tylko to ujęcie.");
+    const two = [...gated.slice(0, 1), { shot_id: "s2", motion: gate("low", { non_rigid: 0.2 }) }, ...gated.slice(2)];
+    const plural = plain(render(<SpotMotionDetails info={info({ shots: two, shots_low_motion: 2 })} />));
+    expect(plural).toContain(`Ujęcia 2 i${NB}3 mają mało ruchu.`); // the one-letter conjunction stays with the number after it
+    expect(flat(plural)).toContain("Ujęcia 2 i 3 mają mało ruchu. Zmień ich opisy ruchu (zakładka Storyboard) i wyrenderuj ponownie — od nowa zostaną wygenerowane tylko te ujęcia.");
+    expect(t).not.toMatch(/Rich motion|Subtle motion|Low motion|retried|little motion|Non-rigid/);
+    expect(unresolved(t)).toEqual([]);
+    expect(missingKeys()).toEqual([]);
   });
 
   it("Polish: chip with the right plural forms, model line, fallbacks — no missing keys", () => {

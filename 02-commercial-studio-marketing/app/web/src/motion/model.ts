@@ -4,6 +4,7 @@
  * The shapes mirror the backend contract (GET /api/motion/status, GET …/spot/estimate, the spot artifact's `quality` / `render.motion`, the storyboard
  * shot's `motion`). Every normalizer tolerates absent or malformed fields so an older backend (or an artifact rendered before motion existed) still renders.
  */
+import { nbspOneLetterWords } from "../i18n/core";
 import type { Formatter } from "../i18n/format";
 
 export type MotionMode = "azure" | "local" | "stub" | "off";
@@ -57,6 +58,28 @@ export interface SpotEstimate {
   budget: EstimateBudget;
 }
 
+/**
+ * The motion-quality gate's verdict on a clip. `rich`: real subject or camera motion that a camera move on a still cannot produce; `subtle`: some real motion (steam, light);
+ * `low`: close to a still with camera moves (the generator returned an almost static clip, even after one retry); `unknown`: not measured.
+ */
+export type MotionLevel = "rich" | "subtle" | "low" | "unknown";
+
+/** `render.motion.shots[i].motion` — the gate's measurements of one clip; shots without a clip, and renders from before the gate, have none. */
+export interface ShotMotionQuality {
+  shot_id: string;
+  /** "s3" → 3: the number the UI calls the shot by */
+  number: number;
+  level: MotionLevel;
+  /** px of motion per 0.4 s that no camera move can produce (a still with camera moves measures ≈ STILL_NON_RIGID_PX); null when not measured */
+  non_rigid: number | null;
+  total: number | null;
+  /** 2: the first clip was almost static, so the shot was generated again with another seed */
+  attempts: number;
+}
+
+/** What a still with camera moves measures on the gate's scale: the reference shown next to a clip's own figure. */
+export const STILL_NON_RIGID_PX = 0.15;
+
 export interface SpotMotionSummary {
   mode: string;
   model: string;
@@ -70,6 +93,12 @@ export interface SpotMotionSummary {
   /** includes the cold start (`cold_start_usd`) */
   cost_usd: number;
   cold_start_usd: number;
+  /** the quality gate's verdict per shot that has one; empty for renders from before the gate */
+  shot_quality: ShotMotionQuality[];
+  /** clips that stay close to a still even after the retry (level `low`) */
+  shots_low_motion: number;
+  /** clips generated a second time with another seed */
+  retries: number;
 }
 
 export interface SpotMotionInfo {
@@ -87,6 +116,7 @@ export const MOTION_MAX_PROMPT = 300;
 
 const MODES: readonly MotionMode[] = ["azure", "local", "stub", "off"];
 const WORKER_STATES: readonly WorkerState[] = ["cold", "warming", "ready"];
+const LEVELS: readonly MotionLevel[] = ["rich", "subtle", "low", "unknown"];
 
 type Rec = Record<string, unknown>;
 const rec = (v: unknown): Rec | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : null);
@@ -205,6 +235,32 @@ export function latestArtifactId(campaign: unknown, kind: string): string | null
   return typeof id === "string" ? id : null;
 }
 
+/** The gate's verdict per shot, in storyboard order. A shot without a `motion` object (no clip, an older backend) has none; a level the UI does not know reads as `unknown`. */
+function normalizeShotQuality(raw: unknown): ShotMotionQuality[] {
+  return (Array.isArray(raw) ? raw : []).flatMap((entry, i) => {
+    const o = rec(entry);
+    const q = rec(o?.motion);
+    if (!o || !q) return [];
+    const shotId = str(o.shot_id);
+    return [
+      {
+        shot_id: shotId,
+        number: shotNumber(shotId, i),
+        level: LEVELS.find((l) => l === q.level) ?? "unknown",
+        non_rigid: numOrNull(q.non_rigid),
+        total: numOrNull(q.total),
+        attempts: Math.max(1, Math.round(num(q.attempts, 1))),
+      },
+    ];
+  });
+}
+
+/** "2", "2 and 4", "1, 2 and 3" — in Polish "2 i 4", with the one-letter conjunction kept on the line of the number after it. */
+export function shotList(numbers: readonly number[], locale: string): string {
+  const text = new Intl.ListFormat(locale, { style: "long", type: "conjunction" }).format(numbers.map(String));
+  return locale.startsWith("pl") ? nbspOneLetterWords(text) : text;
+}
+
 function normalizeSummary(raw: unknown): SpotMotionSummary | null {
   const r = rec(raw);
   if (!r) return null;
@@ -214,6 +270,7 @@ function normalizeSummary(raw: unknown): SpotMotionSummary | null {
   });
   const generated = num(r.shots_generated);
   const cached = num(r.shots_cached);
+  const shotQuality = normalizeShotQuality(r.shots);
   return {
     mode: str(r.mode),
     model: str(r.model),
@@ -225,6 +282,9 @@ function normalizeSummary(raw: unknown): SpotMotionSummary | null {
     gpu_seconds: num(r.gpu_seconds),
     cost_usd: num(r.cost_usd),
     cold_start_usd: Math.max(0, num(r.cold_start_usd)),
+    shot_quality: shotQuality,
+    shots_low_motion: Math.max(0, Math.round(num(r.shots_low_motion, shotQuality.filter((s) => s.level === "low").length))),
+    retries: Math.max(0, Math.round(num(r.retries, shotQuality.filter((s) => s.attempts > 1).length))),
   };
 }
 

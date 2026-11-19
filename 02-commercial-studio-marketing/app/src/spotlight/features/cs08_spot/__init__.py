@@ -144,7 +144,7 @@ def spot_quality(art: dict[str, Any] | None) -> str:
 
 def _motion_summary(art: dict[str, Any]) -> dict[str, Any] | None:
     m = (art.get("render") or {}).get("motion")
-    return {k: m[k] for k in ("mode", "model", "license", "shots_total", "shots_generated", "shots_cached", "shots_fallback", "gpu_seconds", "cost_usd", "cold_start_usd") if k in m} if m else None
+    return {k: m[k] for k in ("mode", "model", "license", "shots_total", "shots_generated", "shots_cached", "shots_fallback", "shots_low_motion", "retries", "gpu_seconds", "cost_usd", "cold_start_usd") if k in m} if m else None
 
 
 def _with_reason_text(art: dict[str, Any]) -> dict[str, Any]:
@@ -204,7 +204,7 @@ async def _settle_motion_flags(st: Studio, campaign_id: str, storyboard_id: str,
     m = (art.get("render") or {}).get("motion")
     if not m:
         return
-    done = {x["shot_id"]: x.get("prompt_sha256") for x in m.get("shots", []) if x.get("status") in {"generated", "cached"}}
+    done = {x["shot_id"]: x.get("plan_prompt_sha256") or x.get("prompt_sha256") for x in m.get("shots", []) if x.get("status") in {"generated", "cached"}}  # the prompt the shot was ASKED for (a retried clip's own prompt has a suffix)
     try:
         sb = await st.artifact(campaign_id, storyboard_id, "storyboard")
     except NotFound:
@@ -262,7 +262,7 @@ async def estimate(
     daily_left, camp_left = float(caps["daily_remaining_usd"]), float(caps.get("campaign_remaining_usd", caps["daily_remaining_usd"]))
     client = s.motion
     body: dict[str, Any] = {
-        "quality": quality, "aspect": aspect, "shots": [], "cached_shots": 0, "est_gpu_seconds": 0.0, "est_cost_usd": 0.0, "est_wall_seconds": 30.0, "cold_start_seconds": 0, "cold_start_cost_usd": 0.0,
+        "quality": quality, "aspect": aspect, "shots": [], "cached_shots": 0, "est_gpu_seconds": 0.0, "est_cost_usd": 0.0, "est_wall_seconds": 30.0, "cold_start_seconds": 0, "cold_start_cost_usd": 0.0, "max_retry_extra_usd": 0.0,
         "available": client.name != "off", "mode": client.name, "model": client.model or s.settings.motion_model, "license": client_license(client, s.settings.motion_model), "budget": {"allowed": True, "daily_remaining_usd": daily_left, "campaign_remaining_usd": camp_left, "reason": None},
     }  # a preview is free: same shape, nothing to price
     if quality == "preview":
@@ -303,6 +303,7 @@ async def estimate(
         shots=[{"shot_id": sp.shot_id, "seconds": sp.seconds, "frames": sp.frames, "cached": cached[sp.scene_id], "est_gpu_seconds": 0.0 if cached[sp.scene_id] else sp.est_gpu_seconds, "est_cost_usd": 0.0 if cached[sp.scene_id] else sp.est_cost_usd} for sp in plan.shots],
         cached_shots=sum(cached.values()), est_gpu_seconds=est_gpu, est_cost_usd=est_cost, est_wall_seconds=motion_plan.wall_seconds(todo, cold_wall), cold_start_seconds=cold_wall,
         cold_start_cost_usd=cold_usd, available=status["available"], mode=status["mode"], model=status["model"], license=status["license"],
+        max_retry_extra_usd=round(sum(sp.est_cost_usd for sp in todo), 5) if cfg.motion_retry_low_motion else 0.0,  # the estimate is for ONE attempt per shot; a clip that barely moves gets one more: at most this much on top
         budget={"allowed": reason is None, "daily_remaining_usd": daily_left, "campaign_remaining_usd": camp_left, "reason": reason},
     )
     return body

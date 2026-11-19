@@ -334,14 +334,78 @@ tour_slide(
         "Version tree: the master plus 9:16, 1:1, a 6 s cut-down and DE, FR and PL localizations",
     ],
     [(300, 212, 1114, 792, 292, 520), (1148, 208, 1562, 447, 1134, 330), (1148, 466, 1562, 844, 1134, 500)],
-    "Generative video plugs in via VideoProvider; the demo uses a compositor because Sora-2 is deprecated in swedencentral.",
+    "Preview is camera moves on stills; Cinematic turns every keyframe into an AI-generated clip (next slides).",
     ("This is what the crew delivers: a fifteen-second spot rendered by the compositor, with the AI-generated disclosure burned in, loudness normalised to minus 16 LUFS and verified with ffprobe as H.264 and AAC at 1280 by 720. "
      "The master has become six governed versions: 9:16, 1:1, a six-second cut-down, and German, French and Polish localizations, each Guardian-checked. "
-     "In the live smoke test the master render took about 24 seconds on one vCPU. The provider line says generative video models plug in through VideoProvider; Sora-2 is deprecated in Sweden Central, "
-     "so the demo animates AI-generated keyframes. Question to expect: is this generated video? It is real rendering of AI-generated images, voice and music."),
+     "In the live smoke test the master render took about 24 seconds on one vCPU. This capture is a Preview render: the compositor animates AI-generated keyframes with camera moves, which reads as a slideshow. "
+     "The next slides show Cinematic, where every keyframe becomes a generated video clip. Question to expect: is this generated video? In Preview, no; in Cinematic, yes."),
     "Creative workspace video tab: the rendered 14.9 second spot with an AI-generated badge, ffprobe delivery specs and a list of seven versions",
     real="ffmpeg rendering with ffprobe checks, Azure OpenAI image and speech models, and the signed provenance manifest.",
-    sim="Brand and talent data are fictional; no generative video model is used (VideoProvider is the plug-in point).",
+    sim="Brand and talent data are fictional; this capture is a Preview render (camera moves on stills): generated video is Cinematic quality, shown next.",
+)
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Cinematic motion (CS-25): slideshow -> film. Measured on the deployed app (REPORT-TEST-AND-DEPLOYMENT.md §13).
+# ----------------------------------------------------------------------------------------------------------------------
+ba = HERE / "assets" / "cinematic-before-after.png"
+if ba.exists():
+    s_ba = d.screenshot(
+        "From slideshow to film: every keyframe becomes a generated video clip",
+        ba,
+        caption="Same storyboard, keyframes and edit, rendered twice on the deployed app: Preview (top row of each shot) and Cinematic (bottom row)",
+        callouts=[
+            "Preview animates one still with a camera move: the hand and the mug never change, which is why it reads as a slideshow",
+            "Cinematic generates a clip from the same keyframe: the hand lifts the mug, coffee pours in, steam and light move",
+            "Captions, supers, logo, AI badge, voice-over and music are composited identically on both",
+        ],
+        takeaway="Cinematic is real motion from the approved keyframe, with Preview as the free fallback for every shot.",
+        notes=("Top row, Preview: the compositor moves a virtual camera over one AI keyframe, so the hand and the mug never change. "
+               "Bottom row, Cinematic: the same keyframe is the first frame of a generated video clip, so the hand lifts the mug and, in the second shot, coffee pours in while steam rises. "
+               "Both renders share the storyboard, voice-over and captions; only the picture differs. We measured it: generated clips score 0.4 to 4.9 on our non-rigid motion metric, a camera move on a still scores 0.1 to 0.3. "
+               "Be candid: it is a small open model, so an occasional imperfect hand is possible; every shot can fall back to Preview, and a human still approves."),
+        source="Source: live reference implementation on Azure (swedencentral), Dawn Roast master rendered as Preview and as Cinematic; motion measured with scripts/measure_motion.py. " + EVID_SRC + " §13",
+    )
+    set_alt(next(sh for sh in s_ba.shapes if sh.shape_type == MSO_SHAPE_TYPE.PICTURE),
+            "Sixteen video frames: two shots, each rendered as Preview (a still with a camera move, the hand and mug unchanged) and as Cinematic (the hand lifts the mug; coffee pours into it)")
+
+d.architecture(
+    "Cinematic motion runs inside your tenant: queue, serverless GPU, scale to zero",
+    [
+        {"name": "1 Plan", "items": ["Approved keyframe = opening frame", "Motion prompt per shot", {"title": "Estimate + budget check", "sub": "before any GPU second"}, "Clip cache: same inputs = US$0"]},
+        {"name": "2 Generate", "items": [{"title": "Storage Queue", "sub": "KEDA scaler, identity auth"}, {"title": "Wan 2.2 on a serverless A100", "sub": "min 0, max 1, no ingress"}, "Weights mirrored in your Blob", "Clip + status + result blobs"]},
+        {"name": "3 Edit", "items": [{"title": "ffmpeg compositor", "sub": "dissolves, supers, captions"}, "Logo, AI badge, end card", "Voice-over + music, EBU R128", "Per-shot fallback to stills"]},
+        {"name": "4 Govern", "items": ["Content Safety on sampled frames", "Guardian + approval gates", {"title": "Manifest records the model", "sub": "revision, licence, seed, GPU s"}, "GPU seconds metered under the caps"]},
+    ],
+    side={"name": "Measured on the deployed A100", "items": ["Cold start about 3.7 min, KEDA wake-up 16 s", "About 0.75 s of GPU per frame (1024×576)", "US$0.00108 per GPU second", "One A100 of quota: shots render in turn"]},
+    takeaway="Data never leaves the tenant; the worker costs nothing when idle and every spot degrades to Preview rather than failing.",
+    source="Source: ARCHITECTURE.md §7.2, ADR-16/17; Microsoft Learn (serverless GPUs in Container Apps); " + EVID_SRC + " §13",
+    notes=("Planning: the approved keyframe opens each shot; the planner writes a motion prompt, a clip length and a price estimate, checks the budget, and reuses any clip already generated for the same inputs. "
+           "Generation: Studio drops a job on a Storage queue; a KEDA scaler starts the GPU worker from zero in about sixteen seconds. The worker runs open Wan 2.2 on a serverless A100, with no ingress and an identity limited to its queue and containers. "
+           "Editing: the same ffmpeg compositor adds dissolves, captions, voice-over and music. Governance: Content Safety checks frames, the manifest records the model, and GPU time counts against the caps. "
+           "Limits: one A100 of quota and a cold start of about four minutes."),
+)
+
+d.table(
+    "Cinematic costs cents per shot, and the limits are stated up front",
+    ["What", "Measured or priced", "Basis"],
+    [
+        ["GPU price", "US$0.00108 per second (A100 0.000688 + 8 vCPU + 64 GiB)", "Azure Retail Prices API, swedencentral, 18 Nov 2026"],
+        ["Throughput and unit cost", "About 0.8 s of GPU per frame at 1024×576, so about US$0.02 per second of footage (a 4 s shot takes about 95 s)", "Measured on the deployed worker"],
+        ["One Dawn Roast spot", "US$0.28 for three shots (263 s of GPU); +US$0.26 if the GPU had to cold-start", "Live smoke test, metered by the app"],
+        ["Re-render, localization", "US$0: finished clips are reused (Polish version: 3 of 3 clips, 44 s)", "Live run on the deployed app"],
+        ["Cold start", "About 3.7 min (node and image 2 min, weights from your Blob 1 min, model load 11 s); the GPU then stays up 7 min", "Measured; warm-up button and automatic warm-up after keyframes"],
+        ["Limits", "One A100 of quota (shots render in turn); clips up to 5 s and silent; an open 5B model can still draw an imperfect hand", "Quota per environment; per-shot fallback and human approval cover it"],
+        ["Not enabled", "Partner models in Foundry (fal: Kling, LTX, MiniMax): higher fidelity, US$0.08-0.22 per second, but hosted outside Microsoft's facilities", "Microsoft Learn: Microsoft's DPA does not apply to fal services"],
+    ],
+    col_weights=[2.0, 5.6, 3.0],
+    align=["left", "left", "left"],
+    font_pt=12,
+    takeaway="A spot costs less than a coffee in GPU time; the quota, cold start and clip length are the real constraints, not the price.",
+    source="Source: " + EVID_SRC + " §13; Azure Retail Prices API (retrieved 18 Nov 2026); Microsoft Learn (fal models on Foundry). Not business-case numbers.",
+    notes=("The unit economics of Cinematic, measured, not modelled. A serverless A100 costs about a tenth of a cent per second and the model needs about four fifths of a second per frame, "
+           "so a second of footage costs about two cents and a three-shot spot about twenty-eight cents, plus twenty-six cents if the GPU starts cold. Finished clips are reused for free: localizing into Polish reused all three. "
+           "The constraints are not price: one GPU of quota, a cold start near four minutes, clips of about five seconds without sound. Why self-host? Sora 2 is retired, and the partner models in Foundry run outside Microsoft's facilities, "
+           "so we have not enabled them without a data-handling decision."),
 )
 
 # Polish (pl): the same Brand Guardian on Polish copy, captured on the deployed app with the interface in Polish (deck/assets/screens-pl/)
@@ -396,16 +460,16 @@ d.architecture(
     [
         {"name": "Experience", "items": ["Studio UI (Container Apps)", "Teams + webhooks", "Power BI", {"title": "Front Door + WAF", "sub": "enterprise edge"}]},
         {"name": "Agent crew", "items": ["Orchestrator + stage gates", {"title": "Brand Guardian", "sub": "rules + judge"}, {"title": "Render jobs", "sub": "ffmpeg compositor"}, "Connectors"]},
-        {"name": "AI models", "items": [{"title": "Foundry chat + reasoning", "sub": "GPT-5.x"}, "Image + speech + embeddings", "Azure AI Content Safety", {"title": "VideoProvider", "sub": "pluggable"}]},
+        {"name": "AI models", "items": [{"title": "Foundry chat + reasoning", "sub": "GPT-5.x"}, "Image + speech + embeddings", "Azure AI Content Safety", {"title": "Cinematic motion", "sub": "Wan 2.2 on a serverless GPU"}]},
         {"name": "Data", "items": ["Cosmos DB", "AI Search (scale-out)", "Blob/ADLS + CDN", "Fabric (performance)"]},
     ],
     side={"name": "Cross-cutting", "items": ["Entra ID + B2B", "Key Vault", "Monitor + Defender", "Purview + Policy"]},
-    takeaway="Live today in swedencentral: one Container App, Cosmos DB, Blob and Foundry models; each part swaps to its target service.",
-    source="Source: ARCHITECTURE.md §3, §5, §19; " + EVID_SRC + " §2, §9",
-    notes=("The architecture is Azure-native and keyless. In the target, the studio runs on Container Apps with event-driven render jobs; models come from Microsoft Foundry with managed identity; Content Safety "
-           "checks text and images; Cosmos DB holds versions, gates and audit; Blob holds assets; AI Search and Fabric are the scale-out path. A pluggable VideoProvider matters because Sora is deprecated in this region. "
-           "The demo slice is deployed and verified in Sweden Central: one Container App that also renders with ffmpeg, Cosmos DB, Blob and Foundry models, with all six dependency checks green, zero secrets and no local keys. "
-           "Front Door, WAF and private networking are the enterprise target, not the demo."),
+    takeaway="Live today in swedencentral: a Container App, a scale-to-zero GPU worker, Cosmos DB, Blob and Foundry models; each part swaps to its target service.",
+    source="Source: ARCHITECTURE.md §3, §5, §7.2, §19; " + EVID_SRC + " §2, §9, §13",
+    notes=("In the target, the studio runs on Container Apps with event-driven render jobs; models come from Microsoft Foundry with managed identity; Content Safety "
+           "checks text and images; Cosmos DB holds versions, gates and audit; Blob holds assets; AI Search and Fabric are the scale-out path. Generated video runs on a serverless GPU worker behind the VideoProvider seam, "
+           "because Sora is retired. The demo slice is deployed and verified in Sweden Central: a Container App that also renders with ffmpeg, a GPU worker that scales to zero, Cosmos DB, Blob and Foundry models, "
+           "with all six dependency checks green, zero secrets and no local keys. Front Door, WAF and private networking are the enterprise target, not the demo."),
 )
 
 # ======================================================================================================================
@@ -516,7 +580,7 @@ d.table(
         ["Likeness, voice and deepfakes", "No cloning; consent registry with AI-use flags; prompts naming real people rejected; visible disclosure", "CS-03, CS-09, CS-14"],
         ["Brand-safety incident", "Guardian hard-fails block approval; Content Safety on prompts and outputs; human gates", "CS-12, CS-13"],
         ["Hallucinated or unsubstantiated claims", "Claim-aware generation; per-market claims library with expiry; legal gate; citations", "CS-02, CS-06, CS-12"],
-        ["Model drift or model availability", "Pinned deployments; evaluation sets; provider abstraction; ffmpeg compositor instead of a video-model dependency", "CS-08, CS-24"],
+        ["Model drift or model availability", "Pinned deployments and model revisions; evaluation sets; provider abstraction; self-hosted open video model with per-shot fallback to the compositor (Sora 2 is retired)", "CS-08, CS-24, CS-25"],
         ["Regulatory change", "Rules as data; regulatory packs; counsel review; alignment with the EU Code of Practice", "CS-02, CS-14"],
         ["Benefits not proven", "Holdout test in the pilot; confidence haircuts; break-even at a 56% benefit shortfall", "CS-17, CS-23"],
     ],
@@ -785,10 +849,11 @@ d.table(
     font_pt=12,
     takeaway="Sell expansion packs in order of proven return, each with its own holdout test and cap; none is in the Base case.",
     source=SRC_BC + "; lever NPV at Base drivers (Upside drivers: " + ", ".join(f"{k.upper()} {SM(U['acr']['expansion']['levers'][k]['npv'])}" for k in ("e1", "e3", "e4"))
-           + "); generative-video availability varies by region (sora-2 deprecated in swedencentral)",
+           + "); E1 uses hosted per-second meters (Sora 2 retired); CS-25 runs self-hosted",
     notes=("Lever economics at this customer's scale and at enterprise scale. Catalog content has the best return: about "
-           f"{D(UE_E['catalog_image']['azure_all_in_cost_per_kept_image_usd'], 2)} per kept image against {D(UE_E['catalog_image']['avoided_baseline_cost_per_image_usd'], 2)} of avoided photography cost, but a small Azure bill. Generative video is a small Azure line, "
-           f"about {D(UE_E['generative_video']['azure_cost_per_kept_second_usd'], 2)} per kept second, because you pay per generated second including rejected takes, and availability varies by region. "
+           f"{D(UE_E['catalog_image']['azure_all_in_cost_per_kept_image_usd'], 2)} per kept image against {D(UE_E['catalog_image']['avoided_baseline_cost_per_image_usd'], 2)} of avoided photography cost. Generative video is a small Azure line, "
+           f"about {D(UE_E['generative_video']['azure_cost_per_kept_second_usd'], 2)} per kept second in this model, because you pay per generated second including rejected takes. The model prices hero footage on hosted meters; "
+           "the Cinematic motion shipped in every spot is a separate self-hosted path at cents per second, so treat this line as the premium hosted option. "
            "Personalization and the Fabric data platform carry the consumption and are roughly break-even within three years at this volume. They are options, sold in order of proven return."),
 )
 
@@ -859,11 +924,11 @@ d.table(
     col_weights=[2.2, 6.9, 1.7],
     align=["left", "left", "left"],
     font_pt=12,
-    takeaway="Not in the demo slice: WAF, private networking, a CI pipeline, generative video and certified C2PA signing; expansion levers E1-E4 are modelled, not built.",
+    takeaway="Not in the demo slice: WAF, private networking, a CI pipeline and certified C2PA signing; expansion levers E1-E4 are modelled, not built.",
     source="Source: " + EVID_SRC + " and app/evidence/. Measured facts about the demo deployment, not business-case numbers.",
     notes=("This is the evidence behind the demo, taken from the engineering verification report. All twenty-four features are deployed; ninety-seven tests pass at 88 percent coverage; eighteen browser journeys "
            "and a thirty-check smoke test pass against the live deployment using real Azure models; a light load test of four hundred requests shows a p95 of 1.4 seconds with no errors on one vCPU. "
-           "Idle run cost is about thirty dollars a month. Be candid about the limits on the takeaway line: no WAF, private networking or CI pipeline, no generative video because Sora-2 is deprecated in this region, "
+           "Idle run cost is about thirty dollars a month. Be candid about the limits on the takeaway line: no WAF, private networking or CI pipeline, "
            "provenance is C2PA-style rather than certified, and the expansion levers are modelled, not built."),
 )
 
@@ -1052,8 +1117,8 @@ d.table(
     [
         ["E1 Generative video",
          f"{lp['e1_hero_gen_share']['base'] * 100:.0f}% of hero masters ({lp['e1_hero_gen_seconds']['base']:.0f} s kept) and {lp['e1_adapted_gen_share']['base'] * 100:.0f}% of adapted videos ({lp['e1_adapted_gen_seconds']['base']:.0f} s); {lp['e1_hero_takes']['base']:.0f} / {lp['e1_adapted_takes']['base']:.0f} takes per kept second; {lp['e1_displaced_share_hero']['base'] * 100:.0f}% / {lp['e1_displaced_share_adapted']['base'] * 100:.0f}% of residual cost displaced",
-         f"Sora 2 {D(PRICES['video_sora2_sec']['price'], 2)} and Pro high-res {D(PRICES['video_sora2_pro_hires_sec']['price'], 2)} per second; partner models {D(PRICES['video_fal_mm_h3_turbo_1080_sec']['price'], 2)}-{D(PRICES['video_fal_ltx25_pro_1080_sec']['price'], 2)} at 1080p. Availability varies by region (sora-2 deprecated in swedencentral)",
-         "Agency 3D / VFX / stock quotes; model availability and ACR eligibility"],
+         f"List prices used by the model: Sora 2 {D(PRICES['video_sora2_sec']['price'], 2)} and Pro high-res {D(PRICES['video_sora2_pro_hires_sec']['price'], 2)} per second (retired; new deployments refused since 2 Nov 2026; kept as the model's reference); fal partner models in Foundry {D(PRICES['video_fal_mm_h3_turbo_1080_sec']['price'], 2)}-{D(PRICES['video_fal_ltx25_pro_1080_sec']['price'], 2)} at 1080p (hosted outside Microsoft's facilities). Self-hosted Wan 2.2 on a serverless A100: about $0.02 per generated second",
+         "Agency 3D / VFX / stock quotes; model availability, data-handling decision and ACR eligibility"],
         ["E2 Catalog content",
          f"{lp['e2_skus']['base']:,.0f} SKUs × {lp['markets']['base']:.0f} markets × {lp['e2_market_presence']['base'] * 100:.0f}% presence × {lp['e2_images_per_listing']['base']:.0f} images × {lp['e2_refresh_share']['base'] * 100:.0f}% refresh; {lp['e2_attempt_factor']['base']:.1f} attempts; {D(lp['e2_baseline_cost_per_image_usd']['base'])} per image today, {lp['e2_displaced_share']['base'] * 100:.0f}% displaced",
          f"gpt-image-1.5 {D(PRICES['image15_img_out']['price'])} per 1M output tokens; Content Safety images {D(PRICES['cs_image']['price'], 2)} per 1K",
@@ -1071,10 +1136,11 @@ d.table(
     align=["left", "left", "left", "left"],
     font_pt=11.5,
     takeaway="Every lever assumption is flagged and ranged; none is a commitment of Microsoft or a partner.",
-    source=f"Source: business-case/assumptions.json (group 'expansion', {sum(1 for a in AS.values() if a.get('group') == 'expansion')} assumptions); Azure Retail Prices API; Microsoft Learn (Sora 2 preview, per-second billing)",
-    notes=("The assumptions and price basis behind the four expansion levers, to be validated before any pack is sold. Video is billed per generated second, including rejected takes, at list prices from the Retail Prices API; "
-           "Sora 2 is a preview model and is deprecated in Sweden Central, so provider and region are chosen per deployment, and partner-model eligibility for consumption credit needs confirming with Microsoft. "
-           "Catalog content depends on your SKU count and what you pay per image today. Personalization needs a holdout test per audience. The data platform depends on CRM scope and the media base."),
+    source=f"Source: business-case/assumptions.json (group 'expansion', {sum(1 for a in AS.values() if a.get('group') == 'expansion')} assumptions); Azure Retail Prices API; Microsoft Learn (Sora 2 retirement schedule; fal models on Foundry; serverless GPUs in Container Apps)",
+    notes=("The assumptions and price basis behind the four expansion levers, to be validated before any pack is sold. Hosted video is billed per generated second, including rejected takes. "
+           "Sora 2, the model's reference meter, is retired and Azure has refused new deployments since 2 November 2026, and the fal partner models in Foundry run outside Microsoft's facilities, so provider, data handling and consumption-credit eligibility are decisions per customer. "
+           "The self-hosted route we ship for Cinematic costs about two cents per generated second on a serverless A100. "
+           "Catalog content depends on your SKU count; personalization needs a holdout test; the data platform depends on CRM scope."),
 )
 
 FEATURES = [

@@ -209,9 +209,9 @@ All 24 are in scope of the Release-1 reference implementation regardless of prio
 
 ### CS-08 — Spot compositor / Video (P0)
 
-**Why / problem.** Azure OpenAI's Sora video model is deprecated in the target region and no video model is a safe long-term dependency. The product must work today and upgrade later.
+**Why / problem.** Azure OpenAI's Sora 2 is retired and no hosted video model is a safe long-term dependency. The product must always produce a broadcast-grade spot (stills with camera moves) and upgrade a spot to real generated motion whenever a model is available (CS-25).
 
-**Description.** A **`VideoProvider`** interface (`render(timeline_spec) → artifact`) with capability negotiation (max duration, aspect ratios, audio support). The default provider is an **ffmpeg spot compositor**: key-frames + **motion** (zoompan / pan / parallax), transitions, **voice-over + music bed with ducking**, **captions** (burned-in + SRT/VTT), logo + **brand end-card**, **EBU R128** loudness normalisation, MP4 H.264/AAC. A documented, stubbed `external-video-model` provider shows the contract for any generative video model. The *timeline spec* (JSON) is the single source of truth, so renders are reproducible and cacheable by spec hash.
+**Description.** A **`VideoProvider`** interface (`render(timeline_spec) → artifact`) with capability negotiation (max duration, aspect ratios, audio support). The default provider is an **ffmpeg spot compositor**: key-frames + **motion** (zoompan / pan / parallax), transitions, **voice-over + music bed with ducking**, **captions** (burned-in + SRT/VTT), logo + **brand end-card**, **EBU R128** loudness normalisation, MP4 H.264/AAC. A documented, stubbed `external-video-model` provider shows the contract for any hosted generative video model, and **Cinematic quality (CS-25)** feeds model-generated clips into the same timeline spec as scenes that carry a clip — every scene keeps its keyframe as the per-shot fallback. The *timeline spec* (JSON) is the single source of truth, so renders are reproducible and cacheable by spec hash.
 
 **Acceptance criteria**
 * **CS-08-AC1** A 15 s spot renders to MP4 verified with `ffprobe`: H.264 video, AAC audio present, resolution as configured, duration 15 ± 0.5 s.
@@ -223,9 +223,9 @@ All 24 are in scope of the Release-1 reference implementation regardless of prio
 
 **Azure services.** *Target:* Container Apps jobs or Azure Batch render workers (scale-out), Blob/ADLS, Azure Front Door/CDN for delivery, external generative-video provider behind `VideoProvider` when licensed and available. *Deployed slice:* ffmpeg inside the Container App with a background job runner; output to Blob.
 
-**Where expansion lever E1 lands.** The `VideoProvider` / premium-generation path is where the optional **generative-video lever E1** (roadmap R2-01) plugs in — no change to this feature or its acceptance criteria. A generative provider is billed **per generated second, rejected takes included** (Azure OpenAI Sora 2 meters at US$0.10 standard and US$0.50 Pro high-res; partner video models from the Foundry catalog at about US$0.03–0.30), so it sits behind the CS-15 premium-generation approval and budget caps, and its availability is region-dependent (sora-2 is deprecated in swedencentral). The business case models E1 per generated second in `business-case/` (see PRD §11).
+**Where expansion lever E1 lands.** The `VideoProvider` / premium-generation path is where the optional **generative-video lever E1** (roadmap R2-01, hero footage) plugs in — no change to this feature or its acceptance criteria. A hosted generative provider is billed **per generated second, rejected takes included** (Azure OpenAI Sora 2 listed at US$0.10 standard and US$0.50 Pro high-res before its retirement; the partner video models now in Foundry — fal Kling / LTX / MiniMax, hosted outside Microsoft's facilities — at about US$0.08–0.22), so it sits behind the CS-15 premium-generation approval and budget caps. The in-product Cinematic path (CS-25) is billed per worker GPU second instead. The business case models E1 per generated second in `business-case/` (see PRD §11).
 
-**Reference scope / simulated.** The motion is Ken-Burns/parallax over generated key-frames — **not generative video**; labelled as such in the UI. The pipeline, timeline spec, loudness, captions and provider abstraction are real.
+**Reference scope / simulated.** **Preview** quality is Ken-Burns/parallax over generated key-frames — **not generative video**; labelled as such in the UI. **Cinematic** quality (CS-25) renders real generated clips through the same compositor. The pipeline, timeline spec, loudness, captions and provider abstraction are real.
 
 **Dependencies.** CS-07, CS-09; consumed by CS-11, CS-14.
 
@@ -296,6 +296,32 @@ All 24 are in scope of the Release-1 reference implementation regardless of prio
 **Dependencies.** CS-08, CS-02, CS-10.
 
 **KPIs moved.** KPI-01, KPI-03, KPI-09.
+
+---
+
+### CS-25 — Cinematic motion: generative video on serverless GPU (P0)
+
+**Why / problem.** A spot that is only still images with camera moves reads as a slideshow, not a film. Azure OpenAI's Sora 2 is retired (new deployments are refused with `ServiceModelDeprecated` since 2 Nov 2026) and no other first-party video model exists in any region, so the Studio hosts an open image-to-video model inside the customer's tenant instead of depending on one that can disappear.
+
+**Description.** The spot render gets a **quality** switch: **Preview** (stills + camera moves, free, ~30 s) and **Cinematic** (AI video). Cinematic turns each approved storyboard keyframe — the *opening frame* of the shot — into a 3–5 s generated clip with real subject and camera motion, using **Wan 2.2 TI2V-5B (Apache-2.0)** on a **Container Apps serverless A100** worker (`ca-studio-motion`: scale-to-zero, no ingress, own managed identity). The storyboard now separates the *opening frame* (one single image, never a collage) from the *motion* (what moves: subject, camera, steam, light). A **motion planner** derives the prompt, the clip length (4n+1 frames covering the scene plus the dissolve), the size per aspect (1024×576, 576×1024, 768×768, 640×800), a deterministic seed and a price estimate; a **queue + blob contract** (`contracts/motion-v1.schema.json`) connects Studio and worker with deterministic job ids. Clips are stored as library assets, so a re-render, a localization or a cut-down costs nothing; a failed, flagged, timed-out or over-budget shot **falls back to the still path** and is reported. The ffmpeg compositor then edits clips exactly like stills (dissolves, supers, captions, logo, AI badge, voice-over + music, EBU R128, end card). UI: quality picker, per-shot estimate with cached badges and budget check, GPU worker status (cold / warming / ready) with warm-up, per-shot progress, a "Cinematic · AI motion n/m shots" chip, and a per-shot motion-prompt editor — in English and Polish.
+
+**Acceptance criteria**
+* **CS-25-AC1** Studio and worker exchange only schema-valid JSON through the queue + blob contract v1; both sides compute the same deterministic job id (golden vectors in `contracts/job-id-vectors.json`); re-submitting identical inputs is idempotent; the worker has no ingress.
+* **CS-25-AC2** A Cinematic 15 s spot meets the delivery spec (H.264/AAC, 1280×720 @ 25 fps, 14.9 ± 0.5 s, −16 ± 1.5 LUFS, AI badge, SRT) **and its shots really move** (frames 0.6 s apart inside a scene differ above a threshold; a Preview spot is unchanged byte for byte in behaviour).
+* **CS-25-AC3** The *actual* worker GPU seconds × price are metered as kind `motion` and enforced by the daily and per-campaign caps; a budget refusal spends nothing; an unchanged re-render is served from the clip cache (no GPU call, US$0).
+* **CS-25-AC4** A shot that fails (worker error, timeout, out-of-memory, safety flag, budget, worker unavailable) degrades to the still path with a localized reason in `shots_fallback`; the spot still renders.
+* **CS-25-AC5** The worker starts from zero on the first queue message and returns to zero after the queue drains; the cold start is measured and shown in the estimate; a warm-up can be requested.
+* **CS-25-AC6** Content Safety image analysis runs on sampled frames of every generated clip; the provenance manifest records model, revision, licence, host, per-shot seed and prompt digest, and GPU seconds; the AI-disclosure badge stays burned in.
+* **CS-25-AC7** English and Polish end to end: UI, job progress, errors and fallback reasons; a Polish campaign renders captions and voice-over on cinematic clips; localizing a cinematic master reuses its clips.
+* **CS-25-AC8** Keyless: Entra roles only — Studio (queue + blob) and worker (queue + blob; no Cosmos, no Azure OpenAI); weights are mirrored in the tenant's Blob.
+
+**Azure services.** *Target:* Container Apps serverless GPU (A100 / T4) or dedicated GPU profile per region, Storage Queue + Blob, ACR Premium with artifact streaming, optional partner video models through Foundry behind the same `MotionClient`. *Deployed slice:* `ca-studio-motion` on the `gpu-a100` workload profile of the Studio environment (8 vCPU / 64 GiB, min 0 / max 1), KEDA `azure-queue` scaler with identity auth, queue `motion-jobs`, blobs `motion-in` / `motion-out` / `motion-models`, 3-day lifecycle rule on the transport blobs.
+
+**Reference scope / simulated.** Real generative video on a real A100. Honest limits: the environment holds quota for **one A100**, so shots render one after another (~1.2 min per 4–5 s shot at 1024×576, 20 steps); a **cold start takes ≈ 3.7 min** (image pull ≈ 2 min + weights from the tenant mirror ≈ 1 min + 11 s model load) and is hidden by the warm-up and a 7-minute cooldown; clips are silent (the Studio mixes voice-over and music), at most ≈ 5 s long, and a generative model can still draw an imperfect hand or object — hence the Guardian frame checks, the per-shot fallback and the human approval gate. The partner video models in Foundry (fal: Kling v3, LTX 2.5, MiniMax H3) are *not* enabled: they run outside Microsoft's facilities and the Microsoft DPA does not apply to them.
+
+**Dependencies.** CS-07 (opening frame + motion prompt), CS-08 (compositor), CS-12 (Guardian), CS-14 (manifest), CS-15 (budget), CS-10 / CS-11 (clip reuse).
+
+**KPIs moved.** KPI-01, KPI-02, KPI-03.
 
 ---
 

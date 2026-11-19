@@ -16,21 +16,21 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from conftest import needs_ffmpeg
+from conftest import needs_cv2, needs_ffmpeg
 from spotlight.app_factory import create_app
 from spotlight.config import Settings
 from spotlight.core.ai.base import SafetyResult
 from spotlight.motion.client import OffMotionClient
 from spotlight.motion.models import MotionFailed
 from spotlight.video import media
-from test_motion_orchestrator import ScriptedClient
+from test_motion_orchestrator import ScriptedClient, Stubborn
 from test_pipeline_api import H, build_to_script
 
 pytestmark = needs_ffmpeg
 PL = {"X-UI-Lang": "pl"}
 STATUS_KEYS = {"mode", "available", "model", "license", "worker", "price_per_gpu_second", "est_cold_start_s", "max_clip_s", "revision", "host", "steps", "high", "reason"}
 ESTIMATE_KEYS = {"quality", "aspect", "shots", "cached_shots", "est_gpu_seconds", "est_cost_usd", "est_wall_seconds", "cold_start_seconds", "budget"}  # spec 4.4
-ESTIMATE_EXTRA = {"cold_start_cost_usd", "available", "mode", "model", "license"}
+ESTIMATE_EXTRA = {"cold_start_cost_usd", "available", "mode", "model", "license", "max_retry_extra_usd"}
 
 
 @pytest.fixture(scope="module")
@@ -144,6 +144,17 @@ def test_the_spot_list_and_detail_say_how_it_was_made(api: TestClient, produced:
     assert api.get(f"/api/campaigns/{produced}/spot/{prev['id']}").json()["quality"] == "preview"
 
 
+@needs_cv2
+def test_every_shot_says_how_much_it_moves_and_the_library_clips_remember_it(api: TestClient, produced: str, cinematic: dict[str, Any]):
+    assert (cinematic["motion"]["shots_low_motion"], cinematic["motion"]["retries"]) == (0, 0)  # the job result carries the counts too
+    m = next(s for s in spots(api, produced) if s["id"] == cinematic["artifact_id"])["render"]["motion"]
+    assert (m["shots_low_motion"], m["retries"]) == (0, 0)
+    for s in m["shots"]:
+        assert set(s["motion"]) == {"non_rigid", "total", "level", "attempts"} and s["motion"]["level"] in {"subtle", "rich"} and s["motion"]["non_rigid"] >= 0.6 and s["motion"]["attempts"] == 1
+        assert s["plan_prompt_sha256"] == s["prompt_sha256"]  # nothing was added to the prompt: the first attempt was good
+    assert all(c["meta"]["motion_score"]["level"] in {"subtle", "rich"} and c["meta"]["attempts"] == 1 for c in clip_assets(api, produced))
+
+
 def test_a_preview_render_is_unchanged_in_shape_and_never_touches_the_motion_backend(api: TestClient, produced: str):
     with motion_client(api, ScriptedClient()) as client:
         r = render(api, produced)
@@ -252,18 +263,19 @@ def test_the_estimate_prices_a_cinematic_render_before_it_runs(api: TestClient):
     (shot,) = e["shots"]
     assert set(shot) == {"shot_id", "seconds", "frames", "cached", "est_gpu_seconds", "est_cost_usd"} and shot["cached"] is False and shot["frames"] % 4 == 1 and shot["est_gpu_seconds"] > 0
     assert e["est_gpu_seconds"] == shot["est_gpu_seconds"] and e["est_cost_usd"] == round(e["est_gpu_seconds"] * 0.00108, 5) and e["cached_shots"] == 0
+    assert e["max_retry_extra_usd"] == shot["est_cost_usd"]  # the estimate is for ONE attempt; a shot that barely moves gets one more: at most this much on top
     assert e["cold_start_seconds"] == 0 and e["est_wall_seconds"] > shot["est_gpu_seconds"] and e["budget"]["allowed"] is True and e["budget"]["reason"] is None
     assert e["budget"]["daily_remaining_usd"] > 0 and e["budget"]["campaign_remaining_usd"] > 0
     vertical = api.get(f"/api/campaigns/{cid}/spot/estimate", params={"quality": "cinematic", "aspect": "9:16"}).json()
     assert vertical["aspect"] == "9:16" and vertical["shots"][0]["frames"] == shot["frames"]
     free = api.get(f"/api/campaigns/{cid}/spot/estimate", params={"quality": "preview"}).json()
-    assert set(free) == set(e) and (free["shots"], free["est_cost_usd"], free["est_gpu_seconds"], free["cold_start_seconds"]) == ([], 0.0, 0.0, 0)
+    assert set(free) == set(e) and (free["shots"], free["est_cost_usd"], free["est_gpu_seconds"], free["cold_start_seconds"], free["max_retry_extra_usd"]) == ([], 0.0, 0.0, 0, 0.0)
     assert api.get(f"/api/campaigns/{cid}/spot/estimate").json()["quality"] == "cinematic"  # the default: what the button is about
 
 
 def test_the_estimate_knows_what_the_library_already_has(api: TestClient, produced: str, cinematic: dict[str, Any]):
     e = api.get(f"/api/campaigns/{produced}/spot/estimate", params={"quality": "cinematic"}).json()
-    assert e["cached_shots"] == 3 and all(s["cached"] and s["est_cost_usd"] == 0.0 for s in e["shots"]) and e["est_cost_usd"] == 0.0 and e["est_gpu_seconds"] == 0.0
+    assert e["cached_shots"] == 3 and all(s["cached"] and s["est_cost_usd"] == 0.0 for s in e["shots"]) and e["est_cost_usd"] == 0.0 and e["est_gpu_seconds"] == 0.0 and e["max_retry_extra_usd"] == 0.0
     assert e["est_wall_seconds"] < 60  # only the compositor pass is left
     other = api.get(f"/api/campaigns/{produced}/spot/estimate", params={"quality": "cinematic", "aspect": "1:1"}).json()
     assert other["cached_shots"] == 0 and other["est_cost_usd"] > 0  # clips are native to one aspect: another aspect starts from scratch
@@ -275,6 +287,7 @@ def test_the_estimate_total_is_the_shot_rows_plus_the_cold_start(api: TestClient
         cold = api.get(f"/api/campaigns/{produced}/spot/estimate", params=kw).json()
     rows = round(sum(s["est_cost_usd"] for s in cold["shots"]), 5)
     assert len(cold["shots"]) == 3 and cold["cold_start_cost_usd"] > 0 and cold["est_cost_usd"] == pytest.approx(rows + cold["cold_start_cost_usd"], abs=1e-9)
+    assert cold["max_retry_extra_usd"] == rows  # a second attempt would not wake the worker again: the cold start is not part of it
     assert cold["est_gpu_seconds"] == pytest.approx(sum(s["est_gpu_seconds"] for s in cold["shots"]) + cold["cold_start_seconds"], abs=0.011)
     ready = api.get(f"/api/campaigns/{produced}/spot/estimate", params=kw).json()
     assert ready["cold_start_cost_usd"] == 0 and ready["cold_start_seconds"] == 0 and ready["est_cost_usd"] == pytest.approx(sum(s["est_cost_usd"] for s in ready["shots"]), abs=1e-9)
@@ -400,6 +413,33 @@ def test_a_clip_that_content_safety_flags_never_reaches_the_spot(api: TestClient
 def test_a_viewer_who_may_not_generate_cannot_start_a_cinematic_render(api: TestClient):
     cid = produce(api, 6)
     assert render(api, cid, headers=H("legal"), quality="cinematic").status_code == 403
+
+
+@needs_cv2
+def test_a_shot_that_barely_moved_is_made_again_and_the_report_provenance_and_meter_say_so(api: TestClient):
+    cid = produce(api, 6)
+    sb = api.get(f"/api/campaigns/{cid}/storyboard").json()["latest"]
+    shot_id = sb["shots"][0]["id"]
+    edit = api.patch(f"/api/campaigns/{cid}/storyboard/{sb['id']}/shots/{shot_id}", json={"motion": "A hand turns the bag slowly; steam drifts left."}, headers=H("creative"))
+    assert edit.status_code == 200 and edit.json()["motion_stale"] is True  # the clip to come is the first one for this text
+    with motion_client(api, Stubborn({1})) as client:  # the model returns the keyframe as a frozen clip the first time
+        r = render(api, cid, quality="cinematic")
+    assert r.status_code == 200, r.text
+    first, second = client.requests
+    assert second.seed == first.seed + 1 and second.prompt.startswith(first.prompt) and second.prompt != first.prompt
+    res = r.json()["result"]
+    m = res["motion"]
+    assert (m["shots_total"], m["shots_generated"], m["shots_low_motion"], m["retries"], m["shots_fallback"]) == (1, 1, 0, 1, [])
+    assert m["gpu_seconds"] == round(2 * client.results[0].gpu_seconds, 2)  # two generations on the GPU, both in the bill
+    row = next(s for s in spots(api, cid) if s["id"] == res["artifact_id"])["render"]["motion"]["shots"][0]
+    assert row["motion"]["attempts"] == 2 and row["motion"]["level"] in {"subtle", "rich"} and row["seed"] == second.seed and row["prompt_sha256"] != row["plan_prompt_sha256"]
+    prov = api.get(f"/api/provenance/assets/{res['video_asset_id']}").json()
+    assert [(s["attempts"], s["seed"]) for s in prov["manifest"]["assertions"]["generative_video"]["shots"]] == [(2, second.seed)] and prov["verification"]["ok"]
+    events = [e for e in api.get("/api/budget/events", params={"campaign_id": cid}).json()["events"] if e["kind"] == "motion"]
+    assert sorted((e["units"]["shots"], e["units"]["retry"]) for e in events) == [(0, True), (1, False)] and all(e["units"]["gpu_seconds"] > 0 for e in events)
+    fresh = api.get(f"/api/campaigns/{cid}/storyboard").json()["latest"]
+    assert not fresh["shots"][0].get("motion_stale")  # the clip answers the storyboard's own prompt, whatever the retry added to the one it was made with
+    assert api.get(f"/api/campaigns/{cid}/spot/estimate", params={"quality": "cinematic"}).json()["cached_shots"] == 1  # and the library serves it from now on
 
 
 # ------------------------------------------------------------------------------------------------ the other versions of a cinematic master

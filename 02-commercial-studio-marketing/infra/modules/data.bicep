@@ -171,10 +171,11 @@ resource motionBlobContainers 'Microsoft.Storage/storageAccounts/blobServices/co
   }
 ]
 
-// Studio enqueues jobs and reads queue depth; the worker consumes (and KEDA reads the length with the worker identity).
+// Least privilege: the GPU worker gets roles on the three motion containers and on the one queue ONLY — never on the account, which also holds
+// the `assets` container (campaign assets and the provenance signing key). Studio keeps its account-wide blob role (it owns `assets`) and gets the queue role on the queue.
 resource appQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMotion) {
-  name: guid(storage.id, appPrincipalId, queueDataContributor)
-  scope: storage
+  name: guid(motionQueue.id, appPrincipalId, queueDataContributor)
+  scope: motionQueue
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueDataContributor)
     principalId: appPrincipalId
@@ -182,9 +183,10 @@ resource appQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if 
   }
 }
 
+// The worker consumes jobs and KEDA reads the queue length with the worker identity (Get Queue Properties).
 resource motionQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMotion) {
-  name: guid(storage.id, motionPrincipalId, queueDataContributor)
-  scope: storage
+  name: guid(motionQueue.id, motionPrincipalId, queueDataContributor)
+  scope: motionQueue
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueDataContributor)
     principalId: motionPrincipalId
@@ -193,8 +195,8 @@ resource motionQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
 }
 
 resource userQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMotion && !empty(userPrincipalId)) {
-  name: guid(storage.id, userPrincipalId, queueDataContributor)
-  scope: storage
+  name: guid(motionQueue.id, userPrincipalId, queueDataContributor)
+  scope: motionQueue
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueDataContributor)
     principalId: userPrincipalId
@@ -202,15 +204,17 @@ resource userQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if
   }
 }
 
-resource motionBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMotion) {
-  name: guid(storage.id, motionPrincipalId, blobDataContributor)
-  scope: storage
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', blobDataContributor)
-    principalId: motionPrincipalId
-    principalType: 'ServicePrincipal'
+resource motionBlobRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for (c, i) in motionContainers: if (enableMotion) {
+    name: guid(motionBlobContainers[i].id, motionPrincipalId, blobDataContributor)
+    scope: motionBlobContainers[i]
+    properties: {
+      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', blobDataContributor)
+      principalId: motionPrincipalId
+      principalType: 'ServicePrincipal'
+    }
   }
-}
+]
 
 // Transport blobs are throw-away (Studio keeps every finished clip as a library asset): delete them after 3 days.
 resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = if (enableMotion) {

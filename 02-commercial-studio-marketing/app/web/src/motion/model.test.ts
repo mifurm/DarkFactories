@@ -15,6 +15,7 @@ import {
   newClips,
   readShotMotion,
   readSpotMotion,
+  shotList,
   shotNumber,
   statusRefetchInterval,
   wallMinutes,
@@ -249,6 +250,83 @@ describe("spot quality and motion summary", () => {
     expect(readShotMotion({ id: "s1", motion: { prompt_en: "Steam rises." } })).toEqual({ prompt_en: "Steam rises.", prompt: "Steam rises.", camera: "" });
     expect(readShotMotion({ id: "s1" })).toBeNull();
     expect(readShotMotion({ id: "s1", motion: "text" })).toBeNull();
+  });
+});
+
+describe("the motion-quality gate in render.motion", () => {
+  const gate = (level: string, over: object = {}) => ({ non_rigid: 2.66, total: 3.1, level, attempts: 1, ...over });
+  const report = (shots: unknown[], over: object = {}) => ({ quality: "cinematic", render: { motion: { mode: "azure", shots_total: shots.length, shots_generated: shots.length, shots_cached: 0, shots_fallback: [], shots, ...over } } });
+
+  it("reads the verdict of every shot that has one — level, figures, attempts — in shot order, and the report's counts", () => {
+    const info = readSpotMotion(
+      report(
+        [
+          { shot_id: "s1", status: "generated", motion: gate("rich") },
+          { shot_id: "s2", status: "cached", motion: gate("subtle", { non_rigid: 0.74, total: 0.9 }) },
+          { shot_id: "s3", status: "generated", motion: gate("low", { non_rigid: 0.12, total: 0.2, attempts: 2 }) },
+        ],
+        { shots_low_motion: 1, retries: 1 },
+      ),
+    );
+    expect(info.motion?.shot_quality).toEqual([
+      { shot_id: "s1", number: 1, level: "rich", non_rigid: 2.66, total: 3.1, attempts: 1 },
+      { shot_id: "s2", number: 2, level: "subtle", non_rigid: 0.74, total: 0.9, attempts: 1 },
+      { shot_id: "s3", number: 3, level: "low", non_rigid: 0.12, total: 0.2, attempts: 2 },
+    ]);
+    expect(info.motion).toMatchObject({ shots_low_motion: 1, retries: 1 });
+  });
+
+  it("an older backend or artifact has no gate: nothing is read and nothing is invented", () => {
+    const info = readSpotMotion(report([{ shot_id: "s1", status: "generated" }, { shot_id: "s2", status: "cached" }]));
+    expect(info.motion).toMatchObject({ shot_quality: [], shots_low_motion: 0, retries: 0 });
+    expect(readSpotMotion({ quality: "cinematic", render: { motion: { shots_total: 2, shots_generated: 2 } } }).motion).toMatchObject({ shot_quality: [], shots_low_motion: 0, retries: 0 });
+  });
+
+  it("tolerates a half-written report: unmeasured clips, an unknown level, a missing or odd attempt count, entries that are not shots", () => {
+    const info = readSpotMotion(
+      report([
+        { shot_id: "s1", motion: { non_rigid: null, total: null, level: "unknown", attempts: 1 } },
+        { shot_id: "s2", motion: { level: "spectacular", non_rigid: "2.6", attempts: 0 } },
+        { shot_id: "s3", motion: "rich" },
+        "s4",
+        null,
+        { shot_id: "s6", motion: { level: "rich", non_rigid: 1.5 } },
+        { shot_id: "s7", motion: { level: "low", non_rigid: 0.1, total: 0.2, attempts: 2.4 } },
+      ]),
+    );
+    expect(info.motion?.shot_quality).toEqual([
+      { shot_id: "s1", number: 1, level: "unknown", non_rigid: null, total: null, attempts: 1 },
+      { shot_id: "s2", number: 2, level: "unknown", non_rigid: null, total: null, attempts: 1 },
+      { shot_id: "s6", number: 6, level: "rich", non_rigid: 1.5, total: null, attempts: 1 },
+      { shot_id: "s7", number: 7, level: "low", non_rigid: 0.1, total: 0.2, attempts: 2 },
+    ]);
+  });
+
+  it("numbers a shot by its id, and by its place in the list when the id has no number", () => {
+    const info = readSpotMotion(report([{ shot_id: "opening", motion: gate("rich") }, { shot_id: "closing", motion: gate("low") }]));
+    expect(info.motion?.shot_quality.map((q) => q.number)).toEqual([1, 2]);
+  });
+
+  it("the report's own low-motion and retry counts win; without them they are counted from the shots; nonsense reads as zero", () => {
+    const shots = [
+      { shot_id: "s1", motion: gate("low") },
+      { shot_id: "s2", motion: gate("low", { attempts: 2 }) },
+      { shot_id: "s3", motion: gate("rich", { attempts: 2 }) },
+    ];
+    expect(readSpotMotion(report(shots)).motion).toMatchObject({ shots_low_motion: 2, retries: 2 });
+    expect(readSpotMotion(report(shots, { shots_low_motion: 0, retries: 5 })).motion).toMatchObject({ shots_low_motion: 0, retries: 5 });
+    expect(readSpotMotion(report(shots, { shots_low_motion: -3, retries: "x" })).motion).toMatchObject({ shots_low_motion: 0, retries: 2 });
+  });
+});
+
+describe("shotList", () => {
+  it("reads naturally in both languages and keeps the Polish conjunction with the number after it", () => {
+    expect(shotList([3], "en-US")).toBe("3");
+    expect(shotList([2, 4], "en-US")).toBe("2 and 4");
+    expect(shotList([1, 2, 5], "en-US")).toBe("1, 2, and 5");
+    expect(shotList([3], "pl-PL")).toBe("3");
+    expect(shotList([2, 4], "pl-PL")).toBe("2 i\u00A04");
+    expect(shotList([1, 2, 5], "pl-PL")).toBe("1, 2 i\u00A05");
   });
 });
 

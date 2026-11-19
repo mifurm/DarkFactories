@@ -51,7 +51,22 @@ export const en = {
     tone: same("warm", "playful", "premium", "minimal"),
     copyKind: humanized("headline", "caption", "email_subject", "email_body"),
     providerKind: same("compositor", "keyframes+motion compositor", "generative video (stub)"),
-    motionFallback: { timeout: "timed out", failed: "generation failed", unavailable: "GPU unavailable", oom: "out of GPU memory", bad_request: "invalid request", bad_clip: "unreadable clip", safety: "blocked by Content Safety", budget: "budget limit" },
+    // why a shot played its keyframe with camera moves: the backend's codes (spotlight/motion/models.py FALLBACK_REASONS), then the codes of an earlier revision (kept as aliases: older artifacts carry them)
+    motionFallback: {
+      oom: "out of GPU memory",
+      timeout: "timed out",
+      safety: "blocked by Content Safety",
+      budget: "budget limit",
+      worker_unavailable: "GPU unavailable",
+      bad_request: "invalid request",
+      internal: "internal generation error",
+      disabled: "AI motion turned off on the server",
+      unavailable: "GPU unavailable",
+      failed: "generation failed",
+      bad_clip: "unreadable clip",
+    },
+    // the motion-quality gate's verdict on a clip (render.motion.shots[i].motion.level); `unknown` has no label: nothing is shown for a clip that was not measured
+    motionLevel: { rich: "Rich motion", subtle: "Subtle motion", low: "Low motion" },
     provCheck: same("asset_hash", "manifest_hash", "signature", "audit_anchor", "ingredients"),
     jurisdiction: { EU: "European Union", UK: "United Kingdom", US: "United States" },
     roiScenario: { conservative: "Conservative", base: "Base", upside: "Upside" },

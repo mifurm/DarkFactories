@@ -27,6 +27,8 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src ./src
 RUN pip install .
+# OpenCV (headless) measures how much a generated clip really moves; a broken wheel must fail the build, not the first render
+RUN python -c "import cv2; print('opencv', cv2.__version__)"
 COPY --from=web /web/dist /app/static
 
 USER 10001

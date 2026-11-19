@@ -76,6 +76,14 @@ export const motionMessages: Record<string, string> = {
   "no GPU time used": "bez zużycia czasu GPU",
   "Fell back to camera moves on the keyframe: {list}": "Zamiast AI zastosowano ruch kamery na klatce kluczowej: {list}",
 
+  // spot card: the motion-quality gate (per-shot badge, its tooltip, the retry note and the hint for clips that stay almost still)
+  "retried with another seed": "ponowiono z innym ziarnem",
+  "Non-rigid motion: {value} px per 0.4 s (a still with camera moves: ≈ {still})": "Ruch niesztywny: {value}\u00A0px na 0,4\u00A0s (ruch kamery na nieruchomej klatce: ≈ {still})",
+  "Shot {list} has little motion. Edit its motion prompt (Storyboard tab) and render again — only that shot is regenerated.":
+    "Ujęcie {list} ma mało ruchu. Zmień jego opis ruchu (zakładka Storyboard) i wyrenderuj ponownie — od nowa zostanie wygenerowane tylko to ujęcie.",
+  "Shots {list} have little motion. Edit their motion prompts (Storyboard tab) and render again — only those shots are regenerated.":
+    "Ujęcia {list} mają mało ruchu. Zmień ich opisy ruchu (zakładka Storyboard) i wyrenderuj ponownie — od nowa zostaną wygenerowane tylko te ujęcia.",
+
   // provenance: the generative_video assertion of a cinematic spot
   "{n} hashed (keyframes, AI clips, voice-over)": "skróty: {n} (klatki kluczowe, klipy AI, lektor)",
   "Generative video": "Wideo generatywne",
@@ -106,15 +114,21 @@ export const motionEnums: Record<string, EnumTable> = {
   costKind: { motion: "wideo AI" },
   // why a shot fell back to camera moves on its keyframe: the backend's reason codes (the server also sends a localized `reason_text`, which wins; an unknown code is shown as received)
   motionFallback: {
-    timeout: "przekroczono czas",
-    failed: "generowanie nie powiodło się",
-    unavailable: "GPU niedostępne",
     oom: "brak pamięci GPU",
-    bad_request: "nieprawidłowe żądanie",
-    bad_clip: "nieczytelny klip",
+    timeout: "przekroczono czas",
     safety: "zablokowane przez Content Safety",
     budget: "limit budżetu",
+    worker_unavailable: "GPU niedostępne",
+    bad_request: "nieprawidłowe żądanie",
+    internal: "błąd wewnętrzny generowania",
+    disabled: "ruch AI wyłączony na serwerze",
+    // the codes of an earlier backend revision, still carried by older artifacts
+    unavailable: "GPU niedostępne",
+    failed: "generowanie nie powiodło się",
+    bad_clip: "nieczytelny klip",
   },
+  // the motion-quality gate's verdict on a clip: how much real (not camera-move) motion it has
+  motionLevel: { rich: "Dużo ruchu", subtle: "Subtelny ruch", low: "Mało ruchu" },
   // the clips the generative model produces are library assets tagged "motion-clip"
   assetTag: { "motion-clip": "klip ruchu AI" },
   // audit trail: a cinematic render recorded its AI motion

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import tempfile
@@ -21,6 +22,7 @@ for key in ("COSMOS_ENDPOINT", "BLOB_ACCOUNT_URL", "AZURE_OPENAI_ENDPOINT", "AI_
 
 HAVE_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 needs_ffmpeg = pytest.mark.skipif(not HAVE_FFMPEG, reason="ffmpeg/ffprobe not installed")
+needs_cv2 = pytest.mark.skipif(importlib.util.find_spec("cv2") is None, reason="opencv not installed (the motion gate cannot measure without it)")
 
 
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001

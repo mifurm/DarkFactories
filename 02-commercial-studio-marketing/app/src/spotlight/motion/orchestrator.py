@@ -1,8 +1,9 @@
 """Cinematic-motion orchestration: from a spot's scenes to AI clips the compositor can play.
 
 For every scene: library-cache lookup (a longer cached clip satisfies a shorter request) -> budget authorisation (campaign + daily caps; a refusal spends
-nothing) -> generation on the GPU worker, one clip at a time (the quota is one GPU) -> content-safety check of first / middle / last frame -> the clip is stored as
-a library asset -> the usage meter records the GPU seconds. A shot that fails, times out, is refused by the budget guard or is flagged by Content Safety falls back
+nothing) -> generation on the GPU worker, one clip at a time (the quota is one GPU) -> content-safety check of first / middle / last frame -> motion gate (the clip is
+measured, ``quality.py``: a clip that barely moves gets ONE more attempt with the next seed, the better of the two is kept) -> the clip is stored as a library asset with
+its score -> the usage meter records the GPU seconds of every attempt. A shot that fails, times out, is refused by the budget guard or is flagged by Content Safety falls back
 to the still-image (Ken-Burns) path and is reported; the spot always renders.
 """
 
@@ -33,12 +34,15 @@ from . import plan as planner
 from . import wire
 from .models import MotionError, MotionProgress, MotionRequest, MotionResult, ProgressCb
 from .plan import MotionPlan, ShotPlan
+from .quality import MotionQuality, measure_motion
 
 log = logging.getLogger("spotlight.motion")
 
 NEXT_SHOT_TIMEOUT_S = 600.0  # after the first clip (which may include the cold start) a single clip must not take longer than this
 BREAKER_AFTER = 2  # consecutive timeouts / unreachable worker: stop asking, fall back for the rest
 FLAG_FROM = SafetyObs().block_at  # Content Safety severity at which the Guardian blocks an image
+RETRY_SUFFIX = " Clearly visible subject motion, not a static shot."  # added to the prompt of the one retry of a clip that barely moves
+RETRY_MIN_LEFT_S = 60.0  # a retry needs at least this much of the shot's time budget (a generation takes about 90 s on the GPU)
 
 
 @dataclass
@@ -51,13 +55,18 @@ class ShotOutcome:
     detail: str = ""
     asset_id: str | None = None
     clip: bytes | None = None
-    gpu_seconds: float = 0.0  # spent by THIS render (0 for a cache hit)
+    gpu_seconds: float = 0.0  # spent by THIS render on this shot, every attempt included (0 for a cache hit)
     cost_usd: float = 0.0
     frames: int = 0
     transport_cached: bool = False  # generate() was answered by an earlier worker result (still no GPU time)
     safety_max: int | None = None
     model: str = ""  # what actually produced the clip (the worker reports it; a cache hit carries what the asset recorded)
     revision: str = ""
+    motion: MotionQuality | None = None  # how much the kept clip moves (None: the shot has no clip)
+    attempts: int = 1  # generation attempts behind the kept clip: 2 = the first clip barely moved and a second one was made
+    seed: int | None = None  # seed / prompt hash of the KEPT clip (the retry's when the retry won); None: the plan's
+    prompt_sha: str = ""
+    retried: bool = False  # THIS render started the second attempt (a cached clip that once needed one has ``attempts == 2`` but is not a retry of this render)
 
     @property
     def has_clip(self) -> bool:
@@ -100,7 +109,11 @@ class MotionOutcome:
     def report(self) -> dict[str, Any]:
         """``render.motion`` of the spot artifact. ``shots_generated`` counts every shot that carries AI motion in the final video (fresh or from the cache),
         ``shots_cached`` those of them that came from the cache, so ``shots_generated + len(shots_fallback) == shots_total``. ``model`` / ``revision`` are what actually
-        made the clips (as reported by the worker), not what was configured."""
+        made the clips (as reported by the worker), not what was configured.
+
+        The motion gate: every shot with a clip carries ``motion`` (``non_rigid`` / ``total`` flow, ``level`` low | subtle | rich | unknown, ``attempts``); ``shots_low_motion``
+        counts the shots whose kept clip still barely moves, ``retries`` the second attempts THIS render started. ``seed`` / ``prompt_sha256`` of a shot are those of the clip that
+        was kept (what provenance records), ``plan_prompt_sha256`` the hash of the storyboard prompt it was asked for (what tells whether the shot is out of date)."""
         carry = [o for o in self.shots if o.has_clip]
         used = {(o.model or self.plan.model, o.revision or self.plan.revision) for o in carry}
         model, revision = next(iter(used)) if len(used) == 1 else (self.plan.model, self.plan.revision)
@@ -117,6 +130,8 @@ class MotionOutcome:
             "shots_generated": len(carry),
             "shots_cached": sum(1 for o in carry if o.status == "cached"),
             "shots_fallback": [{"shot_id": o.shot_id, "reason": o.reason or "internal", "detail": o.detail[:240]} for o in self.shots if not o.has_clip],
+            "shots_low_motion": sum(1 for o in carry if o.motion is not None and o.motion.level == "low"),
+            "retries": sum(1 for o in self.shots if o.retried),
             "gpu_seconds": gpu,
             "cost_usd": round(sum(o.cost_usd for o in self.shots) + self.cold_start_usd, 6),
             "cold_start_s": self.cold_start_s,
@@ -124,9 +139,11 @@ class MotionOutcome:
             "seed_base": self.plan.seed_base,
             "shots": [
                 {
-                    "shot_id": o.shot_id, "scene_id": o.scene_id, "status": o.status, "reason": o.reason, "seed": o.plan.seed, "prompt_sha256": planner.prompt_sha256(o.plan.prompt, o.plan.negative),
+                    "shot_id": o.shot_id, "scene_id": o.scene_id, "status": o.status, "reason": o.reason, "seed": o.seed if o.seed is not None else o.plan.seed,
+                    "prompt_sha256": o.prompt_sha or planner.prompt_sha256(o.plan.prompt, o.plan.negative), "plan_prompt_sha256": planner.prompt_sha256(o.plan.prompt, o.plan.negative),
                     "frames": o.frames or o.plan.frames, "width": o.plan.width, "height": o.plan.height, "gpu_seconds": round(o.gpu_seconds, 2), "cost_usd": round(o.cost_usd, 6), "asset_id": o.asset_id,
                     "safety_max": o.safety_max,
+                    "motion": {"non_rigid": o.motion.non_rigid, "total": o.motion.total, "level": o.motion.level, "attempts": o.attempts} if (o.motion is not None and o.has_clip) else None,
                 }
                 for o in self.shots
             ],
@@ -278,10 +295,20 @@ async def generate_clips(
             except Exception:  # the blob behind the cache entry is gone: generate it again
                 hit, clip = None, b""
             if hit is not None:
+                meta = hit["meta"]
+                stored = MotionQuality.from_dict(meta.get("motion_score"))
+                if stored is not None and stored.level != "unknown":
+                    quality = stored
+                else:  # a clip from before the gate (or one that could not be measured then): measured once, remembered on the asset
+                    quality = await asyncio.to_thread(measure_motion, clip, cfg.work_dir or None)
+                    if quality.level != "unknown":
+                        meta["motion_score"] = quality.to_dict()
+                        await st.save_asset(hit)
                 out.shots.append(
                     ShotOutcome(
-                        scene_id=sp.scene_id, shot_id=sp.shot_id, status="cached", plan=sp, asset_id=hit["id"], clip=clip, frames=int(hit["meta"].get("frames", sp.frames)),
-                        model=str(hit["meta"].get("model") or plan.model), revision=str(hit["meta"].get("revision") or plan.revision), safety_max=hit["meta"].get("safety_max"),
+                        scene_id=sp.scene_id, shot_id=sp.shot_id, status="cached", plan=sp, asset_id=hit["id"], clip=clip, frames=int(meta.get("frames", sp.frames)),
+                        model=str(meta.get("model") or plan.model), revision=str(meta.get("revision") or plan.revision), safety_max=meta.get("safety_max"),
+                        motion=quality, attempts=int(meta.get("attempts") or 1), seed=meta.get("seed"), prompt_sha=str(meta.get("prompt_sha256") or ""),
                     )
                 )
                 await s.meter.record(kind="motion", model=plan.model, units={"gpu_seconds": 0.0, "frames": sp.frames, "shots": 1, "w": sp.width, "h": sp.height}, cost_usd=0.0, cached=True)
@@ -305,7 +332,10 @@ async def generate_clips(
             else:
                 await say(frac_done, "job.msg.motion.shot", n=n, total=total, pct=0.0)
 
-        outcome = await _one_shot(s, st, cid, plan, sp, images, relay, timeout_s=remaining if n == 1 else min(remaining, NEXT_SHOT_TIMEOUT_S), actor=actor)
+        async def retry_relay(p: MotionProgress, n: int = n, frac_done: float = frac_done) -> None:  # the bar stays where the first attempt left it: only the words change
+            await say(frac_done + 1.0 / total, "job.msg.motion.retry", n=n, total=total)
+
+        outcome = await _one_shot(s, st, cid, plan, sp, images, relay, retry_relay, timeout_s=remaining if n == 1 else min(remaining, NEXT_SHOT_TIMEOUT_S), actor=actor)
         out.shots.append(outcome)
         if outcome.status == "fallback":
             await say(frac_done + 1.0 / total, "job.msg.motion.fallback", n=n)
@@ -317,57 +347,133 @@ async def generate_clips(
     return out
 
 
-async def _one_shot(s: Any, st: Any, cid: str, plan: MotionPlan, sp: ShotPlan, images: Mapping[str, bytes], relay: ProgressCb, *, timeout_s: float, actor: Actor | None) -> ShotOutcome:
+@dataclass
+class _Attempt:
+    """One generated clip that is playable, passed Content Safety and has been measured; it is not stored yet (that is decided once both attempts are known)."""
+
+    res: MotionResult
+    info: dict[str, Any]
+    safety_max: int
+    quality: MotionQuality
+    seed: int
+    prompt: str
+    gpu_seconds: float  # billed to THIS render (0 when the worker answered from its result store)
+    cost_usd: float
+    transport_cached: bool
+
+
+class _AttemptFailed(Exception):
+    """An attempt that gave no usable clip. ``started`` is False when it never reached the worker (the budget refused it)."""
+
+    def __init__(self, reason: str, detail: str, *, started: bool = True, gpu_seconds: float = 0.0, cost_usd: float = 0.0, safety_max: int | None = None, transport_cached: bool = False) -> None:
+        super().__init__(detail)
+        self.reason, self.detail, self.started = reason, detail, started
+        self.gpu_seconds, self.cost_usd, self.safety_max, self.transport_cached = gpu_seconds, cost_usd, safety_max, transport_cached
+
+
+async def _attempt(s: Any, st: Any, cid: str, sp: ShotPlan, image: bytes, relay: ProgressCb, *, seed: int, prompt: str, timeout_s: float, retry: bool) -> _Attempt:
+    """Authorise, generate, meter, check (playable, Content Safety) and measure ONE clip. Raises ``_AttemptFailed``; a cancelled job propagates."""
     client, cfg = s.motion, s.settings
-
-    def fallback(reason: str, detail: str, **kw: Any) -> ShotOutcome:
-        return ShotOutcome(scene_id=sp.scene_id, shot_id=sp.shot_id, status="fallback", plan=sp, reason=reason, detail=detail, **kw)
-
     try:
         await s.guard.authorize(sp.est_cost_usd, kind="motion", model=client.model)  # the up-front check covered the render; this one covers spend by other jobs in the meantime
+    except BudgetExceeded as exc:
+        raise _AttemptFailed("budget", exc.message, started=False) from exc
+    if retry:
+        await relay(MotionProgress(state="queued", message="retry"))  # said before the (possibly long) wait for the worker, but only once the budget has agreed to it
+    try:
         request = MotionRequest(
-            prompt=sp.prompt, negative_prompt=sp.negative, image=crop_keyframe(images[sp.asset_id], sp.width, sp.height, sp.focal), width=sp.width, height=sp.height, num_frames=sp.frames,
-            seed=sp.seed, fps=sp.fps, steps=sp.steps, guidance_scale=sp.guidance, model=client.model, revision=client.revision, campaign_id=cid, shot_id=sp.shot_id,
+            prompt=prompt, negative_prompt=sp.negative, image=image, width=sp.width, height=sp.height, num_frames=sp.frames, seed=seed, fps=sp.fps, steps=sp.steps, guidance_scale=sp.guidance,
+            model=client.model, revision=client.revision, campaign_id=cid, shot_id=sp.shot_id,
         )
         res: MotionResult = await client.generate(request, relay, timeout_s)
     except JobCancelled:
         raise
-    except BudgetExceeded as exc:
-        return fallback("budget", exc.message)
     except MotionError as exc:
-        log.warning("motion shot %s fell back to the still path: %s", sp.shot_id, exc.message)
+        log.warning("motion shot %s: %s attempt failed: %s", sp.shot_id, "retry" if retry else "first", exc.message)
         wasted = float(getattr(exc, "gpu_seconds", 0.0) or 0.0)  # a failed attempt still ran on the GPU
         wasted_usd = pricing.motion_cost(wasted, cfg.motion_price_per_gpu_second)
         if wasted > 0:
-            await s.meter.record(kind="motion", model=client.model, units={"gpu_seconds": wasted, "frames": sp.frames, "shots": 0, "failed": True, "w": sp.width, "h": sp.height}, cost_usd=wasted_usd)
-        return fallback(exc.reason, exc.message, gpu_seconds=wasted, cost_usd=wasted_usd)
+            await s.meter.record(kind="motion", model=client.model, units={"gpu_seconds": wasted, "frames": sp.frames, "shots": 0, "failed": True, "retry": retry, "w": sp.width, "h": sp.height}, cost_usd=wasted_usd)
+        raise _AttemptFailed(exc.reason, exc.message, gpu_seconds=wasted, cost_usd=wasted_usd) from exc
     except AppError as exc:
-        return fallback("internal", exc.message)
+        raise _AttemptFailed("internal", exc.message) from exc
     except Exception as exc:
         log.exception("motion shot %s failed", sp.shot_id)
-        return fallback("internal", f"{type(exc).__name__}: {str(exc)[:160]}")
+        raise _AttemptFailed("internal", f"{type(exc).__name__}: {str(exc)[:160]}") from exc
 
     cost = 0.0 if res.cached else pricing.motion_cost(res.gpu_seconds, cfg.motion_price_per_gpu_second)
     await s.meter.record(
-        kind="motion", model=res.model, units={"gpu_seconds": 0.0 if res.cached else res.gpu_seconds, "frames": res.num_frames, "shots": 1, "w": res.width, "h": res.height}, cost_usd=cost, cached=res.cached,
+        kind="motion", model=res.model, units={"gpu_seconds": 0.0 if res.cached else res.gpu_seconds, "frames": res.num_frames, "shots": 0 if retry else 1, "retry": retry, "w": res.width, "h": res.height},
+        cost_usd=cost, cached=res.cached,
     )
     spent: dict[str, Any] = {"gpu_seconds": 0.0 if res.cached else res.gpu_seconds, "cost_usd": cost, "transport_cached": res.cached}
     try:
         info, frames = await asyncio.to_thread(inspect_clip, res.clip, cfg.work_dir or None)
     except media.MediaError as exc:
         log.warning("motion shot %s: the clip is not a playable video: %s", sp.shot_id, str(exc)[:300])
-        return fallback("internal", "the generated clip could not be read as a video", **spent)  # the worker returned something that is not a playable video (the ffprobe output stays in the log)
+        raise _AttemptFailed("internal", "the generated clip could not be read as a video", **spent) from exc  # the worker returned something that is not a playable video (the ffprobe output stays in the log)
     obs = await st.gather_safety(GuardianSubject(), image_bytes={f"{sp.shot_id}:{k}": v for k, v in frames.items()})
     worst = max((int(v.get("max", 0)) for v in obs.images.values()), default=0)
     if worst >= FLAG_FROM:
-        return fallback("safety", f"Content Safety flagged the clip (severity {worst})", safety_max=worst, **spent)
+        raise _AttemptFailed("safety", f"Content Safety flagged the clip (severity {worst})", safety_max=worst, **spent)
+    quality = await asyncio.to_thread(measure_motion, res.clip, cfg.work_dir or None)
+    return _Attempt(res=res, info=info, safety_max=worst, quality=quality, seed=seed, prompt=prompt, **spent)
+
+
+async def _one_shot(s: Any, st: Any, cid: str, plan: MotionPlan, sp: ShotPlan, images: Mapping[str, bytes], relay: ProgressCb, retry_relay: ProgressCb, *, timeout_s: float, actor: Actor | None) -> ShotOutcome:
+    """One scene's clip: generate it, measure how much it moves, and — when it barely moves (a still with a camera move is no better) — make ONE more attempt with the next seed and a
+    prompt that insists on visible motion, keeping whichever moves more. The retry is authorised like any generation (a refusal keeps the first clip) and never fails the shot."""
+    client, cfg = s.motion, s.settings
+    t0 = time.monotonic()
+
+    def fallback(reason: str, detail: str, **kw: Any) -> ShotOutcome:
+        return ShotOutcome(scene_id=sp.scene_id, shot_id=sp.shot_id, status="fallback", plan=sp, reason=reason, detail=detail, **kw)
+
+    try:
+        image = crop_keyframe(images[sp.asset_id], sp.width, sp.height, sp.focal)
+        first = await _attempt(s, st, cid, sp, image, relay, seed=sp.seed, prompt=sp.prompt, timeout_s=timeout_s, retry=False)
+    except _AttemptFailed as failed:
+        return fallback(failed.reason, failed.detail, gpu_seconds=failed.gpu_seconds, cost_usd=failed.cost_usd, safety_max=failed.safety_max, transport_cached=failed.transport_cached)
+    except JobCancelled:
+        raise
+    except Exception as exc:  # the keyframe could not be framed
+        log.exception("motion shot %s failed", sp.shot_id)
+        return fallback("internal", f"{type(exc).__name__}: {str(exc)[:160]}")
+
+    kept, retried = first, False
+    gpu, cost, reported = first.gpu_seconds, first.cost_usd, first.res.gpu_seconds
+    transport_cached = first.transport_cached
+    left = timeout_s - (time.monotonic() - t0)
+    if first.quality.level == "low" and cfg.motion_retry_low_motion and left >= RETRY_MIN_LEFT_S:
+        try:
+            second = await _attempt(s, st, cid, sp, image, retry_relay, seed=(sp.seed + 1) % 2**32, prompt=sp.prompt + RETRY_SUFFIX, timeout_s=left, retry=True)
+        except JobCancelled:
+            raise
+        except _AttemptFailed as failed:  # no second clip (budget, worker, safety…): the first one stays; what the failed attempt still cost is part of this shot's cost
+            log.info("motion shot %s: the retry gave no clip (%s: %s)", sp.shot_id, failed.reason, failed.detail[:120])
+            retried = failed.started
+            gpu, cost, reported = gpu + failed.gpu_seconds, cost + failed.cost_usd, reported + failed.gpu_seconds
+        except Exception:  # whatever goes wrong with the extra attempt must never cost the clip already in hand
+            log.exception("motion shot %s: the retry failed unexpectedly", sp.shot_id)
+        else:
+            retried = True
+            gpu, cost, reported = gpu + second.gpu_seconds, cost + second.cost_usd, reported + second.res.gpu_seconds
+            transport_cached = transport_cached and second.transport_cached
+            if (second.quality.non_rigid or 0.0) > (first.quality.non_rigid or 0.0):
+                kept = second
+    res = kept.res
+    attempts = 2 if retried else 1
     meta = {
-        "motion_key": sp.cache_key, "model": res.model, "revision": res.revision, "seed": sp.seed, "prompt": sp.prompt, "prompt_sha256": planner.prompt_sha256(sp.prompt, sp.negative), "frames": res.num_frames,
-        "fps": res.fps, "width": res.width, "height": res.height, "steps": sp.steps, "guidance": sp.guidance, "gpu_seconds": res.gpu_seconds, "job_id": res.job_id, "shot_id": sp.shot_id,
-        "scene_id": sp.scene_id, "mode": client.name, "duration": round(float(info.get("duration") or 0), 3), "safety_max": worst,
-    }
+        "motion_key": sp.cache_key, "model": res.model, "revision": res.revision, "seed": kept.seed, "prompt": kept.prompt, "prompt_sha256": planner.prompt_sha256(kept.prompt, sp.negative),
+        "plan_prompt_sha256": planner.prompt_sha256(sp.prompt, sp.negative), "frames": res.num_frames, "fps": res.fps, "width": res.width, "height": res.height, "steps": sp.steps, "guidance": sp.guidance,
+        "gpu_seconds": round(reported, 2), "job_id": res.job_id, "shot_id": sp.shot_id, "scene_id": sp.scene_id, "mode": client.name, "duration": round(float(kept.info.get("duration") or 0), 3),
+        "safety_max": kept.safety_max, "motion_score": kept.quality.to_dict(), "attempts": attempts,
+    }  # gpu_seconds: everything the worker spent on this clip, the discarded attempt included
     asset = await st.put_asset(
         campaign_id=cid, name=f"motion-{sp.shot_id}-{res.width}x{res.height}.mp4", data=res.clip, mime="video/mp4", kind="video", actor=actor, tags=["motion-clip", sp.shot_id], index=False,
         description=f"AI motion clip · {sp.shot_id} · {res.width}x{res.height}, {res.num_frames} frames", meta=meta,
     )
-    return ShotOutcome(scene_id=sp.scene_id, shot_id=sp.shot_id, status="generated", plan=sp, asset_id=asset["id"], clip=res.clip, frames=res.num_frames, safety_max=worst, model=res.model, revision=res.revision, **spent)
+    return ShotOutcome(
+        scene_id=sp.scene_id, shot_id=sp.shot_id, status="generated", plan=sp, asset_id=asset["id"], clip=res.clip, frames=res.num_frames, safety_max=kept.safety_max, model=res.model, revision=res.revision,
+        gpu_seconds=gpu, cost_usd=cost, transport_cached=transport_cached, motion=kept.quality, attempts=attempts, seed=kept.seed, prompt_sha=meta["prompt_sha256"], retried=retried,
+    )

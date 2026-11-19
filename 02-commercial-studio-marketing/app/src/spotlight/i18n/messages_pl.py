@@ -684,6 +684,7 @@ MESSAGES: dict[str, Any] = {
     "job.msg.motion.shot": "Ujęcie {n}/{total}: generowanie ruchu AI ({pct:pct0})",
     "job.msg.motion.cached": "Ujęcie {n}: ruch AI z biblioteki (bez czasu GPU)",
     "job.msg.motion.fallback": "Ujęcie {n}: ruch AI niedostępny — zamiast niego użyto klatki kluczowej z ruchem kamery",
+    "job.msg.motion.retry": "Ujęcie {n}/{total}: zbyt statyczny ruch — ponawiam z innym ziarnem",
     "motion.reason.timeout": "proces roboczy GPU nie odpowiedział w czasie",
     "motion.reason.worker_unavailable": "nie udało się połączyć z procesem roboczym GPU",
     "motion.reason.internal": "model ruchu zgłosił błąd wewnętrzny",

@@ -192,16 +192,17 @@ def frame_glyph_check(mp4: bytes, spec: dict[str, Any], evidence_dir: Path | Non
 
 
 def moving_picture_check(mp4: bytes, times: tuple[float, ...] = (1.0, 2.5, 4.0, 5.5, 7.0, 8.5), gap: float = 0.6) -> str:
-    """The cinematic spot's footage must move: frames ``gap`` seconds apart (inside the scenes, before the end card) differ clearly — a still with a slow camera move
-    barely changes in 0.6 s. Needs ffmpeg + numpy + Pillow; without them the check says it was skipped."""
+    """The cinematic spot's footage is not frozen: frames ``gap`` seconds apart (inside the scenes, before the end card) differ clearly. This does NOT tell a film from a
+    slideshow — a still with a Ken-Burns zoom passes it too (every pixel changes); that is what the render report's motion gate is asserted for (``motion_gate_check``).
+    Needs ffmpeg + numpy + Pillow; without them the check says it was skipped."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        return "motion check skipped (ffmpeg not installed)"
+        return "footage-not-frozen check skipped (ffmpeg not installed)"
     try:
         import numpy as np
         from PIL import Image
     except Exception as exc:
-        return f"motion check skipped ({type(exc).__name__}: needs numpy + Pillow, run with the app venv)"
+        return f"footage-not-frozen check skipped ({type(exc).__name__}: needs numpy + Pillow, run with the app venv)"
     with tempfile.TemporaryDirectory(dir=str(ROOT / "app")) as td:
         video = Path(td) / "cinematic.mp4"
         video.write_bytes(mp4)
@@ -212,8 +213,28 @@ def moving_picture_check(mp4: bytes, times: tuple[float, ...] = (1.0, 2.5, 4.0, 
 
         diffs = sorted(float(np.abs(grab(t) - grab(t + gap)).mean()) for t in times)
     median = diffs[len(diffs) // 2]
-    assert median > 1.0 and diffs[-1] > 2.0, f"the footage barely moves: mean |difference| of frames {gap}s apart = {[round(d, 2) for d in diffs]}"
-    return f"frames {gap}s apart differ (median {median:.1f}, max {diffs[-1]:.1f} grey levels)"
+    assert median > 1.0 and diffs[-1] > 2.0, f"the footage is frozen: mean |difference| of frames {gap}s apart = {[round(d, 2) for d in diffs]}"
+    return f"footage not frozen: frames {gap}s apart differ (median {median:.1f}, max {diffs[-1]:.1f} grey levels)"
+
+
+MOTION_GATE_MEDIAN = 0.5  # median non-rigid flow of the generated shots (px at 256x144): a Ken-Burns still scores 0.10-0.31, the open model's clips 0.42-4.9
+
+
+def motion_gate_check(motion: dict[str, Any], summary: dict[str, Any]) -> str:
+    """What the render report says about the footage: at least one shot carries AI motion, the GPU was used, and the shots really MOVE — the median of their non-rigid optical
+    flow (the flow a camera move on a still cannot explain, measured by the server per clip) is at least ``MOTION_GATE_MEDIAN``. ``motion`` is ``render.motion`` of the spot,
+    ``summary`` the job result's ``motion``. Skipped (said so) when the server could not measure (every level ``unknown``: no OpenCV there)."""
+    assert summary["shots_generated"] >= 1 and summary["gpu_seconds"] > 0, f"no AI motion was generated: {summary}"
+    carried = [x for x in motion["shots"] if x["status"] in {"generated", "cached"} and x.get("motion")]
+    assert carried and len(carried) == summary["shots_generated"], f"the report has no motion score for the shots: {motion['shots']}"
+    measured = [x["motion"] for x in carried if x["motion"]["level"] != "unknown" and x["motion"]["non_rigid"] is not None]
+    if not measured:
+        return "motion gate SKIPPED (every level unknown: the server could not measure, OpenCV missing?)"
+    scores = sorted(float(x["non_rigid"]) for x in measured)
+    median = scores[len(scores) // 2] if len(scores) % 2 else (scores[len(scores) // 2 - 1] + scores[len(scores) // 2]) / 2
+    levels = ", ".join(x["level"] for x in measured)
+    assert median >= MOTION_GATE_MEDIAN, f"the generated clips barely move: non_rigid min {scores[0]:.2f} / median {median:.2f} (< {MOTION_GATE_MEDIAN}), levels {levels}; retries {summary.get('retries')}"
+    return f"motion gate: non_rigid min {scores[0]:.2f} / median {median:.2f} (levels {levels}; {summary.get('shots_low_motion', 0)} low, {summary.get('retries', 0)} retried)"
 
 
 def run_polish(s: Smoke, evidence_dir: Path | None = None) -> None:
@@ -842,7 +863,7 @@ def run(base: str, expect_mode: str | None, langs: list[str], timeout: float, ke
         rows = sum(x["est_cost_usd"] for x in est["shots"])
         assert est["shots"] and est["est_wall_seconds"] > 0 and abs(est["est_cost_usd"] - (rows + est["cold_start_cost_usd"])) < 2e-5, est  # the total is the shot rows plus the cold start
         worker = st["worker"]["state"]
-        plan = f"{len(est['shots'])} shots ({est['cached_shots']} cached), estimate ${est['est_cost_usd']} / ~{est['est_wall_seconds'] / 60:.0f} min, worker {worker}"
+        plan = f"{len(est['shots'])} shots ({est['cached_shots']} cached), estimate ${est['est_cost_usd']}" + (f" (+ at most ${est['max_retry_extra_usd']} if a shot barely moves and is made again)" if est.get("max_retry_extra_usd") else "") + f" / ~{est['est_wall_seconds'] / 60:.0f} min, worker {worker}"
         if worker != "ready" and os.environ.get("SMOKE_CINEMATIC") != "1":
             return f"SKIP cinematic (worker {worker}; set SMOKE_CINEMATIC=1): {plan}"
         if not est["budget"]["allowed"]:
@@ -855,6 +876,7 @@ def run(base: str, expect_mode: str | None, langs: list[str], timeout: float, ke
         assert res["guardian"]["verdict"] in {"pass", "warn"}, res["guardian"]
         sp = next(x for x in s.call("GET", f"/api/campaigns/{cid}/spot").json()["spots"] if x["id"] == res["artifact_id"])
         assert sp["quality"] == "cinematic" and sp["render"]["motion"]["shots_generated"] == m["shots_generated"], sp.get("render")
+        gate = motion_gate_check(sp["render"]["motion"], m)  # the footage MOVES (a Ken-Burns still would not pass this), not merely differs from frame to frame
         s.ctx["cinematic_spot"] = sp["id"]
         mp4 = s.call("GET", f"/api/library/assets/{sp['assets']['video']}/content").content
         assert mp4[4:8] == b"ftyp"
@@ -875,9 +897,9 @@ def run(base: str, expect_mode: str | None, langs: list[str], timeout: float, ke
         gv = prov["manifest"]["assertions"].get("generative_video")
         assert gv and gv["model"] == m["model"] and len(gv["shots"]) == m["shots_generated"] and prov["verification"]["ok"], prov
         return (f"{res['duration']}s MP4 {len(mp4) // 1024} KB {probe}; {m['shots_generated']}/{m['shots_total']} shots AI motion ({m['shots_cached']} cached, {len(m['shots_fallback'])} fallback), "
-                f"{m['gpu_seconds']}s GPU = ${m['cost_usd']} ({m['model']}); {moving}; manifest names the model")
+                f"{m['gpu_seconds']}s GPU = ${m['cost_usd']} ({m['model']}); {moving}; {gate}; manifest names the model")
 
-    s.step("CS-25 cinematic motion: status + priced estimate; AI-video render (moving footage, GPU metered, manifest names the model)", motion)
+    s.step("CS-25 cinematic motion: status + priced estimate; AI-video render (footage not frozen, motion gate, GPU metered, manifest names the model)", motion)
 
     def cap() -> str:
         c = s.call("POST", "/api/campaigns", json={"name": "Smoke cap test", "markets": ["US"], "channels": ["youtube"]}).json()

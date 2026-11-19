@@ -24,7 +24,8 @@ echo "    built."
 
 echo "==> waiting for the worker to be idle (0 replicas) so the new revision can take the single A100"
 for _ in $(seq 1 90); do
-  n="$(az containerapp replica list -g "$RG" -n "$APP" --subscription "$AZURE_SUBSCRIPTION_ID" --query 'length(@)' -o tsv 2>/dev/null || echo 0)"
+  # a scaled-down replica stays listed as NotRunning for a while: count only the ones that still hold the GPU
+  n="$(az containerapp replica list -g "$RG" -n "$APP" --subscription "$AZURE_SUBSCRIPTION_ID" --query "length([?properties.runningState!='NotRunning'])" -o tsv 2>/dev/null || echo 0)"
   [[ "$n" == "0" ]] && break
   echo "    replicas=$n ..."
   sleep 20

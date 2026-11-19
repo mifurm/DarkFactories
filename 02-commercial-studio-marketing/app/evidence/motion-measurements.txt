@@ -1,0 +1,21 @@
+# Cinematic motion (CS-25): how much do the generated clips really move?
+# Measure: dense Farneback optical flow between frames 10 apart (0.42 s at 24 fps) on 256x144 gray frames, 8 pairs per clip; "non_rigid" = mean flow magnitude (px) that is
+# LEFT OVER after the best global affine fit of the flow field, i.e. what a camera move on a still (zoom, pan, roll) cannot explain. Code: app/src/spotlight/motion/quality.py,
+# CLI: scripts/measure_motion.py. Levels: low < 0.32 <= subtle < 1.0 <= rich.
+# A plain frame-difference check cannot do this job: a still with a Ken-Burns zoom changes every pixel too (the smoke test's "footage not frozen" check passes for it).
+
+## Calibration (raw clips of the spike on the deployed A100, 17-18 Nov 2026; analysis scripts were scratch tools, the measure is now the shipped quality.py)
+Ken-Burns control (a still of the clip's first frame with a slow 1.0 -> 1.13 push-in):   0.10 ... 0.31   (mean about 0.15)
+Generated clips, 9 raw clips:  0.42  0.53  0.69  0.87  1.50  2.66  2.88  3.29  4.88          (the weakest, 0.42, came from a "static camera, very calm" prompt)
+=> threshold for "no better than a still": 0.32; the live smoke test asserts median >= 0.5 over the shots of the spot.
+
+## Live, deployed app, image git-b6fb366 (revision ca-studio-web--0000008), smoke run 19 Nov 2026 (app/evidence/motion-smoke-live.txt)
+Server side (render.motion.shots[].motion in app/evidence/motion-render-report-live.json) vs. scripts/measure_motion.py on the three downloaded clips:
+shot  frames  GPU s   server non_rigid / level      client non_rigid  total   level   Ken-Burns control of the same first frame
+s1       93    72.3    1.779  rich                    1.78            2.83    rich    0.24 (low)
+s2      117    94.2    0.970  subtle                  0.97            2.01    subtle  0.15 (low)
+s3      117    94.8    2.133  rich                    2.13            4.02    rich    0.21 (low)
+3 clips: non_rigid min 0.97, median 1.78, max 2.13  -> 6.5x to 10x the camera-move control of the same frames; 0 shots below 0.32, so 0 retries, 0 fallbacks.
+Spot: 3 shots, 261.3 GPU seconds = US$0.282 + US$0.259 estimated cold start = US$0.541 metered; ffprobe h264/aac 1280x720@25, 14.90 s, -16.2 LUFS.
+The retry path (a clip below 0.32 gets ONE more attempt with seed+1 and a prompt that insists on motion; the better clip is kept) was not triggered live; it is covered by
+app/tests/test_motion_quality.py and test_motion_orchestrator.py (fake worker).

@@ -1,16 +1,17 @@
 # SwarmAI Commercial Studio ("Spotlight") — Feature Backlog
 
-> **Contract.** The 24 Release-1 features below (**CS-01 … CS-24**) are the product contract between Product, Engineering and the customer.
+> **Contract.** The 25 features below (**CS-01 … CS-25**) are the product contract between Product, Engineering and the customer. CS-01 … CS-24 are Release 1; **CS-25 (Cinematic motion)** was added on 18–19 Nov 2026 after reviewers found that rendered spots read as slideshows.
 > IDs and names are frozen; descriptions and acceptance criteria may be sharpened, never dropped.
 > **Engineering edits only the `Status` and `Evidence` cells of the status board** (evidence = test names, commit-free pointers such as
 > `tests/test_guardian.py::test_blocks_prohibited_claim`, smoke-test step names, screenshot names). Everything else is owned by Product.
 >
 > Companion documents: [PRD.md](PRD.md) (requirements `FR-*`, `NFR-*`, KPIs `KPI-*`) · [ARCHITECTURE.md](ARCHITECTURE.md) · [business-case/](business-case/README.md).
 
-> **Delivery status (verified 17–18 November 2026).** All 24 features are **Deployed ✔** on Azure (`rg-swarmai-studio`, `swedencentral`; live at <https://ca-studio-web.yellowgrass-9740f562.swedencentral.azurecontainerapps.io>, synthetic data, self-declared demo roles).
-> Evidence: **97 automated tests** (88 % line coverage; domain modules 88–100 %), **18/18** Playwright journeys on the live app, **30/30** live smoke checks with real Azure OpenAI, Content Safety, Cosmos DB and Blob, light-load **p50 554 ms / p95 1.4 s** with 0 errors, ≈ **US$0.17** of AI spend per full smoke run and ≈ **US$30 a month** idle run cost — see [REPORT-TEST-AND-DEPLOYMENT.md](REPORT-TEST-AND-DEPLOYMENT.md) and `app/evidence/`.
+> **Delivery status (verified 17–19 November 2026).** All 25 features are **Deployed ✔** on Azure (`rg-swarmai-studio`, `swedencentral`; live at <https://ca-studio-web.yellowgrass-9740f562.swedencentral.azurecontainerapps.io>, synthetic data, self-declared demo roles).
+> Evidence of Release 1 (CS-01 … CS-24, 17–18 Nov): **97 automated tests** (88 % line coverage; domain modules 88–100 %), **18/18** Playwright journeys on the live app, **30/30** live smoke checks with real Azure OpenAI, Content Safety, Cosmos DB and Blob, light-load **p50 554 ms / p95 1.4 s** with 0 errors, ≈ **US$0.17** of AI spend per full smoke run and ≈ **US$30 a month** idle run cost (≈ US$45 since the registry moved to Standard for the GPU worker image) — see [REPORT-TEST-AND-DEPLOYMENT.md](REPORT-TEST-AND-DEPLOYMENT.md) and `app/evidence/`.
 > **Polish (pl)** — **deployed and verified live** (18 Nov 2026): **44/44** live smoke checks (30 English + 14 Polish, ≈ **US$0.34** for both), **1,206 backend tests** (97 English + Polish / regression, 8 documented strict xfails), English parity vs the previous release proven (0 unexplained differences), Polish render verified on a live frame (diacritics, „Wygenerowano przez AI”) — see REPORT §12 and `app/evidence/pl-*`.
-> Not in the slice: generative video (lever E1) and the other expansion levers E2–E4 are *modelled* in the ROI & ACR calculator (CS-23), not built — they are Release 2+ below.
+> **Cinematic motion (CS-25)** — **deployed and verified live** (19 Nov 2026): the shots are real AI-generated video clips (Wan 2.2, Apache-2.0, on a Container Apps serverless A100 that scales to zero) instead of camera moves on stills; **1,432 backend tests** + 8 strict xfails (92 % coverage), 356 worker tests (98 %); **45/45** live smoke checks, whose CS-25 step renders a 14.9 s spot with 3/3 shots of AI motion for 261 s of GPU = US$0.28 (+ US$0.26 cold start) and a measured motion score of 0.97–2.13 against 0.15–0.24 for a camera move on a still; English live journeys 18/18 — see REPORT §13 and `app/evidence/motion-*`.
+> Not in the slice: the hosted-model (Sora-priced) generative-video lever E1 and the other expansion levers E2–E4 are *modelled* in the ROI & ACR calculator (CS-23), not built — they are Release 2+ below. The in-product **Cinematic motion (CS-25)** is built and self-hosted.
 
 ## Status board
 
@@ -42,9 +43,10 @@ Status values: **Planned** → **In progress** → **Implemented** (code + unit 
 | CS-22 | Collaboration, roles & integrations | E — Platform | P1 | **Deployed ✔** | test_features_api.py::test_cs22_roles_webhooks_ssrf_guard_… , ::test_cs22_campaign_pack_export_… · test_platform.py (SSRF validator, rate limiter, role matrix) · smoke: *CS-22 webhooks*, *CS-22 campaign pack export* · screens/23-team-and-integrations.png |
 | CS-23 | ROI & ACR calculator | E — Platform | P0 | **Deployed ✔** | test_platform.py::test_roi_calculator_reproduces_the_published_business_case_within_half_a_percent · test_features_api.py::test_cs23_roi_calculator_endpoints_… · smoke: *CS-23 ROI & ACR parity* · screens/22-roi-acr-calculator.png |
 | CS-24 | Observability, security & IaC | E — Platform | P0 | **Deployed ✔** | test_features_api.py::test_cs24_observability_endpoints_… · test_platform.py (Bicep ↔ collections, governance tags on every resource) · smoke: *healthz + readyz*, *CS-24 observability*; live /readyz green · screens/24-ops-observability.png, 25-feature-map.png |
+| CS-25 | Cinematic motion: generative video on serverless GPU | B — Creative pipeline | P0 | **Deployed ✔** (live smoke 45/45; AI-video render on a real A100) | motion-worker/tests (356, 98 %) · app/tests/test_motion_{transport,orchestrator,compositor,api,platform,quality}.py · smoke: *CS-25 cinematic motion* (3/3 shots AI motion, motion gate median ≥ 0.5, GPU metered, manifest names the model) · app/evidence/motion-*.txt · screens/07b-cinematic-render-panel.png, screens/07c-cinematic-result.png, deck/assets/cinematic-before-after.png |
 
 **Priorities.** P0 = the product is not credible without it (MVP gate). P1 = needed for a GA customer deployment. P2 = valuable, may ship as "illustrative" in GA.
-All 24 are in scope of the Release-1 reference implementation regardless of priority.
+All 25 are in scope of the Release-1 reference implementation regardless of priority.
 
 **Conventions used in every section below**
 * *Target* = the enterprise Azure design in [ARCHITECTURE.md](ARCHITECTURE.md). *Deployed slice* = what runs in `rg-swarmai-studio` (one Container App with FastAPI + SPA + ffmpeg + background job runner; Cosmos DB serverless; Blob; one Foundry/AIServices account with deployments `chat`=gpt-5.4-mini, `reasoning`=gpt-5.4, `image`=gpt-image-1.5 or -mini, `embed`=text-embedding-3-small, `tts`=tts-hd; Content Safety and AI Speech neural voices through the same account; App Insights + Log Analytics; ACR Basic; user-assigned managed identity; 0 secrets).
@@ -307,13 +309,14 @@ All 24 are in scope of the Release-1 reference implementation regardless of prio
 
 **Acceptance criteria**
 * **CS-25-AC1** Studio and worker exchange only schema-valid JSON through the queue + blob contract v1; both sides compute the same deterministic job id (golden vectors in `contracts/job-id-vectors.json`); re-submitting identical inputs is idempotent; the worker has no ingress.
-* **CS-25-AC2** A Cinematic 15 s spot meets the delivery spec (H.264/AAC, 1280×720 @ 25 fps, 14.9 ± 0.5 s, −16 ± 1.5 LUFS, AI badge, SRT) **and its shots really move** (frames 0.6 s apart inside a scene differ above a threshold; a Preview spot is unchanged byte for byte in behaviour).
+* **CS-25-AC2** A Cinematic 15 s spot meets the delivery spec (H.264/AAC, 1280×720 @ 25 fps, 14.9 ± 0.5 s, −16 ± 1.5 LUFS, AI badge, SRT) **and its shots really move**: every generated clip is scored (optical flow minus the best global affine fit — what a camera move on a still cannot explain) and the median score of the shots is at least 0.5 (a Ken-Burns still scores 0.10–0.31); a Preview spot is unchanged byte for byte in behaviour.
 * **CS-25-AC3** The *actual* worker GPU seconds × price are metered as kind `motion` and enforced by the daily and per-campaign caps; a budget refusal spends nothing; an unchanged re-render is served from the clip cache (no GPU call, US$0).
 * **CS-25-AC4** A shot that fails (worker error, timeout, out-of-memory, safety flag, budget, worker unavailable) degrades to the still path with a localized reason in `shots_fallback`; the spot still renders.
 * **CS-25-AC5** The worker starts from zero on the first queue message and returns to zero after the queue drains; the cold start is measured and shown in the estimate; a warm-up can be requested.
 * **CS-25-AC6** Content Safety image analysis runs on sampled frames of every generated clip; the provenance manifest records model, revision, licence, host, per-shot seed and prompt digest, and GPU seconds; the AI-disclosure badge stays burned in.
 * **CS-25-AC7** English and Polish end to end: UI, job progress, errors and fallback reasons; a Polish campaign renders captions and voice-over on cinematic clips; localizing a cinematic master reuses its clips.
-* **CS-25-AC8** Keyless: Entra roles only — Studio (queue + blob) and worker (queue + blob; no Cosmos, no Azure OpenAI); weights are mirrored in the tenant's Blob.
+* **CS-25-AC8** Keyless: Entra roles only — Studio (queue + blob) and worker (queue + blob; no Cosmos, no Azure OpenAI); weights are mirrored in the tenant's Blob. The worker's data roles are scoped to the queue and to the three motion containers (`motion-in`, `motion-out`, `motion-models`) — none covers `assets`.
+* **CS-25-AC9** A clip that barely moves (score < 0.32) gets one retry (seed + 1, a prompt that insists on motion) when the budget allows, and the better clip is kept; score, level (*low / subtle / rich*), attempts and retries are stored on the clip asset, reported in `render.motion`, shown per shot in the UI (EN and PL) and recorded in the manifest; both attempts are metered; without OpenCV the level is `unknown` and nothing is retried.
 
 **Azure services.** *Target:* Container Apps serverless GPU (A100 / T4) or dedicated GPU profile per region, Storage Queue + Blob, ACR Premium with artifact streaming, optional partner video models through Foundry behind the same `MotionClient`. *Deployed slice:* `ca-studio-motion` on the `gpu-a100` workload profile of the Studio environment (8 vCPU / 64 GiB, min 0 / max 1), KEDA `azure-queue` scaler with identity auth, queue `motion-jobs`, blobs `motion-in` / `motion-out` / `motion-models`, 3-day lifecycle rule on the transport blobs.
 
@@ -401,7 +404,7 @@ All 24 are in scope of the Release-1 reference implementation regardless of prio
 
 **Acceptance criteria**
 * **CS-15-AC1** Metering equals counted calls: N mocked calls produce N meter events with the expected US$ (unit test).
-* **CS-15-AC2** After a cap is reached further generation is refused with a clear error code and UI message; the demo daily cap defaults to ≤ US$5 and fails closed.
+* **CS-15-AC2** After a cap is reached further generation is refused with a clear error code and UI message; the demo daily cap is a setting (US$5 at Release 1, US$15 since Cinematic motion) and fails closed.
 * **CS-15-AC3** Premium generation requires an approver and is logged.
 * **CS-15-AC4** Cost per approved asset = campaign AI cost ÷ approved assets, shown with the agency baseline overlay.
 * **CS-15-AC5** Alerts fire at the configured thresholds (feed + webhook); usage exports to CSV.
@@ -516,7 +519,7 @@ All 24 are in scope of the Release-1 reference implementation regardless of prio
 **Description.** Campaign dashboard, brief wizard, Brand Brain console, **creative workspace** (strategy / script / storyboard / video / audio / localization / variants tabs), Guardian report, approvals inbox, asset library, experiments, performance, cost meter, ROI calculator and a **Feature Map** (`/features`). Polished editorial look, responsive, accessible (WCAG 2.2 AA target), a persistent "synthetic data / simulated environment" indicator, no third-party runtime fetches.
 
 **Acceptance criteria**
-* **CS-20-AC1** `/features` lists all 24 features from `/api/features` with id, name, status and a link to each feature's screen.
+* **CS-20-AC1** `/features` lists all 25 features from `/api/features` with id, name, status and a link to each feature's screen.
 * **CS-20-AC2** The Dawn Roast journey (brief → … → insights) is completable in the UI end-to-end (Playwright).
 * **CS-20-AC3** Core pages have no horizontal scroll at 1280, 1024 and 390 px widths.
 * **CS-20-AC4** Automated accessibility checks report zero critical/serious violations on the key pages; the approval flow is keyboard-operable.
@@ -696,6 +699,7 @@ Feature → PRD requirement(s) → KPI(s). Requirement ids are defined in [PRD.m
 | CS-22 Collaboration, roles & integrations | FR-E4, FR-E5 | KPI-14, KPI-08, KPI-10 |
 | CS-23 ROI & ACR calculator | FR-E6 | KPI-01, KPI-19 |
 | CS-24 Observability, security & IaC | FR-E7 (+ NFR-01 … NFR-14) | KPI-15, KPI-20, KPI-16 |
+| CS-25 Cinematic motion | FR-B9 | KPI-01, KPI-02, KPI-03 |
 
 ### KPI quick reference
 

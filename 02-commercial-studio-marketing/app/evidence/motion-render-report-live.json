@@ -1,0 +1,415 @@
+[
+  {
+    "title": "First Quiet Cup",
+    "spec": {
+      "id": "spec_2c6fd17d3ef3",
+      "campaign_id": "dawn-roast-launch-smoke-2026-11-19-0-79659c",
+      "title": "First Quiet Cup",
+      "lang": "en",
+      "aspect": "16:9",
+      "fps": 25,
+      "scenes": [
+        {
+          "id": "sc-b1",
+          "shot_id": "s1",
+          "asset_id": "ast_4f0ecabcf6cc",
+          "duration": 3.3,
+          "motion": "pan_right",
+          "focal": [
+            0.42,
+            0.58
+          ],
+          "role": "hook",
+          "super_text": "A slower start",
+          "beat_id": "b1",
+          "clip_asset_id": "ast_557fedb1596b",
+          "clip": {
+            "fps": 24,
+            "frames": 93,
+            "offset": 0,
+            "speed": 1,
+            "hold_tail": false
+          }
+        },
+        {
+          "id": "sc-b2",
+          "shot_id": "s2",
+          "asset_id": "ast_ff366501daef",
+          "duration": 4.2,
+          "motion": "zoom_in",
+          "focal": [
+            0.53,
+            0.48
+          ],
+          "role": "product",
+          "super_text": "New medium roast",
+          "beat_id": "b2",
+          "clip_asset_id": "ast_fb1f0c57f703",
+          "clip": {
+            "fps": 24,
+            "frames": 117,
+            "offset": 0,
+            "speed": 1,
+            "hold_tail": false
+          }
+        },
+        {
+          "id": "sc-b3",
+          "shot_id": "s3",
+          "asset_id": "ast_9b653638bc76",
+          "duration": 4.2,
+          "motion": "parallax",
+          "focal": [
+            0.56,
+            0.55
+          ],
+          "role": "proof",
+          "super_text": "100% Arabica",
+          "beat_id": "b3",
+          "clip_asset_id": "ast_9e40c17df69d",
+          "clip": {
+            "fps": 24,
+            "frames": 117,
+            "offset": 0,
+            "speed": 1,
+            "hold_tail": false
+          }
+        }
+      ],
+      "vo": [
+        {
+          "id": "v1",
+          "text": "Before the day gets loud, there’s this.",
+          "start": 0.25,
+          "duration": 2.45,
+          "asset_id": "ast_5f4861509fcd",
+          "speed": 1,
+          "beat_id": "b1"
+        },
+        {
+          "id": "v2",
+          "text": "Dawn Roast, our new medium roast.",
+          "start": 3.55,
+          "duration": 2.018,
+          "asset_id": "ast_869763b2f5e3",
+          "speed": 1,
+          "beat_id": "b2"
+        },
+        {
+          "id": "v3",
+          "text": "Dawn Roast brings a calmer start to your morning.",
+          "start": 7.75,
+          "duration": 2.978,
+          "asset_id": "ast_dfe6ac2ce6ed",
+          "speed": 1,
+          "beat_id": "b3"
+        },
+        {
+          "id": "v4",
+          "text": "Wake up slowly.",
+          "start": 11.95,
+          "duration": 1.034,
+          "asset_id": "ast_b39fe4e41010",
+          "speed": 1,
+          "beat_id": "b4"
+        }
+      ],
+      "captions": [
+        {
+          "id": "v1-c0",
+          "start": 0.25,
+          "end": 2.338,
+          "text": "Before the day gets loud, there’s"
+        },
+        {
+          "id": "v1-c1",
+          "start": 2.378,
+          "end": 2.66,
+          "text": "this."
+        },
+        {
+          "id": "v2-c0",
+          "start": 3.55,
+          "end": 5.528,
+          "text": "Dawn Roast, our new medium roast."
+        },
+        {
+          "id": "v3-c0",
+          "start": 7.75,
+          "end": 9.881,
+          "text": "Dawn Roast brings a calmer start to"
+        },
+        {
+          "id": "v3-c1",
+          "start": 9.921,
+          "end": 10.688,
+          "text": "your morning."
+        },
+        {
+          "id": "v4-c0",
+          "start": 11.95,
+          "end": 12.944,
+          "text": "Wake up slowly."
+        }
+      ],
+      "legal_supers": [],
+      "music": {
+        "rights_id": "mus-slow-ember",
+        "title": "Slow Ember (library)",
+        "mood": "warm",
+        "bpm": 84,
+        "key": "A",
+        "seed": 33,
+        "gain_db": -19,
+        "duck_db": -11,
+        "fade_in": 0.5,
+        "fade_out": 1.4
+      },
+      "endcard": {
+        "duration": 3.2,
+        "headline": "Wake up slowly.",
+        "cta": "Find Dawn Roast at northwind.example/dawn",
+        "url": "northwind.example/dawn",
+        "legal": [],
+        "bg": "#2B1A12",
+        "fg": "#F6EBDD",
+        "accent": "#F2A03D"
+      },
+      "brand": {
+        "name": "Northwind Coffee Roasters",
+        "wordmark": "NORTHWIND",
+        "sub": "COFFEE ROASTERS",
+        "palette": [
+          "#2B1A12",
+          "#F2A03D",
+          "#F6EBDD",
+          "#B5452B",
+          "#5C7A5E"
+        ],
+        "logo_min_width_pct": 12,
+        "logo_clear_space_ratio": 0.5
+      },
+      "disclosure_badge": "AI-generated",
+      "captions_burned": true,
+      "loudness_lufs": -16,
+      "true_peak_db": -1.5,
+      "seed": 7,
+      "grade_strength": 0,
+      "lineage": {
+        "kind": "master",
+        "parent_id": null,
+        "cutdown_s": null,
+        "notes": [],
+        "note_keys": []
+      },
+      "quality": "cinematic",
+      "motion": {
+        "mode": "azure",
+        "model": "wan2.2-ti2v-5b",
+        "revision": "b8fff7315c768468a5333511427288870b2e9635",
+        "license": "Apache-2.0",
+        "steps": 20,
+        "guidance": 4,
+        "fps": 24,
+        "high": false,
+        "seed_base": 3926470,
+        "shots": [
+          {
+            "scene_id": "sc-b1",
+            "shot_id": "s1",
+            "prompt": "A half-lit kitchen with a cool stone counter, a simple ceramic mug set down near center-left, and amber dawn light entering from a window; thin steam rises from the mug. Framing: close-up, tabletop level. Steam curls upward from the mug while the camera pans right a few inches, keeping the hand and cup anchored in the warm window light. Camera: gentle truck right. Lighting: Low, warm dawn light entering from a window, amber highlights with soft cream fill and deep espresso shadows. Light should skim the bag surface and catch steam edges; no harsh contrast, no artificial studio gloss. Style: realistic cinematic commercial footage, natural motion, shallow depth of field. Constraints: the product packaging stays unchanged and legible, no text overlays.",
+            "negative": "text, watermark, logo, subtitles, captions, letters, low quality, blurry, jittery, flickering, distorted hands, extra fingers, deformed, morphing or warping packaging, cartoon, static image, overexposed, split screen, collage",
+            "seed": 13343339
+          },
+          {
+            "scene_id": "sc-b2",
+            "shot_id": "s2",
+            "prompt": "The Dawn Roast kraft bag stands upright on a cool stone counter beside a ceramic mug, both touched by early amber window light. Framing: close-up product hero. The camera slowly zooms in, letting the matte paper grain and amber sun mark become the focus while the mug stays softly blurred beside it. Camera: slow push-in. Lighting: Low, warm dawn light entering from a window, amber highlights with soft cream fill and deep espresso shadows. Light should skim the bag surface and catch steam edges; no harsh contrast, no artificial studio gloss. Style: realistic cinematic commercial footage, natural motion, shallow depth of field. Constraints: the product packaging stays unchanged and legible, no text overlays.",
+            "negative": "text, watermark, logo, subtitles, captions, letters, low quality, blurry, jittery, flickering, distorted hands, extra fingers, deformed, morphing or warping packaging, cartoon, static image, overexposed, split screen, collage",
+            "seed": 3045872
+          },
+          {
+            "scene_id": "sc-b3",
+            "shot_id": "s3",
+            "prompt": "Inside a parked car, a small table holds the Dawn Roast bag and a cup in soft morning light, with a pour-over setup nearby and quiet reflections on the window glass. Framing: medium close-up. The camera shifts with a gentle parallax as the car window reflections slide slightly and coffee drips into the pour-over cone in the foreground. Camera: subtle parallax drift. Lighting: Low, warm dawn light entering from a window, amber highlights with soft cream fill and deep espresso shadows. Light should skim the bag surface and catch steam edges; no harsh contrast, no artificial studio gloss. Style: realistic cinematic commercial footage, natural motion, shallow depth of field. Constraints: the product packaging stays unchanged and legible, no text overlays.",
+            "negative": "text, watermark, logo, subtitles, captions, letters, low quality, blurry, jittery, flickering, distorted hands, extra fingers, deformed, morphing or warping packaging, cartoon, static image, overexposed, split screen, collage",
+            "seed": 12993808
+          }
+        ]
+      }
+    },
+    "assets": {
+      "video": "ast_b7d44a52080d",
+      "srt": "ast_bb36c48f62a4",
+      "poster": "ast_2e4dad5e717b"
+    },
+    "probe": {
+      "duration": 14.9,
+      "size_bytes": 2831090,
+      "format": "mov,mp4,m4a,3gp,3g2,mj2",
+      "video": {
+        "codec": "h264",
+        "width": 1280,
+        "height": 720,
+        "fps": 25,
+        "pix_fmt": "yuv420p",
+        "profile": "High"
+      },
+      "audio": {
+        "codec": "aac",
+        "sample_rate": 48000,
+        "channels": 2
+      }
+    },
+    "loudness": {
+      "integrated_lufs": -16.2,
+      "lra": 4.1,
+      "true_peak_dbfs": -1.4
+    },
+    "render": {
+      "frames": 372,
+      "render_seconds": 35.08,
+      "loudnorm_input": {
+        "input_i": -29.99,
+        "input_tp": -11.92,
+        "input_lra": 4.9
+      },
+      "motion": {
+        "mode": "azure",
+        "model": "wan2.2-ti2v-5b",
+        "revision": "b8fff7315c768468a5333511427288870b2e9635",
+        "license": "Apache-2.0",
+        "host": "self-hosted · Azure Container Apps serverless GPU (tenant-local)",
+        "steps": 20,
+        "guidance": 4,
+        "shots_total": 3,
+        "shots_generated": 3,
+        "shots_cached": 0,
+        "shots_fallback": [],
+        "shots_low_motion": 0,
+        "retries": 0,
+        "gpu_seconds": 261.3,
+        "cost_usd": 0.541404,
+        "cold_start_s": 240,
+        "cold_start_usd": 0.2592,
+        "seed_base": 3926470,
+        "shots": [
+          {
+            "shot_id": "s1",
+            "scene_id": "sc-b1",
+            "status": "generated",
+            "reason": null,
+            "seed": 13343339,
+            "prompt_sha256": "e22aff54d4fb6138124849f90859149b57558a86cf1cad0e300cb8e6310e1a87",
+            "plan_prompt_sha256": "e22aff54d4fb6138124849f90859149b57558a86cf1cad0e300cb8e6310e1a87",
+            "frames": 93,
+            "width": 1024,
+            "height": 576,
+            "gpu_seconds": 72.3,
+            "cost_usd": 0.078084,
+            "asset_id": "ast_557fedb1596b",
+            "safety_max": 0,
+            "motion": {
+              "non_rigid": 1.779,
+              "total": 2.817,
+              "level": "rich",
+              "attempts": 1
+            }
+          },
+          {
+            "shot_id": "s2",
+            "scene_id": "sc-b2",
+            "status": "generated",
+            "reason": null,
+            "seed": 3045872,
+            "prompt_sha256": "eeaf879717e5af9f4cc03f873f06cac0fb165243ff30d205b695b405634c6c61",
+            "plan_prompt_sha256": "eeaf879717e5af9f4cc03f873f06cac0fb165243ff30d205b695b405634c6c61",
+            "frames": 117,
+            "width": 1024,
+            "height": 576,
+            "gpu_seconds": 94.2,
+            "cost_usd": 0.101736,
+            "asset_id": "ast_fb1f0c57f703",
+            "safety_max": 0,
+            "motion": {
+              "non_rigid": 0.97,
+              "total": 2.011,
+              "level": "subtle",
+              "attempts": 1
+            }
+          },
+          {
+            "shot_id": "s3",
+            "scene_id": "sc-b3",
+            "status": "generated",
+            "reason": null,
+            "seed": 12993808,
+            "prompt_sha256": "9df0087bfe411978f65295a0648dfbe336afad4890ad11a6d9af1367dac5e169",
+            "plan_prompt_sha256": "9df0087bfe411978f65295a0648dfbe336afad4890ad11a6d9af1367dac5e169",
+            "frames": 117,
+            "width": 1024,
+            "height": 576,
+            "gpu_seconds": 94.8,
+            "cost_usd": 0.102384,
+            "asset_id": "ast_9e40c17df69d",
+            "safety_max": 0,
+            "motion": {
+              "non_rigid": 2.133,
+              "total": 4.014,
+              "level": "rich",
+              "attempts": 1
+            }
+          }
+        ]
+      }
+    },
+    "quality": "cinematic",
+    "script_id": "art_ac71d6d5a5b2",
+    "storyboard_id": "art_4cc032ef071f",
+    "voice_id": "art_19dab0a93955",
+    "lineage_kind": "master",
+    "variant": {
+      "aspect": "16:9",
+      "lang": "en",
+      "cutdown_s": null
+    },
+    "talent": [
+      {
+        "name": "Maya Okafor",
+        "usage": "voice",
+        "ai_synthesis": false
+      }
+    ],
+    "markets": [
+      "US",
+      "DE",
+      "FR",
+      "PL"
+    ],
+    "cost_usd": 0.00105,
+    "needs_rerender": false,
+    "id": "art_ba142f0dc066",
+    "pk": "dawn-roast-launch-smoke-2026-11-19-0-79659c",
+    "campaign_id": "dawn-roast-launch-smoke-2026-11-19-0-79659c",
+    "kind": "spot",
+    "version": 8,
+    "status": "draft",
+    "parent_id": null,
+    "created_by": {
+      "role": "creative",
+      "name": "smoke-test",
+      "label": "Creative"
+    },
+    "created_at": "2026-11-19T06:02:54+00:00",
+    "updated_at": "2026-11-19T06:02:55+00:00",
+    "guardian": {
+      "report_id": "rpt_c308abbf956c",
+      "verdict": "pass",
+      "score": 100,
+      "blocks": 0,
+      "warns": 0,
+      "at": "2026-11-19T06:02:54+00:00"
+    },
+    "provenance_id": "prv_1fc23cb30867"
+  }
+]

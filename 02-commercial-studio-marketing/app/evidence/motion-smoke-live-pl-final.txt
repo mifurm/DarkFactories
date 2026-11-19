@@ -1,0 +1,49 @@
+(removed 2 campaign(s) from earlier smoke/E2E runs)
+Smoke test against https://ca-studio-web.yellowgrass-9740f562.swedencentral.azurecontainerapps.io
+
+  PASS  healthz + readyz (Cosmos, Blob, Azure OpenAI, Content Safety, Speech, ffmpeg)    2.4s  mode=azure deps=repository:126ms,blob_storage:37ms,openai_chat:1096ms,content_safety:201ms,speech:153ms,ffmpeg
+  PASS  feature registry (25/25) + SPA + Feature Map route                1.3s  25/25 implemented; SPA served
+  PASS  meta + usage: daily AI budget guard active                        1.4s  daily cap $15.0; models=['gpt-5.4-mini', 'gpt-5.4', 'text-embedding-3-small']…
+
+Polish narrative (pl)
+
+  PASS  PL-1 contract: /api/meta languages, Content-Language, stable error codes + Polish messages    2.0s  languages=['en', 'pl']; error code campaign_not_found stable, message localized: 'Nie znaleziono kampanii does
+  PASS  PL-2 Polish content live: Brand Book/kit, claims pack, sample campaign, Polish retrieval    3.5s  Polish Brand Book + kit (tagline 'Obudź się powoli.'), 15 Polish claim rules, sample campaign 'Dawn Roast — pr
+  PASS  PL-3 Guardian claims in Polish: prohibited -> block, compliant + look-alike stems -> pass    8.8s  6 Polish prohibited claims blocked (also without diacritics), superlative flagged, 6 compliant / look-alike li
+  PASS  PL-4 Polish prompt-injection red team: rejected before any model call    3.4s  Polish prompt injection in a brief refused: 422 prompt_injection (Prompt Shields wykrył w wklejonym briefie in
+  PASS  PL-5 briefing agent in Polish: Polish questions, normalized brief, early Guardian flags in Polish    5.2s  2 Polish clarifying questions (['cta', 'duration_targets']); Guardian flags in Polish: 'Zakazany claim „leczy 
+  PASS  PL-6 strategy agent in Polish: territories grounded with citations   12.4s  3 Polish territories (e.g. 'Najpierw cisza, potem kawa'), 5 citations, guardian=warn
+  PASS  PL-7 script agent writes a Polish 15 s script; Guardian BLOCKS the Polish prohibited claim    7.1s  4 Polish beats, 21 words; Guardian BLOCKS (blocks=2): 'Zakazany claim „leczy poranny niepokój” (reguła kategor
+  PASS  PL-8 Guardian auto-revise converges to compliant Polish (Polish rewrite, licensed track)    2.1s  converged in 2 iteration(s); fixes=['replace_text', 'swap_music']; compliant Polish: 'Jeszcze chwila ciszy. Da
+  PASS  PL-9 storyboard in Polish (English image prompts) + >=3 keyframes (low quality)   87.7s  4/4 keyframes; shot descriptions Polish, image prompts English; guardian=pass
+  PASS  PL-10 Polish voice-over (pl-PL neural voice) timed to the script beats + SRT    2.5s  4 Polish lines, 8.79s of VO, voice=neural:pl-PL-ZofiaNeural, cost $0.00034
+  PASS  PL-11 compositor: Polish 14.9 s MP4 (ffprobe, loudness) + burned-in captions with diacritics + 'Wygenerowano przez AI'   31.6s  14.9s MP4 1470 KB, -16 LUFS; ffprobe: h264/aac 1280x720 14.90s; badge 'Wygenerowano przez AI', end card 'Obudź
+  PASS  PL-12 localization PL->EN: glossary + do-not-translate kept, back-translation QA, English VO + render   33.8s  PL->EN: minsim=0.093, review=1, guardian=pass; EN spot rendered; tagline 'Wake up slowly'
+  PASS  PL-13 provenance of the Polish MP4 verifies; Polish human-readable summary, English machine fields    3.8s  manifest verifies (5 checks), tampering detected; human summary in Polish, signed manifest identical in both l
+  PASS  PL-14 read-time localization: audit one-liners, job titles, Polish scorecard + simulated panel    6.5s  audit trail verifies (14 entries, Polish one-liners), 7 jobs titled in Polish, scorecard 'Predykcja / symulacj
+
+AI spend incurred by this run (list-price estimate): $0.1315
+
+| # | Check | Result | Time | Evidence |
+|---|---|---|---|---|
+| 1 | healthz + readyz (Cosmos, Blob, Azure OpenAI, Content Safety, Speech, ffmpeg) | PASS | 2.4s | mode=azure deps=repository:126ms,blob_storage:37ms,openai_chat:1096ms,content_safety:201ms,speech:153ms,ffmpeg:132ms |
+| 2 | feature registry (25/25) + SPA + Feature Map route | PASS | 1.3s | 25/25 implemented; SPA served |
+| 3 | meta + usage: daily AI budget guard active | PASS | 1.4s | daily cap $15.0; models=['gpt-5.4-mini', 'gpt-5.4', 'text-embedding-3-small']… |
+| 4 | PL-1 contract: /api/meta languages, Content-Language, stable error codes + Polish messages | PASS | 2.0s | languages=['en', 'pl']; error code campaign_not_found stable, message localized: 'Nie znaleziono kampanii does-not-exist' |
+| 5 | PL-2 Polish content live: Brand Book/kit, claims pack, sample campaign, Polish retrieval | PASS | 3.5s | Polish Brand Book + kit (tagline 'Obudź się powoli.'), 15 Polish claim rules, sample campaign 'Dawn Roast — premiera w Polsce'; PL retrieval top hit ' |
+| 6 | PL-3 Guardian claims in Polish: prohibited -> block, compliant + look-alike stems -> pass | PASS | 8.8s | 6 Polish prohibited claims blocked (also without diacritics), superlative flagged, 6 compliant / look-alike lines pass (no false positives) |
+| 7 | PL-4 Polish prompt-injection red team: rejected before any model call | PASS | 3.4s | Polish prompt injection in a brief refused: 422 prompt_injection (Prompt Shields wykrył w wklejonym briefie instrukcje skierowane do AI;) |
+| 8 | PL-5 briefing agent in Polish: Polish questions, normalized brief, early Guardian flags in Polish | PASS | 5.2s | 2 Polish clarifying questions (['cta', 'duration_targets']); Guardian flags in Polish: 'Zakazany claim „leczy poranny niepokój” (reguła kategorii re' |
+| 9 | PL-6 strategy agent in Polish: territories grounded with citations | PASS | 12.4s | 3 Polish territories (e.g. 'Najpierw cisza, potem kawa'), 5 citations, guardian=warn |
+| 10 | PL-7 script agent writes a Polish 15 s script; Guardian BLOCKS the Polish prohibited claim | PASS | 7.1s | 4 Polish beats, 21 words; Guardian BLOCKS (blocks=2): 'Zakazany claim „leczy poranny niepokój” (reguła kategorii regulowanej:' |
+| 11 | PL-8 Guardian auto-revise converges to compliant Polish (Polish rewrite, licensed track) | PASS | 2.1s | converged in 2 iteration(s); fixes=['replace_text', 'swap_music']; compliant Polish: 'Jeszcze chwila ciszy. Dawn Roast, 100% arabika. Dawn Roast daje  |
+| 12 | PL-9 storyboard in Polish (English image prompts) + >=3 keyframes (low quality) | PASS | 87.7s | 4/4 keyframes; shot descriptions Polish, image prompts English; guardian=pass |
+| 13 | PL-10 Polish voice-over (pl-PL neural voice) timed to the script beats + SRT | PASS | 2.5s | 4 Polish lines, 8.79s of VO, voice=neural:pl-PL-ZofiaNeural, cost $0.00034 |
+| 14 | PL-11 compositor: Polish 14.9 s MP4 (ffprobe, loudness) + burned-in captions with diacritics + 'Wygenerowano przez AI' | PASS | 31.6s | 14.9s MP4 1470 KB, -16 LUFS; ffprobe: h264/aac 1280x720 14.90s; badge 'Wygenerowano przez AI', end card 'Obudź się powoli.'; caption 'początek poranka |
+| 15 | PL-12 localization PL->EN: glossary + do-not-translate kept, back-translation QA, English VO + render | PASS | 33.8s | PL->EN: minsim=0.093, review=1, guardian=pass; EN spot rendered; tagline 'Wake up slowly' |
+| 16 | PL-13 provenance of the Polish MP4 verifies; Polish human-readable summary, English machine fields | PASS | 3.8s | manifest verifies (5 checks), tampering detected; human summary in Polish, signed manifest identical in both languages |
+| 17 | PL-14 read-time localization: audit one-liners, job titles, Polish scorecard + simulated panel | PASS | 6.5s | audit trail verifies (14 entries, Polish one-liners), 7 jobs titled in Polish, scorecard 'Predykcja / symulacja — synt…' with 3 Polish personas |
+
+17/17 checks passed
+
+TOTAL_AI_SPEND_USD=0.1315

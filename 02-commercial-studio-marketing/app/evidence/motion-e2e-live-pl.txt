@@ -1,0 +1,46 @@
+Polish E2E against https://ca-studio-web.yellowgrass-9740f562.swedencentral.azurecontainerapps.io — viewport 1600x900 — screenshots → /tmp/spike/screens-pl3 — remote: AI waits ≥ 600 s
+
+  PASS  language: ?lang=, localStorage, <html lang>, saved beats browser   6.8s  
+  PASS  language: switch without reload, headers, refetch                6.1s  
+  PASS  language: Polish browser gets Polish by default                  2.8s  
+  PASS  language: header switch on every page                           29.8s  
+  PASS  language: Accept-Language + X-UI-Lang on API calls               7.1s  
+  PASS  language: campaign language select (defaults to UI, editable)    3.2s  
+  PASS  brand brain (Polish retrieval, Polish kit)                       3.6s  
+  PASS  claims library (Polish pack, language filter, diacritic-insensitive search)   2.5s  
+  PASS  claims checker (Polish prohibited claim → block)                 2.8s  
+  PASS  rights registry                                                  3.1s  
+    capture 'check /campaigns/new (finalized)' waited 4.5s for: toast
+  PASS  brief wizard (Polish brief, questions, normalized, early Guardian flags)  24.8s  
+    capture 'check strategy' waited 4.3s for: toast
+  FAIL  strategy agent (Polish territories, SSE with ?lang=)            18.6s  strategy: english: '[Learnings from past performance]' — word: from [SPAN text-[12px] text-espresso-400]
+  PASS  script agent + Guardian BLOCK on the Polish prohibited claim     8.7s  
+  PASS  guardian playground (Polish findings, auto-revise converges)     4.2s  
+    capture 'check script (revised)' waited 4.3s for: toast
+  PASS  campaign script auto-revise (claim rewritten, music swapped)     7.2s  
+  PASS  storyboard (Polish shot list, keyframes)                        92.8s  
+  PASS  voice-over + music                                               5.0s  
+  PASS  render the Polish spot (player, probe)                          32.7s  
+  PASS  formats and cutdowns                                            59.4s  
+  PASS  localization PL → EN (+ DE)                                     11.8s  
+  PASS  pre-flight scorecard                                             6.3s  
+  PASS  provenance verification + tamper test                            4.5s  
+  PASS  approvals inbox + audit chain                                   61.0s  
+  PASS  campaign Guardian tab                                            1.6s  
+  PASS  variants / bandit experiment                                     7.5s  
+    capture 'check /performance' waited 6.6s for: spinner
+  PASS  performance insights                                             8.6s  
+  PASS  media planner                                                    2.2s  
+  PASS  asset library                                                    4.6s  
+  PASS  cost meter                                                       1.9s  
+  PASS  ROI / ACR calculator (pl-PL formats, Recharts ticks, model-key labels)   7.4s  
+  PASS  team & integrations                                              1.9s  
+  PASS  ops & observability                                              2.8s  
+  PASS  feature map (diacritic-insensitive filter)                       2.0s  
+  PASS  dashboard                                                        2.2s  
+  PASS  fonts: Polish letters from the bundled Inter / Fraunces          2.1s  
+  PASS  API docs (swagger)                                               2.2s  
+
+removed 1 scratch 'E2E —' campaign(s) created by this run
+
+35/36 journeys passed; 34 page states checked; 30 screenshots; FAILED: ['strategy agent (Polish territories, SSE with ?lang=)']

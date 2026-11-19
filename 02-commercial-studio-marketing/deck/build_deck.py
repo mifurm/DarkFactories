@@ -79,7 +79,7 @@ d = Deck(Theme.commercial_studio(), footer=FOOTER, title="SwarmAI Commercial Stu
 
 SRC_BC_BARE = f"business-case/outputs.json (Base scenario, model v{META['model_version']})"
 SRC_BC = "Source: " + SRC_BC_BARE
-EVID_SRC = "REPORT-TEST-AND-DEPLOYMENT.md (verified 17-18 Nov 2026)"
+EVID_SRC = "REPORT-TEST-AND-DEPLOYMENT.md (verified 17-19 Nov 2026)"
 
 # ======================================================================================================================
 # 1. Title
@@ -103,7 +103,7 @@ d.bullets(
     [
         "**Problem** - budgets are flat at 7.8% of revenue while content demand grows 5× and EU AI-content rules now apply",
         "**Solution** - eight governed agents, five human gates and a Brand Brain turn a brief into localised, testable campaigns",
-        "**Proof** - Release 1 is live on Azure: 24 of 24 features deployed, 97 tests and 30/30 live smoke checks pass",
+        "**Proof** - Live on Azure: 25 of 25 features deployed, 1,432 backend tests and 45/45 live smoke checks pass, including real AI-generated video",
         f"**Outcome** - Base case NPV **{M(roi['npv'])}**, ROI **{P(roi['roi_pct'])}**, payback **{roi['payback_months']:.0f} months** for a US$8B group",
         "**Ask** - a 12-week, one-brand pilot that replaces our assumptions with your data",
     ],
@@ -120,7 +120,7 @@ d.bullets(
     takeaway="Start with a pilot; let measured results replace the assumptions.",
     source="Sources: Gartner 2026 CMO Spend Survey; Adobe 2025; EC Article 50 quick facts; " + SRC_BC_BARE + "; " + EVID_SRC,
     notes=("The headline: marketing is being asked for roughly ten times the content on flat budgets, while the rules for AI-generated content have just started to apply. "
-           "Spotlight answers with a crew of governed agents, and Release 1 is already live on Azure: all twenty-four features are deployed, and ninety-seven tests and a thirty-check live smoke test pass. "
+           "Spotlight answers with a crew of governed agents, and it is already live on Azure: all twenty-five features are deployed, and 1,432 backend tests and a forty-five-check live smoke test pass. "
            f"In our Base case for Contoso the three-year net present value is {M(roi['npv'])}, payback is about fifteen months, and benefits could fall by more than half before the case turns negative. "
            "Azure itself is about five percent of the benefit. The ask is a twelve-week pilot on one brand, so that your purchase-order data and a holdout test replace our assumptions."),
 )
@@ -202,8 +202,8 @@ d.comparison(
     source="Source: brief (6-10 weeks); " + SRC_BC_BARE + ". Baselines are assumptions; 7 min = sum of the 30 live smoke checks, an upper bound (REPORT-TEST-AND-DEPLOYMENT.md §5).",
     notes=("Here is the demo story. Northwind Coffee Roasters launches Dawn Roast. The marketer pastes a brief; the Briefing agent asks three questions; Strategy proposes three territories; "
            "scripts, storyboard, voice and a fifteen-second spot follow. Then the Guardian blocks a line that claims to cure morning anxiety and a music cue that is not licensed, "
-           "suggests compliant fixes and re-checks. After approval the format factory and localiser produce the pack. Be precise on timing: the whole thirty-check live smoke run, which contains this chain "
-           "with three derived versions and three localizations at draft quality, took about seven minutes of machine time; calendar time depends on your gates. The costs come from the model and are assumptions until we see your invoices."),
+           "suggests compliant fixes and re-checks. After approval the format factory and localiser produce the pack. On timing: the English part of the live smoke run took about seven minutes "
+           "at draft quality; a Cinematic render adds GPU time and, if the worker sleeps, a cold start of about four minutes. Calendar time depends on your gates. Costs are assumptions until we see your invoices."),
 )
 
 # ======================================================================================================================
@@ -229,19 +229,19 @@ d.architecture(
 # 7. Capability map
 # ======================================================================================================================
 d.capability_map(
-    "Release 1 is live on Azure: all 24 features are deployed",
+    "The product is live on Azure: all 25 features are deployed",
     [
         {"name": "A · Brand Brain & governance data", "items": ["CS-01 Brand Brain", "CS-02 Claims library", "CS-03 Rights & consent"]},
-        {"name": "B · Creative pipeline", "items": ["CS-04 Briefing", "CS-05 Strategy", "CS-06 Script & copy", "CS-07 Storyboard", "CS-08 Spot compositor", "CS-09 Voice & audio", "CS-10 Localization", "CS-11 Format factory"]},
+        {"name": "B · Creative pipeline", "items": ["CS-04 Briefing", "CS-05 Strategy", "CS-06 Script & copy", "CS-07 Storyboard", "CS-08 Spot compositor", "CS-09 Voice & audio", "CS-10 Localization", "CS-11 Format factory", "CS-25 Cinematic motion"]},
         {"name": "C · Governance & safety", "items": ["CS-12 Brand Guardian", "CS-13 Approvals & audit", "CS-14 Disclosure & provenance", "CS-15 Budget guardrails"]},
         {"name": "D · Performance", "items": ["CS-16 Pre-flight scorecard", "CS-17 Variants & bandit", "CS-18 Ingestion & insights", "CS-19 Media-mix hints"]},
         {"name": "E · Platform", "items": ["CS-20 Studio UI", "CS-21 Asset library", "CS-22 Roles & integrations", "CS-23 ROI & ACR calculator", "CS-24 Observability & IaC"]},
     ],
-    takeaway="97 tests (88% coverage), 18/18 browser journeys and 30/30 live smoke checks pass; every feature has acceptance criteria and evidence.",
+    takeaway="1,432 backend tests (92% coverage), 18/18 browser journeys and 45/45 live smoke checks pass; every feature has acceptance criteria and evidence.",
     source="Source: FEATURES.md (status board, all Deployed); " + EVID_SRC + " §1, §3-§5",
-    notes=("Release 1 is complete and deployed: twenty-four features in five epics, every one showing Deployed on the status board with evidence. Epic A holds the Brand Brain, claims library and rights registry. "
-           "Epic B is the creative crew from briefing to format factory. Epic C is governance and safety. Epic D closes the loop with the scorecard, variant engine and insights. Epic E is the platform, "
-           "including this calculator. Engineering verified it on 17 and 18 November: ninety-seven automated tests at 88 percent coverage, eighteen browser journeys and a thirty-check smoke test against the live Azure deployment. "
+    notes=("The product is complete and deployed: twenty-five features in five epics, every one showing Deployed on the status board with evidence. Epic A holds the Brand Brain, claims library and rights registry. "
+           "Epic B is the creative crew from briefing to format factory, plus Cinematic motion, which turns keyframes into real video clips. Epic C is governance and safety. Epic D closes the loop with the scorecard, variant engine and insights. Epic E is the platform, "
+           "including this calculator. Engineering verified it between 17 and 19 November: 1,432 automated backend tests at 92 percent coverage, eighteen browser journeys and a forty-five-check smoke test against the live Azure deployment. "
            "The appendix lists every feature and the evidence table."),
 )
 
@@ -367,6 +367,33 @@ if ba.exists():
     )
     set_alt(next(sh for sh in s_ba.shapes if sh.shape_type == MSO_SHAPE_TYPE.PICTURE),
             "Sixteen video frames: two shots, each rendered as Preview (a still with a camera move, the hand and mug unchanged) and as Cinematic (the hand lifts the mug; coffee pours into it)")
+
+# In the product: the estimate before the render and the measured result after it (captured on the deployed app, revision ca-studio-web--0000008)
+est_png, res_png = shot("07b-cinematic-render-panel.png"), shot("07c-cinematic-result.png")
+if est_png and res_png:
+    s_two = d._new(
+        "In the product: priced before it renders, measured after it is made",
+        notes=("Left: before anything is spent. The user chooses Preview, which is free, or Cinematic. The estimate lists every shot with its length and cost, the GPU time, the render time, and what is left of the daily and campaign budgets; "
+               "it also shows whether the GPU worker is ready or has to wake up first. Right: the result carries its proof. The badge says Cinematic with three of three shots in AI motion; the lines below give the model, its licence, "
+               "the GPU seconds and the cost including the cold start, and each shot shows a measured motion level. Rich and subtle both mean the subject really moves; low would trigger one retry. A human still approves the spot."),
+    )
+    top = d._content_top(None, s_two)
+    gap = 0.3
+    w = (deckkit.CONTENT_W - gap) / 2
+    h = w * 900 / 1600
+    two_up = [
+        (est_png, "**Before the render.** Preview is free (about 30 s); Cinematic is AI video, estimated at US$0.28 and about 5 minutes. The table prices every shot, shows the GPU time and what is left of the daily and campaign budgets, and says whether the GPU worker is ready.",
+         "Render quality panel: Preview or Cinematic, GPU worker ready, a per-shot estimate of US$0.283 in total, 262 seconds of GPU time and the remaining budgets"),
+        (res_png, "**After the render.** The spot carries its proof: Cinematic · AI motion 3/3 shots, the model and licence (Wan 2.2, Apache-2.0, self-hosted in your Azure environment), 261 s of GPU for US$0.54 including the US$0.26 cold start, and a measured motion level per shot (rich, subtle, rich).",
+         "Rendered 14.9 second spot with a Cinematic badge, the model and licence line, GPU time and cost, and the motion level of each of the three shots"),
+    ]
+    for i, (p, cap, alt) in enumerate(two_up):
+        x = deckkit.MARGIN + i * (w + gap)
+        d._rect(s_two, x - 0.05, top - 0.05, w + 0.1, h + 0.1, d.t.line, radius=0.06)
+        set_alt(s_two.shapes.add_picture(str(p), Inches(x), Inches(top), Inches(w), Inches(h)), alt)
+        d.text(s_two, x, top + h + 0.1, w, 6.04 - (top + h + 0.1), [Para(cap, space_after=0)], size=11, min_size=8.5, label="caption")
+    d._takeaway(s_two, "Cost is shown before it is spent, and the motion of every shot is measured after it is made.")
+    d._source(s_two, TOUR_SRC + " §13")
 
 d.architecture(
     "Cinematic motion runs inside your tenant: queue, serverless GPU, scale to zero",
@@ -909,26 +936,26 @@ d.section(
 d.set_section("Appendix")
 
 d.table(
-    "Release 1 is built, tested and live: the evidence",
-    ["Check", "Result on the live deployment", "Where to verify"],
+    "The product is built, tested and live: the evidence",
+    ["Check", "Result on the live deployment", "REPORT section"],
     [
-        ["Features deployed", "24 of 24 report IMPLEMENTED on /api/features; every row of the FEATURES.md status board is Deployed", "REPORT §1"],
-        ["Tests and static analysis", "97 passed in about 45 s · 88% line coverage (domain modules 88-100%) · ruff, mypy, tsc, build, pip-audit and npm audit clean", "REPORT §3"],
-        ["Browser journeys", "18 of 18 Playwright journeys pass on the live app; the product screens in this deck come from them", "REPORT §4"],
-        ["Live smoke test", "30 of 30 checks with real Azure OpenAI, Content Safety, Speech, Cosmos DB and Blob; the whole run, brief to localized pack included, takes about 7 minutes; about $0.17 of AI spend per full run", "REPORT §5, §8"],
-        ["Latency under light load", "p50 554 ms · p95 1,414 ms · p99 2,000 ms, 0 errors (400 requests, concurrency 20, one 1-vCPU replica)", "REPORT §6"],
-        ["Cost to run", "About $30 a month idle, about $5 with scale-to-zero (15 s cold start); the $5 daily AI cap fails closed", "REPORT §8"],
-        ["Security posture", "Keyless: managed identity, 0 secrets, shared-key and local auth off; governance tags on the resource group and all 14 resources", "REPORT §2, §9"],
-        ["Business-case parity", f"The calculator reproduces outputs.json within ±0.5% (model v{META['model_version']}): Base NPV {M(roi['npv'])}, Year-3 ACR {K(ACR_Y[3])}", "REPORT §5 (check 27)"],
+        ["Features deployed", "25 of 25 IMPLEMENTED on /api/features; every status-board row is Deployed", "§1, §13"],
+        ["Tests and static analysis", "1,432 backend tests (+ 8 documented xfails), 92% coverage; worker 356 tests; analysis and audits clean", "§3, §13"],
+        ["Browser journeys", "18 of 18 English journeys on the live app (Polish: REPORT §12, §13); this deck's screens come from them", "§4, §13"],
+        ["Live smoke test", "45 of 45 checks with real Azure OpenAI, Safety, Speech, Cosmos DB, Blob and an A100; US$0.85 per full run", "§5, §13"],
+        ["Latency under light load", "p50 554 ms · p95 1,414 ms · p99 2,000 ms, 0 errors (400 requests, concurrency 20, one 1-vCPU replica)", "§6"],
+        ["Cost to run", "About $45 a month idle, $20 with scale-to-zero; the GPU costs nothing at zero; a Cinematic spot about $0.28", "§8, §13"],
+        ["Security posture", "Keyless, 0 secrets, shared-key off; GPU worker limited to its queue and 3 containers; 16 of 16 resources tagged", "§9, §13"],
+        ["Business-case parity", f"The calculator reproduces outputs.json within ±0.5% (model v{META['model_version']}): Base NPV {M(roi['npv'])}, Year-3 ACR {K(ACR_Y[3])}", "§5 (check 27)"],
     ],
-    col_weights=[2.2, 6.9, 1.7],
+    col_weights=[2.2, 7.6, 1.2],
     align=["left", "left", "left"],
     font_pt=12,
     takeaway="Not in the demo slice: WAF, private networking, a CI pipeline and certified C2PA signing; expansion levers E1-E4 are modelled, not built.",
     source="Source: " + EVID_SRC + " and app/evidence/. Measured facts about the demo deployment, not business-case numbers.",
-    notes=("This is the evidence behind the demo, taken from the engineering verification report. All twenty-four features are deployed; ninety-seven tests pass at 88 percent coverage; eighteen browser journeys "
-           "and a thirty-check smoke test pass against the live deployment using real Azure models; a light load test of four hundred requests shows a p95 of 1.4 seconds with no errors on one vCPU. "
-           "Idle run cost is about thirty dollars a month. Be candid about the limits on the takeaway line: no WAF, private networking or CI pipeline, "
+    notes=("This is the evidence behind the demo, taken from the engineering verification report. All twenty-five features are deployed; 1,432 backend tests pass at 92 percent coverage; eighteen English browser journeys "
+           "and a forty-five-check smoke test pass against the live deployment using real Azure models and a real GPU; a light load test of four hundred requests shows a p95 of 1.4 seconds with no errors on one vCPU. "
+           "Idle run cost is about forty-five dollars a month, and the GPU worker adds nothing while it sleeps. Be candid about the limits on the takeaway line: no WAF, private networking or CI pipeline, "
            "provenance is C2PA-style rather than certified, and the expansion levers are modelled, not built."),
 )
 
@@ -1181,7 +1208,7 @@ for i in range(0, len(FEATURES), 8):
         source="Source: FEATURES.md (status board: all Deployed); " + EVID_SRC,
         notes=("The complete Release 1 feature list, eight rows per page. Each feature has a priority: P0 is the minimum for the product to be credible, P1 is needed for a customer deployment, P2 may ship as illustrative. "
                "For each one the features document gives the problem it solves, testable acceptance criteria, the target and deployed Azure services, what is simulated, dependencies and the KPIs it moves. "
-               "All twenty-four show Deployed on the status board, with evidence from the verification report: tests, the live smoke checks and the screens in this deck."),
+               "All twenty-five show Deployed on the status board, with evidence from the verification report: tests, the live smoke checks and the screens in this deck."),
     )
 
 d.hub_spoke(
@@ -1323,21 +1350,21 @@ GALLERIES = [
       ("23-team-and-integrations.png",
        "**CS-22 Team & integrations.** Six roles (admin, brand manager, creative director, creative, legal, agency guest) enforced on the API; Teams/Slack-compatible webhooks, OpenAPI at /openapi.json, rate limits of 24 AI-spending calls and 90 writes per minute per IP.",
        "Team and integrations page with the roster of six roles, REST API details and a permissions table")],
-     "Production uses Entra ID app roles; the demo's role switcher is self-declared and bounded by the $5 daily AI cap.",
+     "Production uses Entra ID app roles; the demo's role switcher is self-declared and bounded by the $15 daily AI cap.",
      (f"With expansion switched on, the calculator adds the four optional levers at full scale to the Base case. Year-3 ACR rises from {ACR_Y[3] / 1e3:.0f} to {FC['run_rate_year3'] / 1e3:.0f} thousand dollars and NPV from "
       f"{roi['npv'] / 1e6:.2f} to {FC['npv'] / 1e6:.2f} million, while payback lengthens to about {FC['payback_months']:.0f} months because the integration costs come first. The levers are modelled, not built, and are off in Base. "
       "The team screen shows six roles enforced on every mutating endpoint, webhooks with an SSRF guard, a documented REST API and the rate limits. "
       "Demo identities are self-declared; production uses Entra ID app roles and B2B guests for agencies.")),
-    ("Operations show live dependency health, and the feature map shows 24 of 24 implemented",
+    ("Operations show live dependency health, and the feature map shows 25 of 25 implemented",
      [("24-ops-observability.png",
        "**CS-24 Operations.** /readyz reports six live dependencies OK (Cosmos DB, Blob, Azure OpenAI, Content Safety, Speech, ffmpeg) at 14-916 ms; mode AZURE in swedencentral; telemetry via OpenTelemetry to Application Insights (Entra-authenticated); 9 jobs succeeded, 0 failed.",
        "Operations page with dependency health, deployment details, guardrails and the job runner"),
       ("25-feature-map.png",
-       "**Feature map.** Rendered live from /api/features: 24 / 24 IMPLEMENTED across Epics A-E; each row shows the CS-ID, priority, status and the API route that serves it.",
-       "Feature map listing the Release 1 features by epic with status and API route")],
+       "**Feature map.** Rendered live from /api/features: 25 / 25 IMPLEMENTED across Epics A-E, including CS-25 Cinematic motion; each row shows the CS-ID, priority, status and the API route that serves it.",
+       "Feature map listing the catalog features by epic with status and API route")],
      "The feature map is generated from the running system, so it cannot drift from what is deployed.",
      ("The operations page shows the live health of every dependency the studio calls: Cosmos DB, Blob Storage, Azure OpenAI, Content Safety, Speech and ffmpeg, each with its latency, plus the deployment mode, "
-      "region, telemetry path, guardrails and job runner. Deployment is keyless, with managed identity only. The feature map is rendered from the running application's own registry: twenty-four of twenty-four "
+      "region, telemetry path, guardrails and job runner. Deployment is keyless, with managed identity only. The feature map is rendered from the running application's own registry: twenty-five of twenty-five "
       "implemented, each with its API route. It is the quickest answer to whether what we describe is what is deployed. Question to expect: where is the evidence? In the verification report and the status board.")),
 ]
 
@@ -1418,7 +1445,7 @@ SOURCES = [
     "Microsoft Learn, Video generation with Sora 2 (preview): per-second billing, region availability, 2026. https://learn.microsoft.com/azure/foundry/openai/concepts/video-generation",
     "McKinsey & Company, The value of getting personalization right—or wrong—is multiplying, 2021. https://www.mckinsey.com/capabilities/growth-marketing-and-sales/our-insights/the-value-of-getting-personalization-right-or-wrong-is-multiplying",
     "SwarmAI, PRD.md, ARCHITECTURE.md, FEATURES.md and business-case/ (model, assumptions, outputs), 2026.",
-    "SwarmAI, REPORT-TEST-AND-DEPLOYMENT.md and app/evidence/ (engineering verification of the live deployment, 17-18 Nov 2026), 2026.",
+    "SwarmAI, REPORT-TEST-AND-DEPLOYMENT.md and app/evidence/ (engineering verification of the live deployment, 17-19 Nov 2026), 2026.",
 ]
 d.sources("Sources", SOURCES, notes=("Sources used in this deck. Market facts come from Gartner, WARC, Adobe, McKinsey, Reuters and Nielsen; regulatory facts from the European Commission and EUR-Lex; Azure facts from Microsoft Learn and the Azure Retail Prices API. "
                                       "Business-case numbers come only from the model outputs, which cite their assumptions. Secondary summaries of platform and likeness rules are listed in the PRD with a flag; "

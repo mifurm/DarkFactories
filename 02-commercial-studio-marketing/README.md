@@ -111,9 +111,10 @@ Studio ─ keyframe + motion prompt ─► Storage Queue ──(KEDA, identity a
 | Model | **Wan 2.2 TI2V-5B**, Apache-2.0 (no territory restrictions), pinned revision; weights mirrored into the tenant's Blob. Azure OpenAI Sora 2 is **retired** (2 Nov 2026) and no other first-party video model exists, so the model runs in *your* environment: data never leaves the tenant |
 | Compute | Container Apps **serverless A100** (`gpu-a100` profile of the Studio environment), 8 vCPU / 64 GiB, scale-to-zero, per-second billing: **US$0.00108 / s** (A100 0.000688 + vCPU + memory, swedencentral retail) |
 | Measured | 1024×576, 20 steps: **≈ 0.75 s of GPU per frame** (3 s clip = 55 s, 4.9 s clip = 95 s). Cold start **≈ 3.7 min** (node + image ≈ 2 min, weights from the Blob mirror ≈ 1 min, model load 11 s); KEDA starts the worker 16 s after the first message |
-| Cost | ≈ **US$0.08–0.10 per shot**, **≈ US$0.35–0.45 per four-shot spot** (+ ≈ US$0.26 when the worker has to cold-start); a cached shot — re-render, localization, cut-down — is **US$0** and calls no GPU |
+| Cost | ≈ **US$0.08–0.10 per shot**, **US$0.28 for the three-shot Dawn Roast spot** (261 s of GPU, measured live); a wake-up adds ≈ US$0.26 of estimated cold start (metered) and ≈ US$0.45 of idle tail before scale-to-zero (not metered); a cached shot — re-render, localization, cut-down — is **US$0** and calls no GPU |
 | Limits | **One A100 per environment** (quota) → shots render one after another; ≤ 5 s per clip; clips are silent (Studio mixes VO + music); a generative model can still draw an imperfect hand → Content Safety frame checks, per-shot fallback to the still, human approval gate |
-| Governance | Worker identity = queue + blob only (no Cosmos, no OpenAI); estimate and budget check before spending; actual GPU seconds metered as kind `motion`; manifest records model, revision, licence, host, per-shot seed + prompt digest; AI badge burned in |
+| Governance | Worker identity = queue + three blob containers only (no Cosmos, no OpenAI, no access to `assets`); estimate and budget check before spending; actual GPU seconds metered as kind `motion`; manifest records model, revision, licence, host, per-shot seed, prompt digest and attempts; AI badge burned in |
+| Motion gate | Every clip is **measured**: dense optical flow minus the best global affine fit = the motion a camera move on a still cannot explain (control 0.10–0.31; generated clips 0.42–4.9; live: 1.78 / 0.97 / 2.13). *low* < 0.32 ≤ *subtle* < 1.0 ≤ *rich*; a low clip gets **one retry** (seed + 1, a prompt that insists on motion), the better clip is kept; scores show in the UI, the report, the asset and the manifest. `scripts/measure_motion.py` scores any clip against a Ken-Burns control |
 
 ```bash
 # local, no GPU, no Azure: the Studio's offline mode animates keyframes procedurally (MOTION_MODE=stub is the offline default)
@@ -149,7 +150,7 @@ SPOTLIGHT_MODE=azure COSMOS_ENDPOINT=… BLOB_ACCOUNT_URL=… AZURE_OPENAI_ENDPO
 
 ```bash
 cd app
-.venv/bin/pytest --cov                                  # 1,206 passed + 8 strict xfail (97 English baseline + Polish / regression), ~1–2 min, offline stubs + real ffmpeg
+.venv/bin/pytest --cov                                  # 1,432 passed + 8 strict xfail (97 English baseline + Polish / Cinematic / regression), ~4 min, offline stubs + real ffmpeg + OpenCV
 .venv/bin/pytest tests/test_pl_*.py -q                  # the Polish suites only (Guardian, i18n contract, pipeline, platform, seed, timing)
 .venv/bin/ruff check src tests ../scripts e2e && .venv/bin/mypy
 (cd web && npm run build)                               # tsc -b (strict) + vite build
@@ -244,5 +245,5 @@ CJK / Arabic captions need extra fonts (not shipped; Latin, Cyrillic, Greek are)
 personalization and the clean-room data platform are **expansion levers** modelled in the ROI calculator (E1–E4; Base = off), not Release-1 code (E1, generative video for *hero footage*, is priced on hosted per-second meters; the in-product Cinematic motion of CS-25 is a different, self-hosted path). The vendored business-case model is re-synced with `scripts/sync_business_case.py` (copies `model.py`, `assumptions.json`, `outputs.json` together and verifies parity).
 **Cinematic motion limits:** one A100 per environment (shots render sequentially), ≈ 3.7 min cold start (hidden by the warm-up and a 7-minute cooldown), clips ≤ 5 s and silent, no guarantee of perfect hands or product details — a flagged or failed shot falls back to the still. The partner video models in Foundry (fal: Kling, LTX, MiniMax) are **not enabled**: they run outside Microsoft's facilities and the Microsoft DPA does not apply.
 Rate limits are per replica (in-process). The demo identity is self-declared. See ARCHITECTURE.md → *Implemented vs target*.
-Polish (pl): **deployed and verified live** (smoke 44/44 on the deployed app incl. 14 Polish steps; 1,206 backend tests, hybrid run on the real models — see REPORT → *Polish localization*). Neural voices are
+Polish (pl): **deployed and verified live** (smoke 44/44 on the deployed app incl. 14 Polish steps, hybrid run on the real models — see REPORT → *Polish localization*). Cinematic motion (CS-25): **deployed and verified live** on 19 Nov 2026 (smoke 45/45, 1,432 backend tests, 356 worker tests — see REPORT §13). Neural voices are
 the default for Polish; the speaking-rate model was calibrated for `pl-PL-ZofiaNeural` only (another voice may need its own constants). Polish legal wording (EU 1924/2006 health claims, AI disclosure) is factual demo content, not legal advice.

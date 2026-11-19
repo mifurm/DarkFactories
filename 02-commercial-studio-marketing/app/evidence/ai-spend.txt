@@ -12,3 +12,11 @@ events: 981
   2026-11-18: $0.0278 (49 events)
   TOTAL: $0.9885
 by service: {'embedding': '$0.0002 (182 calls)', 'image': '$0.3120 (24 calls)', 'llm': '$0.1464 (83 calls)', 'render': '$0.0182 (38 calls)', 'safety': '$0.4117 (525 calls)', 'tts': '$0.1000 (129 calls)'}
+
+Snapshot 3 — 19 Nov 2026, Cinematic motion (CS-25) verification, read from the live usage ledger after the last run (GPU seconds metered at US$0.00108 per second; the cold start as an estimate of US$0.26 per wake-up):
+events: 539
+  2026-11-19: $1.4888   daily cap $15.00 (was $5.00 until 18 Nov), remaining $13.51
+    of which the 45-check smoke run on revision 0000008: $0.8467 (motion $0.5414 = 3 clips, 261.3 GPU s = $0.2822, + $0.2592 estimated cold start) and the Polish smoke re-run on revision 0000009: $0.1315;
+    the rest (≈ $0.51) are the Playwright journeys (the full Polish run includes one automatic GPU warm-up, estimated $0.26) and the strategy re-checks
+by service: {'llm': '$0.1825 (48 calls)', 'safety': '$0.2722 (338 calls)', 'embedding': '$0.0001 (80 calls)', 'render': '$0.0100 (16 calls)', 'tts': '$0.0154 (36 calls)', 'image': '$0.2080 (16 calls)', 'motion': '$0.8006 (5 calls)'}
+Not in this ledger: the real GPU time of the 7-minute cooldown after each wake-up (≈ $0.45 each) and the spikes / role test submitted to the worker directly from a laptop (the whole development, including the spikes on the A100 and test environments, is estimated at ≈ US$11–12 of GPU from the GPU seconds used; the invoice is the authority).

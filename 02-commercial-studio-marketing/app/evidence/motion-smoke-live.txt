@@ -1,0 +1,105 @@
+(removed 2 campaign(s) from earlier smoke/E2E runs)
+Smoke test against https://ca-studio-web.yellowgrass-9740f562.swedencentral.azurecontainerapps.io
+
+  PASS  healthz + readyz (Cosmos, Blob, Azure OpenAI, Content Safety, Speech, ffmpeg)    2.2s  mode=azure deps=repository:229ms,blob_storage:20ms,openai_chat:853ms,content_safety:115ms,speech:156ms,ffmpeg:
+  PASS  feature registry (25/25) + SPA + Feature Map route                1.3s  25/25 implemented; SPA served
+  PASS  meta + usage: daily AI budget guard active                        1.3s  daily cap $15.0; models=['gpt-5.4-mini', 'gpt-5.4', 'text-embedding-3-small']…
+  PASS  CS-01 Brand Brain retrieval with citations (embeddings)           1.3s  5 cited passages (top: 'Voice and tone', score 0.5309)
+  PASS  CS-02 claims library: prohibited blocked / compliant passes       1.6s  prohibited claim -> block; compliant line -> pass
+  PASS  CS-03 rights registry: unlicensed / expired blocked, library cleared    2.4s  unlicensed music + expired consent blocked; library track cleared
+  PASS  CS-04 briefing agent: <=3 questions, normalized brief, early Guardian flags    6.1s  3 clarifying questions: ['key_message', 'cta', 'duration_targets']; Guardian flags ['claims.prohibited', 'righ
+  PASS  CS-05 strategy agent: 3+ territories grounded with citations     10.6s  3 territories (e.g. 'The first quiet cup'), 5 citations, guardian=warn
+  PASS  CS-06 script agent writes 15 s script; Guardian blocks the mandatory claim + music cue    5.5s  4 beats, 21 words; Guardian BLOCKS (blocks=2, score=56)
+  PASS  CS-12 Guardian auto-revise converges (claim rewritten, music swapped to licensed track)    2.2s  converged in 2 iteration(s); fixes=['replace_text', 'swap_music']; verdict=pass; music -> Slow Ember (library)
+  PASS  CS-07 storyboard: shot list + >=3 gpt-image keyframes (low quality)   90.3s  4/4 keyframes (gpt-image-1.5, low), first image 294 KB; guardian=pass
+  PASS  CS-09 voice-over timed to script beats (tts-hd) + SRT             4.3s  4 lines, 8.48s of VO, voice=openai:nova, cost $0.00117
+  PASS  CS-08 compositor: 15 s H.264/AAC MP4 retrievable via API (ffprobe, loudness, range)   30.8s  14.9s MP4 1412 KB, -16.2 LUFS, render 23.19s; ffprobe: h264/aac 1280x720 14.90s; guardian=pass
+  PASS  CS-14 provenance manifest verifies; tampering is detected; pack export    4.2s  manifest verifies (5 checks, key f916194aefd10562); tampered asset+manifest rejected; pack 1399 KB
+  PASS  CS-13 approvals: stage gates, roles enforced, Guardian-gated approval   23.5s  5/5 gates approved by role; Guardian-gated=True; non-approver refused (403)
+  PASS  CS-13 immutable audit log verifies (hash chain)                   0.7s  hash-chain verified: 25 entries, head 877fa19e50c7…
+  PASS  CS-11 format factory: 9:16, 1:1 and 6 s bumper from the master   59.8s  version tree: master + 3 derived {'16:9 · 6s cutdown': (1280, 720, 6.0), '1:1': (720, 720, 14.9), '9:16': (720
+  PASS  CS-11/13 derived versions approved (Guardian-gated)               2.1s  approved 3 derived versions; refused 0
+  PASS  CS-10 localization de,fr,pl: glossary kept, back-translation QA, localized VO + render   93.0s  pl: minsim=0.562, review=0, guardian=pass; fr: minsim=0.679, review=0, guardian=pass; de: minsim=0.826, review
+  PASS  CS-16 pre-flight scorecard (labelled predictive/simulated)        3.3s  predicted 87/100 (heuristic 90, panel avg 8); suggestions=0
+  PASS  CS-17 12-variant experiment: Thompson sampling converges to the best arm in 24 simulated hours    3.3s  leader v03 within 0.3% of the simulator's best (v02); 8 losers auto-paused; +17.1% clicks vs uniform; top shar
+  PASS  CS-18 performance: connector sync + CSV ingest + insights written to Brand Brain    7.7s  98 rows; CTR 1.559% CVR 4.78% CPA $12.09 ROAS 1.20; 7 insight(s) -> Brand Brain (100 learnings)
+  PASS  CS-19 planner: media-mix with diminishing returns + ranges (illustrative)    0.8s  6 channels; ROAS p10/p50/p90 0.81/0.99/1.19; +16.9% vs uniform split
+  PASS  CS-21 asset library: semantic search, upload, versions, range streaming    4.0s  semantic search -> 11 hits; upload + version v2
+  PASS  CS-22 webhooks: Teams-compatible delivery + SSRF guard; roles enforced    3.0s  Teams MessageCard delivered to internal sink; SSRF target (metadata IP) rejected
+  PASS  CS-22 campaign pack export (mp4/png/csv/provenance zip)           7.4s  pack 10865 KB with 40 files (videos, keyframes, captions, provenance, csv)
+  PASS  CS-23 ROI & ACR calculator reproduces outputs.json; overrides recompute    6.0s  model v1.1.0 parity OK (±0.5%); Base NPV $6,979,862, ROI 139.98%, payback 14.97 mo, ACR Y1/Y2/Y3 $64,541/$304,
+  PASS  CS-15 cost meter: $ per approved asset vs agency baseline         0.8s  campaign spend $0.153, 4 approved assets -> $0.0381/asset vs agency $1850 (-100.0%)
+  PASS  CS-25 cinematic motion: status + priced estimate; AI-video render (footage not frozen, motion gate, GPU metered, manifest names the model)  535.8s  14.9s MP4 2764 KB ffprobe: h264/aac 1280x720@25 14.90s; 3/3 shots AI motion (0 cached, 0 fallback), 261.3s GPU
+  PASS  CS-15 budget guard fails closed with a clear message (per-campaign cap)    4.8s  generation refused with 402 campaign_budget_exceeded: Campaign AI cap reached: $0.00 of $0.0001 spent on this 
+  PASS  CS-24 observability: status, per-route metrics, AI usage meter    1.4s  telemetry=App Insights; 74 routes metered; AI calls {'safety': 98, 'embedding': 26, 'llm': 13, 'image': 4, 'tt
+
+Polish narrative (pl)
+
+  PASS  PL-1 contract: /api/meta languages, Content-Language, stable error codes + Polish messages    2.0s  languages=['en', 'pl']; error code campaign_not_found stable, message localized: 'Nie znaleziono kampanii does
+  PASS  PL-2 Polish content live: Brand Book/kit, claims pack, sample campaign, Polish retrieval    3.7s  Polish Brand Book + kit (tagline 'Obudź się powoli.'), 15 Polish claim rules, sample campaign 'Dawn Roast — pr
+  PASS  PL-3 Guardian claims in Polish: prohibited -> block, compliant + look-alike stems -> pass    9.1s  6 Polish prohibited claims blocked (also without diacritics), superlative flagged, 6 compliant / look-alike li
+  PASS  PL-4 Polish prompt-injection red team: rejected before any model call    3.7s  Polish prompt injection in a brief refused: 422 prompt_injection (Prompt Shields wykrył w wklejonym briefie in
+  PASS  PL-5 briefing agent in Polish: Polish questions, normalized brief, early Guardian flags in Polish    5.3s  2 Polish clarifying questions (['cta', 'duration_targets']); Guardian flags in Polish: 'Zakazany claim „leczy 
+  PASS  PL-6 strategy agent in Polish: territories grounded with citations   13.7s  3 Polish territories (e.g. 'Pierwsza filiżanka, zanim dom się obudzi'), 5 citations, guardian=warn
+  PASS  PL-7 script agent writes a Polish 15 s script; Guardian BLOCKS the Polish prohibited claim    7.5s  4 Polish beats, 23 words; Guardian BLOCKS (blocks=2): 'Zakazany claim „leczy poranny niepokój” (reguła kategor
+  PASS  PL-8 Guardian auto-revise converges to compliant Polish (Polish rewrite, licensed track)    2.2s  converged in 2 iteration(s); fixes=['replace_text', 'swap_music']; compliant Polish: 'Jeszcze nikt nie wstał. 
+  PASS  PL-9 storyboard in Polish (English image prompts) + >=3 keyframes (low quality)   89.1s  4/4 keyframes; shot descriptions Polish, image prompts English; guardian=pass
+  PASS  PL-10 Polish voice-over (pl-PL neural voice) timed to the script beats + SRT    2.6s  4 Polish lines, 7.88s of VO, voice=neural:pl-PL-ZofiaNeural, cost $0.00118
+  PASS  PL-11 compositor: Polish 14.9 s MP4 (ffprobe, loudness) + burned-in captions with diacritics + 'Wygenerowano przez AI'   28.7s  14.9s MP4 1358 KB, -16 LUFS; ffprobe: h264/aac 1280x720 14.90s; badge 'Wygenerowano przez AI', end card 'Obudź
+  PASS  PL-12 localization PL->EN: glossary + do-not-translate kept, back-translation QA, English VO + render   34.0s  PL->EN: minsim=0.679, review=0, guardian=pass; EN spot rendered; tagline 'Wake up slowly'
+  PASS  PL-13 provenance of the Polish MP4 verifies; Polish human-readable summary, English machine fields    3.6s  manifest verifies (5 checks), tampering detected; human summary in Polish, signed manifest identical in both l
+  PASS  PL-14 read-time localization: audit one-liners, job titles, Polish scorecard + simulated panel    6.6s  audit trail verifies (14 entries, Polish one-liners), 7 jobs titled in Polish, scorecard 'Predykcja / symulacj
+
+AI spend incurred by this run (list-price estimate): $0.8467
+
+| # | Check | Result | Time | Evidence |
+|---|---|---|---|---|
+| 1 | healthz + readyz (Cosmos, Blob, Azure OpenAI, Content Safety, Speech, ffmpeg) | PASS | 2.2s | mode=azure deps=repository:229ms,blob_storage:20ms,openai_chat:853ms,content_safety:115ms,speech:156ms,ffmpeg:79ms |
+| 2 | feature registry (25/25) + SPA + Feature Map route | PASS | 1.3s | 25/25 implemented; SPA served |
+| 3 | meta + usage: daily AI budget guard active | PASS | 1.3s | daily cap $15.0; models=['gpt-5.4-mini', 'gpt-5.4', 'text-embedding-3-small']… |
+| 4 | CS-01 Brand Brain retrieval with citations (embeddings) | PASS | 1.3s | 5 cited passages (top: 'Voice and tone', score 0.5309) |
+| 5 | CS-02 claims library: prohibited blocked / compliant passes | PASS | 1.6s | prohibited claim -> block; compliant line -> pass |
+| 6 | CS-03 rights registry: unlicensed / expired blocked, library cleared | PASS | 2.4s | unlicensed music + expired consent blocked; library track cleared |
+| 7 | CS-04 briefing agent: <=3 questions, normalized brief, early Guardian flags | PASS | 6.1s | 3 clarifying questions: ['key_message', 'cta', 'duration_targets']; Guardian flags ['claims.prohibited', 'rights.unlicensed'] |
+| 8 | CS-05 strategy agent: 3+ territories grounded with citations | PASS | 10.6s | 3 territories (e.g. 'The first quiet cup'), 5 citations, guardian=warn |
+| 9 | CS-06 script agent writes 15 s script; Guardian blocks the mandatory claim + music cue | PASS | 5.5s | 4 beats, 21 words; Guardian BLOCKS (blocks=2, score=56) |
+| 10 | CS-12 Guardian auto-revise converges (claim rewritten, music swapped to licensed track) | PASS | 2.2s | converged in 2 iteration(s); fixes=['replace_text', 'swap_music']; verdict=pass; music -> Slow Ember (library) |
+| 11 | CS-07 storyboard: shot list + >=3 gpt-image keyframes (low quality) | PASS | 90.3s | 4/4 keyframes (gpt-image-1.5, low), first image 294 KB; guardian=pass |
+| 12 | CS-09 voice-over timed to script beats (tts-hd) + SRT | PASS | 4.3s | 4 lines, 8.48s of VO, voice=openai:nova, cost $0.00117 |
+| 13 | CS-08 compositor: 15 s H.264/AAC MP4 retrievable via API (ffprobe, loudness, range) | PASS | 30.8s | 14.9s MP4 1412 KB, -16.2 LUFS, render 23.19s; ffprobe: h264/aac 1280x720 14.90s; guardian=pass |
+| 14 | CS-14 provenance manifest verifies; tampering is detected; pack export | PASS | 4.2s | manifest verifies (5 checks, key f916194aefd10562); tampered asset+manifest rejected; pack 1399 KB |
+| 15 | CS-13 approvals: stage gates, roles enforced, Guardian-gated approval | PASS | 23.5s | 5/5 gates approved by role; Guardian-gated=True; non-approver refused (403) |
+| 16 | CS-13 immutable audit log verifies (hash chain) | PASS | 0.7s | hash-chain verified: 25 entries, head 877fa19e50c7… |
+| 17 | CS-11 format factory: 9:16, 1:1 and 6 s bumper from the master | PASS | 59.8s | version tree: master + 3 derived {'16:9 · 6s cutdown': (1280, 720, 6.0), '1:1': (720, 720, 14.9), '9:16': (720, 1280, 14.9)} |
+| 18 | CS-11/13 derived versions approved (Guardian-gated) | PASS | 2.1s | approved 3 derived versions; refused 0 |
+| 19 | CS-10 localization de,fr,pl: glossary kept, back-translation QA, localized VO + render | PASS | 93.0s | pl: minsim=0.562, review=0, guardian=pass; fr: minsim=0.679, review=0, guardian=pass; de: minsim=0.826, review=0, guardian=pass |
+| 20 | CS-16 pre-flight scorecard (labelled predictive/simulated) | PASS | 3.3s | predicted 87/100 (heuristic 90, panel avg 8); suggestions=0 |
+| 21 | CS-17 12-variant experiment: Thompson sampling converges to the best arm in 24 simulated hours | PASS | 3.3s | leader v03 within 0.3% of the simulator's best (v02); 8 losers auto-paused; +17.1% clicks vs uniform; top share 51% |
+| 22 | CS-18 performance: connector sync + CSV ingest + insights written to Brand Brain | PASS | 7.7s | 98 rows; CTR 1.559% CVR 4.78% CPA $12.09 ROAS 1.20; 7 insight(s) -> Brand Brain (100 learnings) |
+| 23 | CS-19 planner: media-mix with diminishing returns + ranges (illustrative) | PASS | 0.8s | 6 channels; ROAS p10/p50/p90 0.81/0.99/1.19; +16.9% vs uniform split |
+| 24 | CS-21 asset library: semantic search, upload, versions, range streaming | PASS | 4.0s | semantic search -> 11 hits; upload + version v2 |
+| 25 | CS-22 webhooks: Teams-compatible delivery + SSRF guard; roles enforced | PASS | 3.0s | Teams MessageCard delivered to internal sink; SSRF target (metadata IP) rejected |
+| 26 | CS-22 campaign pack export (mp4/png/csv/provenance zip) | PASS | 7.4s | pack 10865 KB with 40 files (videos, keyframes, captions, provenance, csv) |
+| 27 | CS-23 ROI & ACR calculator reproduces outputs.json; overrides recompute | PASS | 6.0s | model v1.1.0 parity OK (±0.5%); Base NPV $6,979,862, ROI 139.98%, payback 14.97 mo, ACR Y1/Y2/Y3 $64,541/$304,893/$464,798; Upside Y3 $972,886; Enterp |
+| 28 | CS-15 cost meter: $ per approved asset vs agency baseline | PASS | 0.8s | campaign spend $0.153, 4 approved assets -> $0.0381/asset vs agency $1850 (-100.0%) |
+| 29 | CS-25 cinematic motion: status + priced estimate; AI-video render (footage not frozen, motion gate, GPU metered, manifest names the model) | PASS | 535.8s | 14.9s MP4 2764 KB ffprobe: h264/aac 1280x720@25 14.90s; 3/3 shots AI motion (0 cached, 0 fallback), 261.3s GPU = $0.541404 (wan2.2-ti2v-5b); footage n |
+| 30 | CS-15 budget guard fails closed with a clear message (per-campaign cap) | PASS | 4.8s | generation refused with 402 campaign_budget_exceeded: Campaign AI cap reached: $0.00 of $0.0001 spent on this campaign; this safety ca |
+| 31 | CS-24 observability: status, per-route metrics, AI usage meter | PASS | 1.4s | telemetry=App Insights; 74 routes metered; AI calls {'safety': 98, 'embedding': 26, 'llm': 13, 'image': 4, 'tts': 16, 'render': 8, 'motion': 4} |
+| 32 | PL-1 contract: /api/meta languages, Content-Language, stable error codes + Polish messages | PASS | 2.0s | languages=['en', 'pl']; error code campaign_not_found stable, message localized: 'Nie znaleziono kampanii does-not-exist' |
+| 33 | PL-2 Polish content live: Brand Book/kit, claims pack, sample campaign, Polish retrieval | PASS | 3.7s | Polish Brand Book + kit (tagline 'Obudź się powoli.'), 15 Polish claim rules, sample campaign 'Dawn Roast — premiera w Polsce'; PL retrieval top hit ' |
+| 34 | PL-3 Guardian claims in Polish: prohibited -> block, compliant + look-alike stems -> pass | PASS | 9.1s | 6 Polish prohibited claims blocked (also without diacritics), superlative flagged, 6 compliant / look-alike lines pass (no false positives) |
+| 35 | PL-4 Polish prompt-injection red team: rejected before any model call | PASS | 3.7s | Polish prompt injection in a brief refused: 422 prompt_injection (Prompt Shields wykrył w wklejonym briefie instrukcje skierowane do AI;) |
+| 36 | PL-5 briefing agent in Polish: Polish questions, normalized brief, early Guardian flags in Polish | PASS | 5.3s | 2 Polish clarifying questions (['cta', 'duration_targets']); Guardian flags in Polish: 'Zakazany claim „leczy poranny niepokój” (reguła kategorii re' |
+| 37 | PL-6 strategy agent in Polish: territories grounded with citations | PASS | 13.7s | 3 Polish territories (e.g. 'Pierwsza filiżanka, zanim dom się obudzi'), 5 citations, guardian=warn |
+| 38 | PL-7 script agent writes a Polish 15 s script; Guardian BLOCKS the Polish prohibited claim | PASS | 7.5s | 4 Polish beats, 23 words; Guardian BLOCKS (blocks=2): 'Zakazany claim „leczy poranny niepokój” (reguła kategorii regulowanej:' |
+| 39 | PL-8 Guardian auto-revise converges to compliant Polish (Polish rewrite, licensed track) | PASS | 2.2s | converged in 2 iteration(s); fixes=['replace_text', 'swap_music']; compliant Polish: 'Jeszcze nikt nie wstał. Tylko ty i Dawn Roast. Dawn Roast daje s |
+| 40 | PL-9 storyboard in Polish (English image prompts) + >=3 keyframes (low quality) | PASS | 89.1s | 4/4 keyframes; shot descriptions Polish, image prompts English; guardian=pass |
+| 41 | PL-10 Polish voice-over (pl-PL neural voice) timed to the script beats + SRT | PASS | 2.6s | 4 Polish lines, 7.88s of VO, voice=neural:pl-PL-ZofiaNeural, cost $0.00118 |
+| 42 | PL-11 compositor: Polish 14.9 s MP4 (ffprobe, loudness) + burned-in captions with diacritics + 'Wygenerowano przez AI' | PASS | 28.7s | 14.9s MP4 1358 KB, -16 LUFS; ffprobe: h264/aac 1280x720 14.90s; badge 'Wygenerowano przez AI', end card 'Obudź się powoli.'; caption 'Jeszcze nikt nie |
+| 43 | PL-12 localization PL->EN: glossary + do-not-translate kept, back-translation QA, English VO + render | PASS | 34.0s | PL->EN: minsim=0.679, review=0, guardian=pass; EN spot rendered; tagline 'Wake up slowly' |
+| 44 | PL-13 provenance of the Polish MP4 verifies; Polish human-readable summary, English machine fields | PASS | 3.6s | manifest verifies (5 checks), tampering detected; human summary in Polish, signed manifest identical in both languages |
+| 45 | PL-14 read-time localization: audit one-liners, job titles, Polish scorecard + simulated panel | PASS | 6.6s | audit trail verifies (14 entries, Polish one-liners), 7 jobs titled in Polish, scorecard 'Predykcja / symulacja — synt…' with 3 Polish personas |
+
+45/45 checks passed
+
+TOTAL_AI_SPEND_USD=0.8467

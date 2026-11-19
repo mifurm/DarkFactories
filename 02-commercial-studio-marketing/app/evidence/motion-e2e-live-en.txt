@@ -1,0 +1,23 @@
+E2E against https://ca-studio-web.yellowgrass-9740f562.swedencentral.azurecontainerapps.io — campaign 'dawn-roast-launch-smoke-2026-11-19-0-79659c' (Dawn Roast — Launch (smoke 2026-11-19 06:48 UTC))
+
+  PASS  dashboard                                                    3.9s  
+  PASS  brief wizard (clarifying questions, completeness)            4.5s  
+  PASS  brand brain (cited retrieval)                                3.3s  
+  PASS  claims + rights registries                                   5.1s  
+  PASS  creative workspace (storyboard, video player, audio, formats, localization, scorecard)  25.2s  
+  PASS  provenance verification + tamper test                        5.1s  
+  PASS  guardian playground (blocked report, auto-revise)            6.1s  
+  PASS  approvals inbox + audit chain                                4.6s  
+  PASS  variants / bandit experiment                                12.1s  
+    capture '18-performance-insights' waited 5.0s for: spinner
+  PASS  performance insights                                         7.1s  
+  PASS  media planner                                                2.1s  
+  PASS  asset library                                                7.0s  
+  PASS  cost meter                                                   1.9s  
+  PASS  ROI / ACR calculator                                         7.8s  
+  PASS  team & integrations                                          1.9s  
+  PASS  ops & observability                                          2.7s  
+  PASS  feature map                                                  2.0s  
+  PASS  API docs (swagger)                                           2.4s  
+
+18/18 journeys passed

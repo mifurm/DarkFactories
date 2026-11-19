@@ -1,13 +1,13 @@
 # Report — test, deployment & verification evidence
 
-**Product:** SwarmAI Commercial Studio ("Spotlight") — Release 1 (CS-01 … CS-24) · **Verified:** 17–18 Nov 2026 ·
+**Product:** SwarmAI Commercial Studio ("Spotlight") — CS-01 … CS-25 · **Verified:** 17–19 Nov 2026 ·
 **Live app:** <https://ca-studio-web.yellowgrass-9740f562.swedencentral.azurecontainerapps.io> · **Resource group:** `rg-swarmai-studio` (swedencentral)
 
 Raw evidence files are in [`app/evidence/`](app/evidence): `smoke-live.txt`, `load-live.txt`, `e2e-live.txt`, `quality-gates.txt`,
 `azure-rg-tags.json`, `azure-resource-tags.txt`, `azure-security-settings.txt`, `ai-spend.txt`. Screenshots (1600×900) are in
 [`deck/assets/screens/`](deck/assets/screens).
 
-> §1–§11 document the **English release as deployed** (97 tests, 30/30 live smoke …). The **Polish localization** was added afterwards, **deployed to Azure on 18 Nov 2026 and verified live (44/44 smoke)**; it is reported in **§12** (evidence in `app/evidence/pl-*`).
+> §1–§11 document the **English release as deployed** (97 tests, 30/30 live smoke …) — a dated snapshot. The **Polish localization** was added afterwards, **deployed to Azure on 18 Nov 2026 and verified live (44/44 smoke)**; it is reported in **§12** (evidence in `app/evidence/pl-*`). **Cinematic motion (CS-25)** — real AI-generated video clips on a serverless GPU instead of camera moves on stills — came last, **deployed and verified live on 18–19 Nov 2026**; it is reported in **§13** (evidence in `app/evidence/motion-*`). Where a statement in §1–§11 is superseded (generative video), it says so.
 
 ## 1. Definition-of-done checklist
 
@@ -26,7 +26,7 @@ Raw evidence files are in [`app/evidence/`](app/evidence): `smoke-live.txt`, `lo
 |---|---|---|
 | Resource group | `rg-swarmai-studio` | swedencentral; tags below |
 | Managed identity | `id-studio-app` | user-assigned; used for **every** data-plane call |
-| Container Registry | `acrstudiovh4ojwexsajyg` | Basic, admin user **off**, remote ACR build (no local Docker) |
+| Container Registry | `acrstudiovh4ojwexsajyg` | Basic at this release (**Standard since CS-25**, §13.2: the GPU worker image is 7.6 GB), admin user **off**, remote ACR build (no local Docker) |
 | Log Analytics | `log-studio-vh4ojwexsajyg` | 1 GB/day ingestion cap, 30 d retention |
 | Application Insights | `appi-studio-vh4ojwexsajyg` | workspace-based, **`DisableLocalAuth=true`** (Entra-only ingestion); OpenTelemetry from the app |
 | Container Apps environment + app | `cae-studio-vh4ojw` / `ca-studio-web` | 1 vCPU / 2 GiB, min 1 – max 2 replicas, external HTTPS only (`allowInsecure=false`), **0 secrets**, revision `ca-studio-web--azd-1794965663` |
@@ -176,11 +176,11 @@ After the review, three UI-only follow-ups (variants page layout, voice-over pla
 **AI spend incurred** (metered by the app at list-price estimates; every call to Azure OpenAI / Content Safety / Speech goes through the meter; `app/evidence/ai-spend.txt`): **$0.80 in total** for the verification
 campaign of the delivery (5 full 30-check smoke runs — 2 from a local server against the real Azure resources, 3 against the live app —, 3 E2E runs and all manual checks): Content Safety $0.33 (419 calls), images $0.26 (20 × `gpt-image-1.5` low quality), LLM $0.12 (64 calls), TTS $0.08 (102), render compute $0.014, embeddings $0.0002.
 Afterwards the reviewer's own live smoke run (US$0.157) and three follow-up E2E runs (US$0.028 together) raised the cumulative ledger to **$0.99** (`app/evidence/ai-spend.txt` lists both snapshots).
-A full end-to-end smoke run costs ≈ **US$0.16–0.17**. The daily guard is **$5** (per-campaign cap $2, hard maximum $50) and fails closed.
+A full end-to-end smoke run costs ≈ **US$0.16–0.17**. The daily guard is **$5** (per-campaign cap $2, hard maximum $50) and fails closed (*since CS-25: $15 and $5*, because one Cinematic spot meters ≈ $0.5 of GPU; §13.2).
 
 **Estimated idle monthly cost** (list prices, no discounts; validate in the Azure Pricing Calculator): Container Apps 1 vCPU/2 GiB always-on at idle rates ≈ **$22–24**, Container Registry Basic ≈ **$5**, Cosmos DB serverless
 (≈ 0.1 GB, no traffic) ≈ $0.1, Storage LRS ≈ $0.02, Log Analytics/App Insights within the free allowance ≈ $0–2, Azure OpenAI/Content Safety/Speech deployments have no standing charge → **≈ $30 / month idle**.
-Setting `appMinReplicas` to 0 (scale to zero, ≈ 15 s cold start) brings idle cost to ≈ **$5 / month** (ACR only).
+Setting `appMinReplicas` to 0 (scale to zero, ≈ 15 s cold start) brings idle cost to ≈ **$5 / month** (ACR only). *Update (CS-25, 19 Nov 2026):* the registry is now Standard (≈ $20 a month instead of ≈ $5), so the figures become ≈ **$45 / month** idle and ≈ **$20** with scale-to-zero; the GPU worker adds nothing while it sleeps (§13.3).
 
 ## 9. Security notes
 
@@ -188,7 +188,7 @@ Setting `appMinReplicas` to 0 (scale to zero, ≈ 15 s cold start) brings idle c
   The Application Insights *connection string* is an app setting by necessity (it identifies the resource; ingestion needs an Entra token), the provenance signing key (Ed25519) is generated on first use and stored in the **private** blob `keys/` — a software key, documented limitation (production: Key Vault/HSM + certificate chain).
 * **Network:** public ingress with HTTPS only, no public blobs (media is streamed through the API with range support, `nosniff`, CSP `frame-ancestors`, `X-Frame-Options`), request-size limit (12 MB), upload type allow-list (SVG rejected, images validated), per-IP and global rate limits that are tighter on spend routes. Private endpoints / WAF / Front Door are documented target-state options, not deployed.
 * **Prompt injection & data handling:** all uploaded text is wrapped as untrusted data and screened with Content Safety Prompt Shields (attacks are quarantined, not indexed); webhooks are SSRF-guarded (https + allow-list + public-IP-only resolution, unit-tested against metadata/loopback/credential/port/suffix tricks); logs are PII-redacted.
-* **Identity of users:** the demo role switcher (`X-Studio-Role`) is **self-declared** — anyone with the URL can act as any role, bounded by the $5/day fail-closed AI cap. For shared use enable the Bicep switch `enableEntraAuth` (+ `entraClientId`); app roles then arrive via `X-MS-CLIENT-PRINCIPAL`.
+* **Identity of users:** the demo role switcher (`X-Studio-Role`) is **self-declared** — anyone with the URL can act as any role, bounded by the $5/day fail-closed AI cap ($15 since CS-25). For shared use enable the Bicep switch `enableEntraAuth` (+ `entraClientId`); app roles then arrive via `X-MS-CLIENT-PRINCIPAL`.
 * **Supply chain:** `pip-audit` and `npm audit` clean; container runs as non-root (uid 10001) from `python:3.13-slim`; `npm ci --ignore-scripts`.
 * **Responsible AI:** burned-in AI-disclosure badge where required, signed provenance with tamper-evident verification, Guardian-gated approvals, Legal-only waivers with audit trail, predictive scorecards labelled *simulated*.
 
@@ -196,10 +196,10 @@ Setting `appMinReplicas` to 0 (scale to zero, ≈ 15 s cold start) brings idle c
 
 | Real | Simulated / illustrative |
 |---|---|
-| Azure OpenAI chat/structured output, `gpt-image-1.5`, `tts-hd`, embeddings; Content Safety; AI Speech; Cosmos DB; Blob; managed identity/RBAC; App Insights; ffmpeg rendering (H.264/AAC, −16 LUFS, captions, music, end card); hash-chained audit; Ed25519 provenance; approvals/roles | Brand, claims, rights, talent, campaigns (fictional Northwind Coffee Roasters); ad platforms and connectors; synthetic audience panel (scores labelled *predicted/simulated*); bandit "ground truth"; media-planner curves; performance history; ROI/ACR figures (illustrative business case from `business-case/`) |
+| Azure OpenAI chat/structured output, `gpt-image-1.5`, `tts-hd`, embeddings; Content Safety; AI Speech; Cosmos DB; Blob; managed identity/RBAC; App Insights; ffmpeg rendering (H.264/AAC, −16 LUFS, captions, music, end card); hash-chained audit; Ed25519 provenance; approvals/roles; **(CS-25) Wan 2.2 image-to-video on a serverless A100 behind a queue** | Brand, claims, rights, talent, campaigns (fictional Northwind Coffee Roasters); ad platforms and connectors; synthetic audience panel (scores labelled *predicted/simulated*); bandit "ground truth"; media-planner curves; performance history; ROI/ACR figures (illustrative business case from `business-case/`) |
 
-Not done / limits (honest list): generative video models are not used (**Sora-2 is deprecated** in swedencentral) — a `VideoProvider` interface is in place and the compositor animates keyframes; CJK/Arabic caption fonts are not shipped (Latin, Cyrillic, Greek are); rate limits are per replica; no CI pipeline, WAF or private networking;
-the provenance format is C2PA-*style*, not a certified Content Credential; the load check is light (single replica, 400 requests — autoscale beyond concurrency 40 not exercised); expansion levers E1–E4 are modelled in the calculator, not built.
+Not done / limits (honest list): at the time of this release generative video was not used (Sora 2 was deprecated in swedencentral and the compositor animated keyframes) — **superseded by CS-25 (§13)**, which generates real video clips with an open model on a serverless GPU; CJK/Arabic caption fonts are not shipped (Latin, Cyrillic, Greek are); rate limits are per replica; no CI pipeline, WAF or private networking;
+the provenance format is C2PA-*style*, not a certified Content Credential; the load check is light (single replica, 400 requests — autoscale beyond concurrency 40 not exercised); expansion levers E1–E4 are modelled in the calculator, not built (the hosted-model, Sora-priced E1 in particular; CS-25 is the self-hosted path, priced per GPU second).
 
 ### Issues found and fixed during verification
 First real-Azure smoke run: 25/30 → fixed a connection-reuse flake in the smoke client, a transient cold-start `readyz` degrade (retry + failing-dependency detail), and per-campaign cap attribution in async dependencies (then 30/30).
@@ -321,3 +321,97 @@ i.e. user / AI-authored content in its own language. The artifact title and the 
 The 29 Polish screenshots in `deck/assets/screens-pl/` (1600×900) were captured on the deployed app („AZURE · NA ŻYWO”); `deck/assets/screens/` (English) is untouched.
 
 What running against the real services showed that the offline stubs hide: identifiers that only azure mode sends (provider / model / voice ids, job kinds, price tiers) are covered by a unit test that parses the backend sources (`backend-enums.test.ts`); a produced campaign includes ≈ 90 s of keyframe generation (4 images), so the journeys take one timeout knob and assert model-written text by pattern.
+
+## 13. Cinematic motion (CS-25) — AI-generated video on a serverless GPU
+
+**Why.** Reviewers found that the rendered spots *looked like static pictures joined together*: the compositor only moved a virtual camera over one AI keyframe per shot (Ken-Burns), so the hand and the mug never changed. CS-25 makes the shots real video: the approved keyframe becomes the **opening frame of a generated clip** with subject and camera motion, and the same compositor then edits the clips (dissolves, supers, captions, logo, AI badge, voice-over, music, −16 LUFS, end card). Preview (camera moves on stills) stays as the free mode and as the per-shot fallback.
+
+**Status.** **Deployed to Azure and verified live (18–19 Nov 2026).** App: commit `da99d6bf`, image `swarmai-studio/web-studio:git-da99d6b`, revision `ca-studio-web--0000009`. The live smoke run and the English journeys below ran on the preceding revision `0000008` (commit `b6fb366c`); the only difference is the Polish strategy-prompt headings of §13.6, re-verified live. GPU worker: image `swarmai-studio/motion-worker:live1`, app `ca-studio-motion` (unchanged since its first live verification). Design: ARCHITECTURE §7.2, ADR-16/17; contract: `contracts/`; worker: `motion-worker/`.
+
+### 13.1 Why the model is self-hosted
+
+* **Sora 2 is retired.** Across 65 regions the only first-party video model in the catalogue was `sora-2` (swedencentral, eastus2), lifecycle *Deprecated*; creating a deployment is refused (`ServiceModelDeprecated`, "deprecated since 11/02/2026"; the retirement table lists 15 Oct 2026).
+* **Partner video models were not enabled.** The fal models in Foundry (Kling v3 Pro, LTX 2.5, MiniMax H3; US$0.08–0.22 per second) run **outside Microsoft's facilities** and Microsoft's DPA does not apply to them.
+* So the Studio runs the open **Wan 2.2 TI2V-5B** (Apache-2.0, no territory restrictions; revision pinned) on a **Container Apps serverless A100** in its own environment: data never leaves the tenant. The quota is exactly **one A100 per environment**, so shots render one after another.
+
+### 13.2 What is deployed (added to `rg-swarmai-studio`; every resource tagged)
+
+| Resource | Configuration (verified with `az`, `app/evidence/motion-azure-resources.txt`) |
+|---|---|
+| Workload profile `gpu-a100` | `Consumption-GPU-NC24-A100` in the existing environment `cae-studio-vh4ojw` |
+| `ca-studio-motion` (worker) | 8 vCPU / 64 GiB on `gpu-a100`, **min 0 / max 1, no ingress**, image 7.6 GB, termination grace 600 s; KEDA `azure-queue` scaler with **identity auth** (queue length 1, polling 15 s, cooldown 420 s) |
+| `id-studio-motion` | second user-assigned identity. Roles: AcrPull; **Storage Queue Data Contributor on the queue `motion-jobs` only; Storage Blob Data Contributor on the containers `motion-in`, `motion-out`, `motion-models` only** — no role covers `assets`, where the provenance signing key lives (an earlier account-wide scope was found in review and removed; the live smoke run and the role test of §13.6 ran on the narrowed roles) |
+| `id-studio-app` | gains Storage Queue Data Contributor **on the queue only** (its Blob role is unchanged) |
+| Storage `stvh4ojwexsajyg` | queue `motion-jobs`; containers `motion-in`, `motion-out`, `motion-models` (weights mirror); lifecycle rule `motion-transport-ttl` deletes transport blobs after 3 days; shared-key access still **off** |
+| Container Registry | **Standard** (the CUDA worker image is 7.6 GB; Basic is capped at 10 GiB); admin user off |
+| Studio app settings | `MOTION_*` (queue, containers, model, price per GPU second); **daily AI cap US$15, per-campaign cap US$5** (were 5 / 2: a cinematic spot meters ≈ US$0.5) |
+| Governance tags | RG and **16 of 16 resources** carry `SecurityControl=Ignore` and `SecurityExemption=StorageAccountKeyAccess`; 0 untagged; Bicep `what-if` shows no drift in storage, queue or role assignments |
+
+### 13.3 Measured on the deployed A100 (swedencentral, 18–19 Nov 2026)
+
+| Quantity | Result |
+|---|---|
+| GPU price | US$0.00108 per second (A100 0.000688 + 8 vCPU + 64 GiB; Azure Retail Prices API, 18 Nov 2026) |
+| Throughput | ≈ 0.75–0.82 s of GPU per frame at 1024×576, 20 steps (73 frames 55 s; 109 frames 88 s; 1280×704 92 s). Live spot: 93 frames 72.3 s, 117 frames 94.2 s and 94.8 s |
+| Unit cost | ≈ **US$0.02 per generated second**, **US$0.08–0.10 per shot**; the three-shot Dawn Roast spot = 261.3 GPU s = **US$0.28** |
+| Cold start | **≈ 3.7–4 min**: image pull (7.6 GB) and node ≈ 2 min, weights from the tenant's Blob mirror 59–64 s, model load 9–12 s; KEDA wakes the worker 16 s after the first message. Enqueue → job start in the role test: 231 s |
+| Cost of a wake-up | the app meters an **estimated cold start of US$0.26**; the worker then idles 7 min before it scales to zero (≈ **US$0.45**, *not* in the app's meter). A wake-up with nothing else queued therefore costs ≈ US$0.7 in total |
+| Re-render, localization, cut-down | **US$0**: finished clips are cached and reused (Polish localization of a cinematic master: 3 of 3 clips reused, 44 s, +US$0.001) |
+| Scale-to-zero | `ScaledToZero` between uses; idle cost of the GPU layer = 0 (ACR Standard +≈ US$15 a month over Basic) |
+| What did not help | ACR Premium with artifact streaming did not shorten the cold start (≈ 2 min to worker start either way); reverted to Standard |
+
+### 13.4 Verification
+
+| Gate | Result |
+|---|---|
+| Worker `motion-worker/tests` (CPU only: fake pipeline + local transport) | **356 passed**, 98 % line + branch coverage |
+| Backend `pytest` (offline stubs, real ffmpeg, real OpenCV) | **1,432 passed + 8 strict xfail**, 0 failed; **92 %** coverage (11,578 statements, 928 missed); `ruff check src tests ../scripts e2e` clean; `mypy` no issues in 56 files; `pip-audit` no known vulnerabilities (OpenCV included), `npm audit --omit=dev` 0 |
+| Web | `tsc -b` + `vite build` clean; vitest **224 passed** (1 skipped), including the Polish completeness tests |
+| Image build (`az acr build`) | `import cv2` runs at build time (`opencv 4.14.0`, manylinux wheel for Python 3.13): a broken wheel fails the build, not the first render |
+| Deployment | revision `0000008` Healthy; `/healthz` ok; `/readyz?deep=true` **ready** (repository, Blob, Azure OpenAI, Content Safety, Speech, ffmpeg), `mode=azure`; `/api/motion/status` shows the worker `cold` (scaled to zero) before the run |
+| **Live smoke** `SMOKE_CINEMATIC=1 scripts/smoke_test.py --expect-mode azure --lang both --langs de,fr,pl` | **45/45** on revision `0000008` (`app/evidence/motion-smoke-live.txt`); AI spend US$0.8467 for the whole run: motion 0.541, Content Safety 0.124, images 0.104, LLM 0.061, TTS 0.011, render 0.006. After the Polish strategy fix, the Polish narrative (`--lang pl`) ran again on the final revision `0000009`: **17/17**, US$0.13 (`motion-smoke-live-pl-final.txt`) |
+| CS-25 step of the smoke test | **3 of 3 shots AI motion, 0 cached, 0 fallback**, 261.3 GPU s = US$0.282 + US$0.259 estimated cold start; **14.9 s MP4, h264/aac 1280×720 @ 25 fps, −16.2 LUFS**, Guardian pass; the manifest names the model, revision, licence, and per shot the seed, prompt digest, GPU seconds and attempts; the step took 536 s including the cold start |
+| Playwright, English, on the live app | **18/18** journeys (`app/evidence/motion-e2e-live-en.txt`); the video tab shows *CINEMATIC · AI MOTION 3/3 SHOTS*, the model and licence line, GPU time and cost, and a motion badge per shot |
+| Playwright, Polish, on the live app | **35/36** on revision `0000008` (full run with the real pipeline, 34 page states, `motion-e2e-live-pl.txt`), including the Polish render journey that captures the Cinematic panel in Polish (*Tryb renderu · Podgląd / Filmowy*, per-shot estimate in USD). The one failure was not CS-25: the model copied an English prompt heading into a strategy source label (§13.6). Fixed in `da99d6bf`, deployed as revision `0000009`; the brief and strategy journeys then passed **2/2** and four further live strategy runs showed no English heading (`motion-pl-strategy-fix.txt`) |
+| Polish UI of the cinematic spot | *FILMOWY · RUCH AI: 3/3 UJĘĆ*, *Model ruchu … licencja Apache-2.0 … w Twoim środowisku Azure*, *DUŻO RUCHU / SUBTELNY RUCH*; no console errors, no English text left in the motion panel |
+
+### 13.5 Is it really film? The motion-quality gate
+
+The first check of the smoke test — frames 0.6 s apart differ — **cannot tell a film from a slideshow**: a Ken-Burns zoom changes every pixel too. So every generated clip is now **measured** (`app/src/spotlight/motion/quality.py`, `scripts/measure_motion.py`): dense optical flow between frames 0.42 s apart, minus the best global affine fit of the flow — what a camera move on a still cannot explain. Calibrated on raw clips (`app/evidence/motion-measurements.txt`): Ken-Burns control **0.10–0.31**, generated clips **0.42–4.9**. Levels: *low* < 0.32 ≤ *subtle* < 1.0 ≤ *rich*.
+
+* A *low* clip gets **one retry** (seed + 1, a prompt that insists on visible motion) when the budget allows; the better of the two is kept; the discarded attempt's GPU time is still metered. The score, level, attempts and retries are stored on the clip asset, in `render.motion`, in the signed manifest and in the UI.
+* Live result: the three clips score **1.78 (rich), 0.97 (subtle), 2.13 (rich)** — measured on the server and independently re-measured from the downloaded clips (same values) — against **0.24 / 0.15 / 0.21** for a camera move on the same first frames: **6.5–10×** the slideshow control. No retry was needed; the smoke test asserts a median ≥ 0.5.
+* The retry path was **not** triggered live (every clip cleared 0.32); it is covered by `test_motion_quality.py` and `test_motion_orchestrator.py` with a fake worker.
+
+### 13.6 Issues found and fixed during verification
+
+* **Only the real code path showed (the fake pipeline hides them):** the worker's entry point never called `main()`; a structured-log field called `name` collided with `logging`'s own parameter (now positional-only); the Azure SDK's error codes are `str`-mixin enums whose `str()` is not the wire value, so codes such as `PopReceiptMismatch` were not matched until they were compared on their wire value; diffusers 0.40 returns a float numpy array by default, so the worker passes `output_type` explicitly.
+* **Least privilege:** the worker first received Blob and Queue roles on the whole storage account, which would have let it read the provenance signing key; the roles were narrowed to the queue and three containers, the old assignments deleted, and a live job (queue receive, weights mirror read, blob write, KEDA wake-up from zero) succeeded on the narrowed roles.
+* **Tests:** two timing races in test code — the fake worker advertised `ready` and claimed a job from two different clock readings, and the weights-download test asserted the order in which threads *entered* the transport — were fixed deterministically (event-driven worker; first-wave rendezvous) and proven stable under CPU load (load average 28).
+* **UI:** job progress did not reconnect after a dropped SSE stream (now recovered); raw clips (library assets) were counted as unprovenanced deliverables in the provenance view and the pack export (excluded).
+* **Polish:** the full Polish journeys flagged *„[Learnings from past performance]”* in a Polish strategy: the prompt of a Polish campaign carried English section headings and the model copied one into the free-text `source` of an insight. The prompt now has Polish headings (English prompt byte-identical, unit-tested; `da99d6bf`); verified live on revision `0000009`. A model-written label can still echo an English label of the user message in rare cases (one *„Brief objective”* in a dozen labels).
+* **Deployment mechanics:** one A100 of quota means a new worker revision cannot get a GPU while the previous replica runs, so `scripts/deploy_motion.sh` waits for idle (and counts only replicas that still hold the GPU: scaled-down replicas stay listed as `NotRunning`). The latest revision must never be chosen by alphabetical sort.
+
+### 13.7 Known limits
+
+* **One A100 of quota per environment**: shots render in turn (a three-shot spot ≈ 4.5 min of GPU after a ≈ 4 min cold start); more concurrency needs a quota increase or a second environment.
+* **Clips are ≤ 5 s and silent** (the Studio mixes voice-over and music); a 5-billion-parameter open model can still draw an imperfect hand or object. The gate measures *movement*, not beauty: Content Safety checks first / middle / last frame, a shot can fall back to Preview, and a human still approves.
+* The silent warm-up after the keyframe step wakes the GPU even if the user never renders; the idle tail (≈ US$0.45 per wake-up) is not in the app's meter.
+* The daily cap is **US$15** and the campaign cap US$5 for this verification; restore with `PUT /api/budget/caps {"daily_cap_usd": 5}` and `CAMPAIGN_AI_BUDGET_USD=2`.
+* Business-case lever **E1** is still priced on hosted per-second (Sora) meters in `business-case/`; CS-25 is the self-hosted path at ≈ US$0.02 per second and the model was deliberately **not** re-based.
+* Partner models (fal: Kling, LTX, MiniMax) would give higher fidelity but are hosted outside Microsoft's facilities; they are not enabled.
+
+### 13.8 Evidence files (`app/evidence/`) and how to reproduce
+
+`motion-azure-resources.txt` (resources, roles, scale rule, tags; `scripts/capture_motion_evidence.sh`) · `motion-smoke-live.txt` (45/45) · `motion-smoke-live-pl-final.txt` (Polish narrative 17/17 on the final revision) · `motion-e2e-live-en.txt` (18/18) · `motion-e2e-live-pl.txt` (35/36) · `motion-pl-strategy-fix.txt` (the one failure, its fix and live re-check) · `motion-render-report-live.json` (`render.motion` of the live spot, per-shot scores) · `motion-measurements.txt` (calibration and live scores).
+
+```bash
+cd motion-worker && python -m pytest                                  # 356 passed · 98 %
+cd app && .venv/bin/pytest --cov && .venv/bin/ruff check src tests ../scripts e2e && .venv/bin/mypy       # 1,432 passed + 8 xfail · 92 %
+(cd web && npm run build && npx vitest run)                           # 224 passed
+az acr build --registry <acr> --image swarmai-studio/web-studio:git-<sha> --file Dockerfile app && az containerapp update -g rg-swarmai-studio -n ca-studio-web --image <acr>.azurecr.io/swarmai-studio/web-studio:git-<sha>
+AZURE_SUBSCRIPTION_ID=<id> scripts/deploy_motion.sh                   # GPU worker image; waits until the queue is idle
+SMOKE_CINEMATIC=1 python scripts/smoke_test.py --base-url <url> --expect-mode azure --lang both --langs de,fr,pl --timeout 900   # 45/45, ≈ US$0.85
+python scripts/measure_motion.py clip.mp4 [more.mp4 …]                # non-rigid motion vs. a Ken-Burns control
+AZURE_SUBSCRIPTION_ID=<id> scripts/capture_motion_evidence.sh         # read-only evidence of the Azure resources
+```

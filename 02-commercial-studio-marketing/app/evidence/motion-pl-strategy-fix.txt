@@ -1,0 +1,20 @@
+# Polish strategy: an English prompt heading leaked into an insight's source label (found by the live Polish journeys, fixed, re-verified live)
+
+## Finding (journeys_pl.py, full run on revision ca-studio-web--0000008, 19 Nov 2026; app/evidence/motion-e2e-live-pl.txt: 35/36)
+FAIL  strategy agent (Polish territories, SSE with ?lang=)   strategy: english: '[Learnings from past performance]' — word: from [SPAN text-[12px] text-espresso-400]
+Cause: the strategy prompt of a Polish campaign carried English section headings ("Citations from the Brand Brain:", "Learnings from past performance:"); the model copied one of them
+into the free-text `source` of an insight. Not related to CS-25; present since the Polish release, appears only when the model copies the heading (36/36 passed on the earlier run).
+
+## Fix (commit da99d6bf)
+cs05_strategy._summary_for_prompt(ctx, lang): Polish headings for a Polish campaign ("Cytaty z Brand Brain:", "Wnioski z dotychczasowych wyników:", "(pewność …)", "(brak)"); the English prompt is byte-identical.
+Test: tests/test_pl_pipeline.py::test_the_strategy_prompt_has_polish_section_headings_for_polish_and_unchanged_english_ones. Backend: 1,432 passed + 8 xfail.
+
+## Re-verification on the deployed fix (image git-da99d6b, revision ca-studio-web--0000009)
+journeys_pl.py --only "brief wizard,strategy agent":   2/2 journeys passed (brief wizard 18.6 s, strategy agent 18.0 s)
+4 live runs of the Polish strategy agent (POST /api/campaigns/{id}/strategy/generate, variation 1..4) — insight sources, first lines:
+  run 1: 'Zestaw marki · Głos i ton, Wnioski z dotychczasowych wyników, Brief objective' | 'Produkty, Zasady: co robimy, a czego nie' | …
+  run 2: 'Brand Brain — Głos i ton, …; Wnioski z dotychczasowych wyników: hook „Najpierw ludzka chwila” +34% CTR (pewność 0.99)' | …
+  run 3: 'Głos i ton, Zasady: co robimy, a czego nie, wnioski z dotychczasowych wyników' | 'Odbiorcy' | 'Produkty' | …
+  run 4: 'Zestaw marki · Głos i ton, …, wnioski: hook „Najpierw ludzka chwila” +34% CTR' | …
+No English heading in 4 of 4 runs (the headings the model copies are now Polish). Residual: a model-written label can still echo an English label of the user message
+(one 'Brief objective' in the 12+ labels above); the free-text `source` is model-authored content.

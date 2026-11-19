@@ -195,6 +195,20 @@ def test_strategy_territories_are_polish_and_pass_the_polish_guardian(run):
     assert st["guardian"]["verdict"] == "pass" and st["guardian"]["score"] == 100
 
 
+def test_the_strategy_prompt_has_polish_section_headings_for_polish_and_unchanged_english_ones():
+    # the model copies a heading into an insight's "source": live, an English "[Learnings from past performance]" showed up in a Polish strategy
+    from spotlight.features.cs05_strategy import _summary_for_prompt
+
+    ctx = {"citations": [{"title": "Głos i ton", "text": "Spokojnie."}], "learnings": [{"statement": "Hooks about slowness win.", "confidence": 0.8}]}
+    pl = _summary_for_prompt(ctx, "pl")
+    assert pl.startswith("Cytaty z Brand Brain:\n- [Głos i ton] Spokojnie.") and "Wnioski z dotychczasowych wyników:\n- Hooks about slowness win. (pewność 0.8)" in pl
+    assert "Learnings" not in pl and "Citations" not in pl and "confidence" not in pl
+    assert _summary_for_prompt({**ctx, "learnings": []}, "pl").endswith("- (brak)")
+    en = _summary_for_prompt(ctx)
+    assert en == "Citations from the Brand Brain:\n- [Głos i ton] Spokojnie.\n\nLearnings from past performance:\n- Hooks about slowness win. (confidence 0.8)"
+    assert _summary_for_prompt({**ctx, "learnings": []}, "en").endswith("- (none yet)")
+
+
 def test_scripts_6_15_30_are_written_in_polish_with_polish_timing(run):
     assert set(run["scripts"]) == {6, 15, 30}
     for d, s in run["scripts"].items():
